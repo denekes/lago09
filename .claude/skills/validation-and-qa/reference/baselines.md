@@ -24,6 +24,7 @@ grep -cE -- '^\s+--- PASS' "${TMPDIR:-/tmp}/v.txt"  # 122 subtests (any depth)
 grep -c -- '--- FAIL\|--- SKIP' "${TMPDIR:-/tmp}/v.txt"   # 0
 ```
 
+<!-- evidence-check: off measurements produced by the commands in the block above and by scripts/baseline.sh -->
 | package | top-level | subtests | PASS | own coverage | coverage with `-coverpkg=./...` |
 |---|---|---|---|---|---|
 | cache | 61 | 6 | 67 | 40.1% | 45.8% (168/367) |
@@ -41,6 +42,7 @@ grep -c -- '--- FAIL\|--- SKIP' "${TMPDIR:-/tmp}/v.txt"   # 0
 - 24 `*_test.go` files, 4,018 lines (`find events-processor -name '*_test.go' | xargs wc -l | tail -1`).
 - 0 FAIL, 0 SKIP. 202 leaf tests (tests with no subtests of their own).
 - Packages without test files: `.` (main), `config/redis`, `config/tracing`, `processors`, `tests`.
+<!-- evidence-check: on -->
 
 ## 2. Coverage: three numbers, three meanings
 
@@ -110,6 +112,7 @@ it cannot find the `TestEvaluateExpression` dependency. Only isolation does.
 
 ## 5. Timings
 
+<!-- evidence-check: off timings; the "How measured" column is the command, run under time -->
 | What | Time | How measured |
 |---|---|---|
 | full suite, warm build cache | 4-5 s | `time ep-test.sh` |
@@ -118,6 +121,7 @@ it cannot find the `TestEvaluateExpression` dependency. Only isolation does.
 | `baseline.sh` | ~12 s with a warm lint cache, ~29 s cold | `time scripts/baseline.sh` |
 | `race-shuffle.sh` (default x10) | ~40 s; `--isolation` ~60-75 s; `--isolation --count 3` ~43 s | `time` |
 | slowest tests | `TestDeleteWithTTL_Success` 1.52 s (`cache/cache_test.go:362` sleep), `TestProcessEvent` 0.50 s, `TestEnrichEvent` 0.15 s | `-v` output |
+<!-- evidence-check: on -->
 
 ## 6. Zero-coverage hot paths (merged whole-module profile, 2026-10-01)
 
