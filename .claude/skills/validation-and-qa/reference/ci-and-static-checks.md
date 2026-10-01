@@ -33,7 +33,7 @@ Of the 10 workflows, this is the only one with a `pull_request` trigger
 | required status checks / branch protection | not visible from git: UNVERIFIED | ask the owner (`change-control` §Review routing) |
 | Postgres 14 in CI vs 15 (dev compose, lago-api CI) vs 16 (this sandbox) | today only `TestNewConnection` touches Postgres and needs no version-specific feature; matters once DB-backed tests exist | target the oldest (14) when you add one |
 | exact `1.25.0` | no 1.25.x patches in CI; adding `-coverprofile ./...` would hit the `covdata` trap if that toolchain lacks the tool (UNVERIFIED for setup-go's tarball) | list tested packages (see `baselines.md` §2) |
-| action majors `checkout@v3`, `setup-go@v4`; `mkdir -p /tmp/libs` unused (`:54`) | possible runtime deprecation (UNVERIFIED here: actionlint is not installed in this sandbox) | actionlint via `release-and-images` |
+| action majors `checkout@v3`, `setup-go@v4`; `mkdir -p /tmp/libs` unused (`:54`) | actionlint 1.7.7 (fetched by the `release-and-images` actionlint script, not on PATH) reports 3 findings on this file, 2026-10-01: "the runner of `actions/checkout@v3` action is too old to run on GitHub Actions" at `:38` and `:41`, same for `actions/setup-go@v4` at `:59`. Whether GitHub still runs them today is UNVERIFIED from here | actionlint via `release-and-images` |
 
 Raising CI to lint + race + coverage + actionlint is a "beyond current best" TARGET, not the
 current state. A workflow change is class C5 (and a lint config needs owner sign-off: OPEN DECISION OD-6 (owner)).
