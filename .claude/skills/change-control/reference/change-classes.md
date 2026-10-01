@@ -1,0 +1,260 @@
+# Change classes C0–C7: how to classify, and the gates for each
+
+Read this when you are about to open a PR. It covers the full per-class gate list, the exact
+commands, the evidence to paste, the sign-off, the sibling skills and the cross-repo steps.
+SKILL.md has the one-screen summary.
+
+All commands run from the repo root. Set these first:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+BASE=$(git merge-base origin/main HEAD)   # if this fails in a shallow clone: git fetch --deepen=100 origin main
+CC=.claude/skills/change-control/scripts
+EPENV=.claude/skills/build-and-env/scripts/ep-env.sh
+EPTEST=.claude/skills/build-and-env/scripts/ep-test.sh
+API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)       # pinned lago-api (network on first use)
+FRONT=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh front)   # pinned lago-front
+```
+
+## 1. How to classify
+
+1. List the paths: `git diff --name-only "$BASE"` (or `git diff --cached --name-only` before
+   a commit).
+2. Match every path against the table below.
+3. Then apply the behaviour test for each events-processor row. The path alone does not decide
+   between C2, C3 and C4.
+4. **Several rows can match. Apply the union of their gates.** C7 is an overlay: it adds to
+   whatever else matches.
+5. A path that matches no row: treat it as the strictest plausible class and say so in the PR.
+
+| Class | Paths (any of) | Behaviour test: it is this class if… |
+|---|---|---|
+| **C0** docs/skills | `*.md` anywhere, `docs/*.png`, `.github/ISSUE_TEMPLATE/**`, `PULL_REQUEST_TEMPLATE.md`, `.claude/skills/**/*.md` | nothing executable changes |
+| **C1** tests/tooling | `events-processor/**/*_test.go`, `events-processor/tests/**`, `**/testdata/**`, `.claude/skills/**/scripts/**` | no production `.go` file changes (check below prints nothing) and no existing expectation string (sqlmock SQL, expected values) changes |
+| **C2** EP refactor | `events-processor/**/*.go` (non-test) | every C2 condition in §4 holds: no expectation changes, no SQL text change, no contract file touched |
+| **C3** EP behaviour | same paths as C2, typically `processors/events_processor/enrichment_service.go`, `utils/time.go`, `models/*.go` queries, `cache/*.go` | an expected value, SQL string, timestamp, DLQ code or matching rule changes, or a new test pins new behaviour |
+| **C4** delivery / contract | `config/kafka/consumer.go`, `config/kafka/producer.go`, the disposition branches in `processors/events_processor/processor.go:50-88`, `event_producer_service.go` (topics, keys), JSON tags in `models/event.go`, `models/stores.go` (ZSET), topic, group or flag-store names in `processors/main_processor.go`, `LAGO_KAFKA_*` in `.env.development.default`, the topic list in `docker-compose.dev.yml`, field mappings in `connectors/*.yml`, `extra/debezium_config.json`, `.github/workflows/docker-build-multi-arch.yaml` | commit, retry, DLQ or skip behaviour changes, or anything another repo reads or writes changes (see `cross-repo-protocol.md`) |
+| **C5** release / pins / CI | `api`, `front` (gitlinks), `.gitmodules`, image tags in `docker-compose.yml:11,13`, `.github/workflows/**`, `events-processor/Dockerfile*`, `docker/Dockerfile`, `docker/Procfile`, `connectors/Dockerfile`, `events-processor/go.mod`, `go.sum`, `mise.toml` | a version, pin, image, workflow or dependency changes |
+| **C6** dev env / compose / deploy | `docker-compose.dev.yml`, `docker-compose.yml` (non-image parts), `.env.development.default`, `deploy/**`, `docker/runner.sh`, `traefik/**`, `scripts/**`, `extra/**` (except the Debezium config), `examples/**`, `events-processor/.air.toml` | how a stack is configured or started changes |
+| **C7** security overlay | any path, when the diff touches: a secret, key, licence or token; TLS or auth settings (`InsecureSkipVerify`, SASL, `LAGO_SIDEKIQ_WEB`); published ports; docker.sock mounts; `.gitignore` or `.dockerignore`; new third-party actions, images, `curl \| sh` or vendored binaries; workflow `permissions:`, `secrets.*` or OIDC; PII in logs, Sentry or DLQ payloads | exposure, trust or supply chain changes |
+
+Quick checks that feed the behaviour test:
+
+```bash
+# Production Go files touched (empty => not C2/C3/C4 by path)
+git diff --name-only "$BASE" -- events-processor | grep '\.go$' | grep -v '_test\.go$' | grep -v '^events-processor/tests/'
+# Existing test expectations changed (any '-' line in a _test.go => at least C3, unless a pure rename)
+git diff "$BASE" -- 'events-processor/*_test.go' | grep -E '^-[^-]' | head
+# Contract files touched (non-empty => C4)
+git diff --name-only "$BASE" -- events-processor/config/kafka events-processor/models/event.go events-processor/models/stores.go \
+  events-processor/processors/events_processor/event_producer_service.go events-processor/processors/main_processor.go \
+  connectors extra/debezium_config.json .github/workflows/docker-build-multi-arch.yaml
+```
+
+## 2. Gate G0: every class, every PR
+
+| Step | Command | Pass condition |
+|---|---|---|
+| Before each commit | `$CC/precommit-guard.sh` | `SUMMARY precommit-guard: 0 FAIL` |
+| Before opening the PR | `$CC/precommit-guard.sh --range "$BASE..HEAD"` | 0 FAIL; every WARN explained in the PR |
+| Commit subjects | `$CC/commit-msg-check.sh --range "$BASE..HEAD"` | 0 FAIL (see `commit-pr-conventions.md`) |
+| Scope | `git diff --stat "$BASE"..HEAD` | only the paths you meant; paste it |
+| Clean tree | `git status --porcelain` | nothing unintended (change-control N10) |
+
+## 3. C0: docs and skills only
+
+- **Local checks.**
+  - G0.
+  - Every new or changed claim carries `path:line`, a sha, or a command and its output (N13).
+  - Every command you document was run. Otherwise mark it "not runnable in a daemon-less
+    sandbox; verified by reading `<file:line>`".
+  - Run the doc-drift check from `docs-and-writing` and the citation lint from
+    `research-methodology`.
+- **CI reality.**
+  - No PR check runs on a docs-only PR. The only PR workflow is path-filtered to
+    `events-processor/**` (`.github/workflows/events-processor-tests.yml:7-13`).
+  - After merge, that workflow runs on the push to `main` regardless of paths (`:3-6`).
+  - `[ci skip]` (`CONTRIBUTING.md:172`) is therefore pointless in PRs. It appears once in all
+    history.
+- **Evidence in the PR.** The claims you verified and the commands you used.
+- **Sign-off.** Any maintainer. Changes to doctrine (N#, C#, OD-#) in this skill need the owner.
+- **Siblings.** `docs-and-writing` (templates, stale-claim register), `research-methodology`
+  (evidence bar).
+
+## 4. C1 and C2: tests and tooling; events-processor refactor
+
+C1 local checks:
+
+```bash
+$EPTEST                                   # expect: ok for cache, config/database, config/kafka, models,
+                                          #         processors/events_processor, utils; no FAIL
+$EPTEST -race -count=1 ./...              # expect: same 6 ok lines (~8 s warm here, 2026-10-01)
+$EPTEST -v -count=1 ./... 2>&1 | grep -c -- '--- PASS'   # 235 as of 2026-10-01; must not go DOWN
+```
+
+- A regression test must FAIL on the code before the fix. Paste that failing run too.
+- Skill scripts: `bash -n <script>`, run on the real repo and on a scratch clone
+  (`git clone -q . "$(mktemp -d)/c"`), and check `git status --porcelain` is unchanged.
+- Adding a golangci-lint config: OPEN DECISION OD-6 (owner). Not C1-by-default.
+
+C2 behaviour test. **All** of these must hold, otherwise the change is C3 or C4:
+
+1. No existing test expectation changes (second quick check in §1 is empty, or only renames).
+2. No SQL string in a sqlmock expectation changes.
+3. No contract file is touched (third quick check in §1 is empty).
+4. Observable outputs are unchanged: enriched, in-advance and DLQ payloads; DLQ `error_code`s;
+   Redis members; commit behaviour.
+
+C2 local checks (change-control N9, the events-processor pre-PR gate):
+
+```bash
+$EPTEST                                                                   # ok x6, no FAIL
+( source "$EPENV" && cd events-processor && go vet ./... )                # no output, exit 0
+git diff --name-only --diff-filter=AM "$BASE" -- events-processor | grep '\.go$' | xargs -r gofmt -l   # no output
+( source "$EPENV" && cd events-processor && \
+  GOLANGCI_LINT_CACHE="${TMPDIR:-/tmp}/golangci-cache" golangci-lint run --new-from-rev="$BASE" ./... )  # "0 issues."
+$EPTEST -race -count=1 ./...                                              # ok x6
+```
+
+- Full-repo lint today: `golangci-lint run ./...` prints "21 issues: errcheck 16, staticcheck 5"
+  (v2.5.0, no config, as of 2026-10-01). The gate is "no NEW issues" (`--new-from-rev`), not
+  zero. OPEN DECISION OD-6 (owner).
+- `--new-from-rev` was verified in a scratch clone (2026-10-01): one added unchecked
+  `os.Remove(...)` call in `utils/time.go` produced "1 issues: * errcheck: 1", exit 1; the
+  21 baseline issues were not reported. On the unchanged tree it prints "0 issues.", exit 0.
+- The Docker-free recipe is the accepted local gate: OPEN DECISION OD-5 (owner), default
+  accepted. `lago exec events-processor go test ./...` is still valid for people running the
+  dev stack.
+
+Evidence block (paste into the PR body; template in `docs-and-writing`):
+
+```
+Class: C2   Base: <sha>
+ep-test.sh: ok cache | config/database | config/kafka | models | processors/events_processor | utils
+-race: ok x6     go vet: clean     gofmt -l (changed files): empty
+golangci-lint --new-from-rev=<base>: 0 issues (repo baseline 21)
+precommit-guard --range: 0 FAIL, <n> WARN (explained below)
+```
+
+- **Sign-off.** The events-processor maintainer. See SKILL.md "Review routing".
+- **Siblings.**
+  - `validation-and-qa`: test conventions, baselines, sqlmock pinning.
+  - `build-and-env`: when the recipe fails (`cannot find -lexpression_go`, loader errors).
+
+## 5. C3: events-processor behaviour change
+
+C2 gates, plus all of:
+
+1. A table-driven test that pins the new behaviour and fails on `$BASE`.
+2. **Queries (N4).** Explicit column list, `deleted_at IS NULL` on soft-deletable tables,
+   `organization_id`, and the exact SQL pinned in the sqlmock test.
+3. **Both data modes.**
+   - If the logic exists in DB mode and memory-cache mode, test both: the dual-mode DataStore
+     pattern in `validation-and-qa`.
+   - Label any memory-cache production impact "depends on OPEN DECISION OD-1 (owner)".
+4. **Parity.** If the behaviour mirrors Rails or ClickHouse:
+   - cite both sides as `$API/<path>:line` at the pinned SHA
+     (`API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)`);
+   - run the matching probe from `rails-go-parity`;
+   - state the pin lag: events-processor HEAD (2026-09-18) is newer than `api@591ae90`
+     (2026-09-08).
+5. **Value or time changes.** Paste a before/after table over the golden corpus
+   (`event-accounting-campaign` W2/W3).
+   - A ClickHouse schema change is OPEN DECISION OD-3 (owner) and lago-api work.
+6. **Per-event Rails resolution** (charge or filter matching, Rails cache keys) is forbidden
+   (N8). Reintroducing it needs a parity spec, a parity test and owner sign-off.
+
+- **Sign-off.** The events-processor maintainer. The owner too when N8 or OD-3 applies.
+- **Cross-repo.** If Rails must change too, it is C4: follow `cross-repo-protocol.md`.
+
+## 6. C4: delivery semantics or cross-repo contract
+
+C3 gates, plus all of:
+
+1. **Delivery changes (N7).**
+   - A test drives `processRecordsAndCommit` through in-process Kafka (the kfake harness from
+     `diagnostics-and-tooling`).
+   - Paste the per-offset outcome: enriched, DLQ, redelivered or LOST.
+   - No such test exists in the repo today:
+     `grep -rn "processRecordsAndCommit\|ProcessEvents(" --include=*_test.go events-processor`
+     prints nothing.
+2. **Design note.** An ADR or design note in the PR body (template in `docs-and-writing`):
+   options, chosen contract, failure matrix, throughput impact, rollback.
+3. **Owner sign-off.**
+   - Delivery contract: OPEN DECISION OD-2 (owner).
+   - Paired lago-api PR required: OPEN DECISION OD-4 (owner), default YES.
+4. **Contract protocol (N6).**
+   - Versioned key or topic for any format change.
+   - Deploy order and rollback written down.
+   - Both PRs link each other.
+   - Steps: `cross-repo-protocol.md`.
+5. **Docs.** Update the contract table in `rails-go-parity` and the topology in
+   `architecture-contract` in the same PR, or in a linked docs PR.
+
+- **Campaign.** Delivery work for the hardest live problem runs through
+  `event-accounting-campaign`. It has numbered phases and expected numbers at each gate.
+
+## 7. C5: release, pins, images, CI workflows
+
+| Change | Extra local checks | Notes |
+|---|---|---|
+| Release bump (gitlinks + compose tags) | `$CC/precommit-guard.sh --release` (warns if files outside `api`, `front`, `docker-compose.yml` change, if tags differ, or if no gitlink moved) | Mechanics, ordering and artifact checks: `release-and-images`. `01cfbc6` (v1.52.1) changed compose only, so the gitlinks stayed at v1.52.0 |
+| lago-expression / Rust / Go pin | `$CC/pin-sync-check.sh` -> `0 FAIL`; then the full C2 gate | 4 + 2 + 5 locations (N3). Never edit `go.mod:10` expression-go |
+| Dependency bump (`go.mod`, `go.sum`; dependabot) | full C2 gate + `$CC/pin-sync-check.sh` | a dependency can raise the `go` directive (`932c06c` -> `50015b0`) |
+| Workflow YAML | `python3 -c 'import yaml,sys;[yaml.safe_load(open(f)) for f in sys.argv[1:]]' .github/workflows/*` (prints nothing); actionlint via `release-and-images` | see the CI-blind-spot bullets below |
+| Dockerfiles / images | none possible without a daemon: say "not built locally; verified by reading `<file:line>`" | No PR-time image build exists (a target, not current state). The single image breaks at release time (`release-and-images`) |
+
+CI blind spots for C5:
+
+- A PR that changes only `.github/workflows/events-processor-tests.yml` is not exercised before
+  merge, because the PR trigger is path-filtered to `events-processor/**` (`:12-13`). Watch
+  the first push-to-main run.
+- Release workflows run only on a release. Test them with `workflow_dispatch` first. The
+  first single-image workflow needed two fixes within 20 minutes: `52ab3b3 -> 023bfe1 -> c91af2b`
+  (2025-02-12).
+- `.github/workflows/docker-build-multi-arch.yaml` is called by lago-front at `@main`
+  (`$FRONT/.github/workflows/release.yml:13`). Any merge changes lago-front's release
+  immediately. Treat it as C4 as well: tell the lago-front owners.
+
+- **Sign-off.** The CI/release owner for workflows and images. A release bump follows
+  `release-and-images`.
+
+## 8. C6: dev env, compose, deploy
+
+```bash
+for f in $(git diff --name-only "$BASE" -- 'docker-compose*.yml' 'deploy/*.yml' 'examples/*/compose.yml'); do
+  docker compose -f "$f" config --quiet && echo "OK $f"; done          # no daemon needed; unset-var warnings are normal
+docker compose -f docker-compose.dev.yml --profile '*' config --services | sort   # diff vs base: 30 services as of 2026-10-01
+git diff --name-only "$BASE" | grep '\.sh$' | xargs -r -n1 bash -n                 # no output
+```
+
+- **Rules (N12).** One env source, idempotent topic creation, `service_healthy` on infra edges.
+  `precommit-guard.sh` G5 warns on new violations.
+- **Topic renames are C4.** ClickHouse queue tables bake topic names at migrate time
+  (`$API/db/clickhouse_migrate/20231026124912_create_events_raw_queue.rb:9`). The
+  events-processor group id embeds the topic (`events-processor/config/kafka/consumer.go:237`).
+  A new group starts at the earliest offset (franz-go default), so it replays the whole
+  retained topic.
+- **New variables.** Use the add-a-variable checklist in `config-and-flags`.
+- **Bring-up.** `docker compose up` is not runnable in a daemon-less sandbox. Bring-up and
+  runtime checks: `run-and-operate`.
+- **Sign-off.** Dev-env and infra maintainers. Add the C7 overlay when ports, secrets or
+  exposure change.
+
+## 9. C7: security-sensitive overlay
+
+- **Local checks.**
+  - `$CC/precommit-guard.sh` (G2 rules print file:line only, never values).
+  - The scans in `security-and-supply-chain` (counts only).
+- **If a secret reached any pushed commit.**
+  - Treat it as leaked. History is permanent; removal does not un-publish it (N11, `6dd7e56`).
+  - Rotate it and tell the owner.
+  - Never print the value, not even in a PR comment.
+- **Workflows.**
+  - Least-privilege `permissions:`.
+  - No new long-lived cloud keys. OIDC `role-to-assume` exists in
+    `.github/workflows/docker-build-multi-arch.yaml:90`, but no caller in this repo or in
+    lago-front at its pin passes it (`grep -rn role-to-assume .github/workflows
+    "$FRONT/.github/workflows"`). Callers in the private lago-deploy: UNVERIFIED.
+  - Prefer pinned action versions.
+- **Sign-off.** The owner (security). Record the decision in the PR.

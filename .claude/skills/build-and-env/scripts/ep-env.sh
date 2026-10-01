@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+# (sourced file: deliberately no `set -euo pipefail`, it would leak into the caller's shell)
 # shellcheck shell=bash
 # ep-env.sh — make `go build` / `go test` work in events-processor WITHOUT Docker.
 #
@@ -16,6 +18,11 @@
 # It never writes inside the repository. Cache dir: ${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}
 # Exported: LAGO_REPO LAGO_SKILLS_CACHE LAGO_EXPRESSION_REF LAGO_EXPRESSION_LIB
 #           CGO_LDFLAGS LD_LIBRARY_PATH DATABASE_URL
+# Status: 0 = exported; 1 = not in the lago repo / ref unreadable / cargo missing /
+#         clone or cargo build failed (nothing exported). Executed instead of sourced: exit 2.
+# Needed by `go build` and `go test` of packages that link libexpression_go
+# (only processors/events_processor has tests). `go vet` and golangci-lint do NOT need it.
+# Override the ref to test a bump: LAGO_EXPRESSION_REF=vX.Y.Z source .../ep-env.sh
 
 _lago_ep_env() {
   local repo ref cache src lib
@@ -51,7 +58,8 @@ _lago_ep_env() {
     *) export LD_LIBRARY_PATH="$lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
   esac
   export DATABASE_URL="${DATABASE_URL:-postgres://lago:lago@localhost:5432/lago}"
-  echo "ep-env: lago-expression $ref -> $lib ; DATABASE_URL=$DATABASE_URL" >&2
+  # Never echo a password (change-control N11): mask user:PASS@ in the URL.
+  echo "ep-env: lago-expression $ref -> $lib ; DATABASE_URL=$(printf '%s' "$DATABASE_URL" | sed -E 's#(://[^:/@]+:)[^@]*@#\1***@#')" >&2
 }
 
 if [ -n "${BASH_SOURCE[0]:-}" ] && [ "${BASH_SOURCE[0]}" = "$0" ]; then

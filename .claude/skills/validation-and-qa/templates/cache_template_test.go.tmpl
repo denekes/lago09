@@ -1,0 +1,114 @@
+package cache
+
+// TEMPLATE from .claude/skills/validation-and-qa (checked by scripts/templates-check.sh).
+// Copy to events-processor/cache/<model>_test.go, rename, keep the shape:
+//   - a REAL in-memory badger per case via setupTestCache(t) (t.Cleanup closes it);
+//   - require for preconditions (setup writes), assert for outcomes;
+//   - never assert on the order of a search result: badger returns key order, not insertion
+//     order. Use assert.ElementsMatch, a set, or sort first (45b216d (#603) fixed a flaky
+//     charge-order assertion, in a DB-mode test from before the cache existed, with sort.Slice);
+//   - avoid ties in tie-break cases: equal timestamps make the winner depend on key order;
+//   - not-found must stay NonRetryable + NonCapturable (the event is then enriched without
+//     a subscription instead of being retried).
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/getlago/lago/events-processor/models"
+	"github.com/getlago/lago/events-processor/utils"
+)
+
+func TestTemplateSearchSubscriptions_TieBreak(t *testing.T) {
+	orgID := "org-123"
+	ts := time.Date(2025, 3, 3, 12, 0, 0, 0, time.UTC)
+	newSub := func(id string, startedAt time.Time, terminatedAt *time.Time) *models.Subscription {
+		sub := &models.Subscription{
+			ID:             id,
+			OrganizationID: &orgID,
+			ExternalID:     "ext-1",
+			PlanID:         "plan-" + id,
+			StartedAt:      utils.NewNullTime(startedAt),
+			CreatedAt:      utils.NowNullTime(),
+			UpdatedAt:      utils.NowNullTime(),
+		}
+		if terminatedAt != nil {
+			sub.TerminatedAt = utils.NewNullTime(*terminatedAt)
+		}
+		return sub
+	}
+	at := func(d time.Duration) *time.Time { v := ts.Add(d); return &v }
+
+	cases := []struct {
+		name      string
+		subs      []*models.Subscription
+		wantFound bool
+		wantID    string
+	}{
+		{
+			name:      "active subscription wins over a terminated one (terminated_at NULLS FIRST)",
+			subs:      []*models.Subscription{newSub("terminated", ts.Add(-48*time.Hour), at(time.Hour)), newSub("active", ts.Add(-24*time.Hour), nil)},
+			wantFound: true, wantID: "active",
+		},
+		{
+			name:      "latest terminated_at wins when all are terminated",
+			subs:      []*models.Subscription{newSub("early", ts.Add(-48*time.Hour), at(time.Hour)), newSub("late", ts.Add(-24*time.Hour), at(2*time.Hour))},
+			wantFound: true, wantID: "late",
+		},
+		{
+			name:      "latest started_at wins when none is terminated",
+			subs:      []*models.Subscription{newSub("older", ts.Add(-48*time.Hour), nil), newSub("newer", ts.Add(-24*time.Hour), nil)},
+			wantFound: true, wantID: "newer",
+		},
+		{
+			name:      "nothing started before the timestamp is not found",
+			subs:      []*models.Subscription{newSub("future", ts.Add(time.Hour), nil)},
+			wantFound: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := setupTestCache(t)
+			for _, sub := range tc.subs {
+				require.True(t, c.SetSubscription(sub).Success())
+			}
+
+			result := c.SearchSubscriptions(orgID, "ext-1", ts)
+
+			if !tc.wantFound {
+				require.True(t, result.Failure())
+				assert.False(t, result.IsRetryable())
+				assert.False(t, result.IsCapturable())
+				return
+			}
+			require.Truef(t, result.Success(), "search failed: %s", result.ErrorMsg())
+			assert.Equal(t, tc.wantID, result.Value().ID)
+		})
+	}
+}
+
+func TestTemplateSearchCharge_OrderInsensitive(t *testing.T) {
+	c := setupTestCache(t)
+	for _, id := range []string{"ch-b", "ch-a", "ch-c"} {
+		require.True(t, c.SetCharge(&models.Charge{
+			ID:               id,
+			OrganizationID:   "org-123",
+			PlanID:           "plan-1",
+			BillableMetricID: "bm-1",
+			UpdatedAt:        utils.NowNullTime(),
+		}).Success())
+	}
+
+	result := c.SearchCharge("org-123", "plan-1", "bm-1")
+
+	require.True(t, result.Success())
+	ids := make([]string, 0, len(result.Value()))
+	for _, ch := range result.Value() {
+		ids = append(ids, ch.ID)
+	}
+	assert.ElementsMatch(t, []string{"ch-a", "ch-b", "ch-c"}, ids)
+}

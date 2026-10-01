@@ -1,0 +1,56 @@
+== events-processor log triage: db-mode-runtime.log
+lines: 86 (json 82, of which service=post_process 82; plain 4; unrecognised 0; # comments skipped 7)
+levels: ERROR=27 WARN=5 INFO=50 DEBUG=0
+time: 2026-10-01T21:19:06.342656606Z .. 2026-10-01T21:28:48.126131187Z
+lifecycle: starts=5 shutdown_signals=5 stopped=5
+== startup / crash
+  go-redis pool (plain text) lines: 4
+      4  redis: connection pool: failed to dial after 5 attempts: dial tcp 127.0.0.1:16380: connect: connection refused
+== per-event failures by error_code
+  error_code                      lines   to-DLQ  retryable
+  fetch_billable_metric              14       10          4
+      e.g.   10  record not found
+      e.g.    3  ERROR: relation "billable_metrics" does not exist (SQLSTATE 42P01)
+      e.g.    1  ERROR: cached plan must not change result type (SQLSTATE 0A000)
+  build_enriched_event                1        1          0
+      e.g.    1  strconv.ParseFloat: parsing "2025-03-06 12:00:00": invalid syntax
+  evaluate_expression                 1        1          0
+      e.g.    1  failed to evaluate expr: event.properties.a * 2 with json: {...}
+  fetch_pay_in_advance_charge         1        0          1
+      e.g.    1  ERROR: relation "charges" does not exist (SQLSTATE 42P01)
+  fetch_subscription                  1        0          1
+      e.g.    1  ERROR: relation "subscriptions" does not exist (SQLSTATE 42P01)
+  flag_subscription_refresh           1        0          1
+      e.g.    1  dial tcp 127.0.0.1:16380: connect: connection refused
+  NOTE: 7 retryable line(s): not committed and not on the DLQ while ingested_at < 12 h; skipped forever if a later batch on the partition commits (loss-retryable-skip)
+== silent-loss signals
+  dropped, committed, NO DLQ (Error unmarshalling message)           1
+      e.g.    1  invalid character 'n' looking for beginning of object key string
+  head-of-batch retryable, commit skipped (No commitable record)     5
+  produce failed -> DLQ row with empty error_code                    1
+      e.g.    1  UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.
+  DLQ produce failed too -> Sentry only, LOST                        0
+  main consumer fetch error -> process panic                         0
+  offset commit errors (redelivery = duplicates)                     0
+== memory-cache mode
+  not active in this log (no snapshot / CDC lines)
+== other ERROR/WARN messages
+      3  [db] ERROR ERROR: relation "billable_metrics" does not exist (SQLSTATE 42P01)
+      1  [db] ERROR ERROR: cached plan must not change result type (SQLSTATE 0A000)
+      1  [db] ERROR ERROR: relation "charges" does not exist (SQLSTATE 42P01)
+      1  [db] ERROR ERROR: relation "subscriptions" does not exist (SQLSTATE 42P01)
+== playbook entries (explain-error.sh on each distinct ERROR/WARN/panic line)
+  dlq-missing-relation         6  a table EP reads does not exist in the database it is connected to
+  dlq-cached-plan              2  SQLSTATE 0A000: a Rails migration changed a table that EP reads with SELECT * (pgx statement cache) -> retryable failure
+  dlq-build-enriched-event     1  event timestamp unparsable or of an unsupported type -> DLQ (non-retryable)
+  dlq-bm-not-found             1  no billable metric for (organization_id, code) -> DLQ (non-retryable, not sent to Sentry)
+  dlq-evaluate-expression      1  lago-expression returned nil for the metric's custom expression -> DLQ (non-retryable)
+  dlq-fetch-subscription       1  subscription lookup failed with a DB/badger error (not "not found": a missing subscription is NOT an error, the event is enriched with subscription_id "") -> retryable
+  dlq-pay-in-advance           1  charges lookup failed after the enriched event was ALREADY produced -> retryable; a redelivery duplicates the enriched event
+  dlq-flag-refresh             1  ZADD to the Redis ZSET subscription_refreshed_v2 failed -> retryable (enriched already produced)
+  dlq-empty-code               1  produce to events_enriched / events_charged_in_advance failed -> DLQ row with error_code "" and the record is COMMITTED (no per-event ERROR line)
+  loss-unmarshal               1  raw record is not valid JSON for models.Event: committed, NO DLQ, Sentry only = LOST
+  loss-retryable-skip          1  the FIRST record of a batch failed retryably, so nothing was committed; if any later batch on that partition commits, the failed offset is skipped forever (no DLQ, no retry)
+  run-unknown-topic            1  a topic EP produces to (or consumes) does not exist on the cluster
+  run-redis-pool               1  go-redis cannot open a connection (plain-text line from go-redis, not JSON)
+  (16 distinct line(s) examined; details: explain-error.sh --id <id>)

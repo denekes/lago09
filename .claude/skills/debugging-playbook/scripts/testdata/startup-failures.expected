@@ -1,0 +1,38 @@
+== events-processor log triage: startup-failures.log
+lines: 47 (json 3, of which service=post_process 3; plain 44; unrecognised 0; # comments skipped 7)
+levels: ERROR=3 WARN=0 INFO=0 DEBUG=0
+time: 2026-10-01T21:40:20.994900056Z .. 2026-10-01T21:40:23.140565245Z
+lifecycle: starts=0 shutdown_signals=0 stopped=0
+== startup / crash
+  panics: 4
+      1  panic: EOF
+      1  panic: brokers not found
+      1  panic: runtime error: invalid memory address or nil pointer dereference
+         (+1 more distinct)
+  SIGSEGV: 1, first frame: github.com/twmb/franz-go/pkg/kgo.validateCfg({_, _, _})
+  loader: 1 x <tmp>/ep: error while loading shared libraries: libexpression_go.so: cannot open shared object file: No such file or directory
+  go-redis pool (plain text) lines: 4
+      4  redis: connection pool: failed to dial after 5 attempts: EOF
+== per-event failures by error_code
+  none
+== silent-loss signals
+  dropped, committed, NO DLQ (Error unmarshalling message)           0
+  head-of-batch retryable, commit skipped (No commitable record)     0
+  produce failed -> DLQ row with empty error_code                    0
+  DLQ produce failed too -> Sentry only, LOST                        0
+  main consumer fetch error -> process panic                         0
+  offset commit errors (redelivery = duplicates)                     0
+== memory-cache mode
+  not active in this log (no snapshot / CDC lines)
+== other ERROR/WARN messages
+      1  [app] ERROR Error connecting to the flag store | EOF
+      1  [app] ERROR Error converting max connections into integer | strconv.Atoi: parsing "200x": invalid syntax
+      1  [app] ERROR brokers not found
+== playbook entries (explain-error.sh on each distinct ERROR/WARN/panic line)
+  start-brokers                2  LAGO_KAFKA_BOOTSTRAP_SERVERS is empty or unset (first runtime check; nothing else was tried)
+  start-redis-tls              2  TLS handshake against a plaintext Redis (or the reverse): the flag store client speaks TLS because LAGO_REDIS_STORE_TLS is true or, when it is unset/unparsable, because ENV=production (legacy default)
+  build-loader                 1  built fine, but the dynamic loader cannot find libexpression_go.so (binary or test binary)
+  start-scram                  1  LAGO_KAFKA_SCRAM_ALGORITHM is set to a value other than SCRAM-SHA-256 / SCRAM-SHA-512 -> nil kgo.Opt -> SIGSEGV
+  start-maxconns               1  LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS is not an integer (DB mode only)
+  run-redis-pool               1  go-redis cannot open a connection (plain-text line from go-redis, not JSON)
+  (11 distinct line(s) examined; details: explain-error.sh --id <id>)

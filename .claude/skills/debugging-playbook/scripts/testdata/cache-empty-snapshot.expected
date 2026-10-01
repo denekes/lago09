@@ -1,0 +1,40 @@
+== events-processor log triage: cache-empty-snapshot.log
+lines: 43 (json 43, of which service=post_process 43; plain 0; unrecognised 0; # comments skipped 3)
+levels: ERROR=15 WARN=0 INFO=28 DEBUG=0
+time: 2026-10-01T21:19:27.343433585Z .. 2026-10-01T21:19:27.454002835Z
+lifecycle: starts=1 shutdown_signals=1 stopped=1
+== startup / crash
+  none
+== per-event failures by error_code
+  error_code                      lines   to-DLQ  retryable
+  fetch_billable_metric               7        7          0
+      e.g.    7  Key not found
+  build_enriched_event                1        1          0
+      e.g.    1  strconv.ParseFloat: parsing "2025-03-06 12:00:00": invalid syntax
+== silent-loss signals
+  dropped, committed, NO DLQ (Error unmarshalling message)           1
+      e.g.    1  invalid character 'n' looking for beginning of object key string
+  head-of-batch retryable, commit skipped (No commitable record)     0
+  produce failed -> DLQ row with empty error_code                    0
+  DLQ produce failed too -> Sentry only, LOST                        0
+  main consumer fetch error -> process panic                         0
+  offset commit errors (redelivery = duplicates)                     0
+== memory-cache mode
+  snapshot loads: started 6, completed 0
+  WARNING: EMPTY/PARTIAL CACHE - no "Completed snapshot load" for: billable_metric_filters billable_metrics charge_filter_values charge_filters charges subscriptions
+           every event of those models fails the lookup (fetch_billable_metric "Key not found" for billable_metrics) (cache-snapshot-failed)
+  CDC consumers started: 6 | CDC fetch errors: 0 | CDC decode/write errors: 0
+== other ERROR/WARN messages
+      1  [db] ERROR ERROR: relation "billable_metric_filters" does not exist (SQLSTATE 42P01)
+      1  [db] ERROR ERROR: relation "billable_metrics" does not exist (SQLSTATE 42P01)
+      1  [db] ERROR ERROR: relation "charge_filter_values" does not exist (SQLSTATE 42P01)
+      1  [db] ERROR ERROR: relation "charge_filters" does not exist (SQLSTATE 42P01)
+      1  [db] ERROR ERROR: relation "charges" does not exist (SQLSTATE 42P01)
+         (+1 more distinct)
+== playbook entries (explain-error.sh on each distinct ERROR/WARN/panic line)
+  dlq-missing-relation         6  a table EP reads does not exist in the database it is connected to
+  cache-snapshot-failed        6  memory-cache snapshot query failed; the error is SWALLOWED (cache/cache.go:78-106) and the process serves an EMPTY cache: every event DLQs as fetch_billable_metric "Key not found"
+  dlq-build-enriched-event     1  event timestamp unparsable or of an unsupported type -> DLQ (non-retryable)
+  dlq-bm-not-found             1  no billable metric for (organization_id, code) -> DLQ (non-retryable, not sent to Sentry)
+  loss-unmarshal               1  raw record is not valid JSON for models.Event: committed, NO DLQ, Sentry only = LOST
+  (9 distinct line(s) examined; details: explain-error.sh --id <id>)

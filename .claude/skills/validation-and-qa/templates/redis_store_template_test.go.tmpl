@@ -1,0 +1,66 @@
+package models
+
+// TEMPLATE from .claude/skills/validation-and-qa (checked by scripts/templates-check.sh).
+// Copy to events-processor/models/<store>_test.go, rename, keep the shape:
+//   - in-process Redis via setupFlagStore(t, name) (miniredis.RunT stops it with the test);
+//   - wall-clock buckets: read the clock BEFORE and AFTER the call and accept either bucket,
+//     so a call that straddles a 10 s boundary cannot flake;
+//   - failure injection with s.SetError, never a real network fault;
+//   - side effects take the per-record context (change-control N5): a canceled context must
+//     fail the write and leave Redis untouched.
+// The ZSET name, member format and bucket are a cross-repo contract with lago-api
+// (change-control N6): a test that changes their expected values is a C4 change.
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestTemplateFlagStore(t *testing.T) {
+	t.Run("member is value|bucket and score is the wall clock", func(t *testing.T) {
+		store, s := setupFlagStore(t, "template_flags")
+
+		before := time.Now().Unix()
+		require.NoError(t, store.Flag(context.Background(), "org1:sub1"))
+		after := time.Now().Unix()
+
+		members, err := s.ZMembers("template_flags")
+		require.NoError(t, err)
+		require.Len(t, members, 1)
+		memberAt := func(sec int64) string {
+			return fmt.Sprintf("org1:sub1|%d", (sec/SUBSCRIPTION_BUCKET_DURATION)*SUBSCRIPTION_BUCKET_DURATION)
+		}
+		assert.Contains(t, []string{memberAt(before), memberAt(after)}, members[0])
+
+		score, err := s.ZScore("template_flags", members[0])
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, score, float64(before))
+		assert.LessOrEqual(t, score, float64(after))
+	})
+
+	t.Run("a redis error is returned to the caller", func(t *testing.T) {
+		store, s := setupFlagStore(t, "template_flags")
+		s.SetError("forced error")
+
+		err := store.Flag(context.Background(), "org1:sub1")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "forced error")
+	})
+
+	t.Run("a canceled context fails the write and leaves redis untouched", func(t *testing.T) {
+		store, s := setupFlagStore(t, "template_flags")
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := store.Flag(ctx, "org1:sub1")
+
+		require.ErrorIs(t, err, context.Canceled)
+		assert.False(t, s.Exists("template_flags"))
+	})
+}
