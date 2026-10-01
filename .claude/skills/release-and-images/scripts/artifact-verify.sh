@@ -19,6 +19,8 @@
 #
 # Output lines: OK | MISS | WARN | INFO | SKIP  <image:tag>  <details>
 #   archs exclude "unknown" entries (buildx attestation manifests, not a platform).
+#   A version with no getlago/lago tag yet starts with "INFO  github.com/getlago/lago has no tag
+#   vX.Y.Z yet": its MISS lines mean "not released", not "failed to publish" (still exit 1).
 # Sweep output: TSV matrix, "Y" present, "-" missing, "." not expected (GHCR before v1.44.0,
 #   lago-events-processor before v1.32.0, getlago/lago before v1.21.0: docker/Dockerfile was
 #   added by 52ab3b3 the day of v1.21.0).
@@ -74,9 +76,9 @@ ghcr_archs() {  # ghcr_archs <repo> <tag> -> "amd64,arm64" or empty if missing
            elif (.errors[0].code // "") == "MANIFEST_UNKNOWN" then empty
            elif .errors then "API-ERROR:" + (.errors[0].code // "?") else empty end' 2>/dev/null || true
 }
-newest_lago_tag() {
-  git ls-remote --tags https://github.com/getlago/lago 2>/dev/null | sed -n 's#.*refs/tags/##p' | sed 's/\^{}$//' \
-    | grep -E "$semver" | sort -uV | tail -1
+lago_tags() {  # every vX.Y.Z tag of getlago/lago, sorted; empty if git ls-remote fails
+  { git ls-remote --tags https://github.com/getlago/lago 2>/dev/null || true; } | sed -n 's#.*refs/tags/##p' \
+    | sed 's/\^{}$//' | { grep -E "$semver" || true; } | sort -uV
 }
 
 if [ "$sweep" = 1 ]; then
@@ -127,6 +129,10 @@ if [ "$sweep" = 1 ]; then
 fi
 
 # ---- single release ----
+all_tags="$(lago_tags)"
+if [ -n "$all_tags" ] && ! grep -qxF "$ver" <<<"$all_tags"; then
+  echo "INFO  github.com/getlago/lago has no tag $ver yet: not released, so MISS lines are expected (run after the GitHub Release)"
+fi
 for r in $DH_REPOS; do
   j="$(hub_tag "$r" "$ver")"
   if [ -z "$j" ]; then
@@ -138,7 +144,7 @@ for r in $DH_REPOS; do
   else echo "WARN  docker.io/getlago/$r:$ver  archs=$archs (expected amd64,arm64)  pushed=$when"; bad=$((bad+1)); fi
 done
 
-newest="$(newest_lago_tag)" || true
+newest="$(tail -n 1 <<<"$all_tags")"
 for r in lago lago-events-processor; do
   lj="$(hub_tag "$r" latest)"; vj="$(hub_tag "$r" "$ver")"
   ld="$(jq -r '.digest // empty' <<<"${lj:-{\}}")"; vd="$(jq -r '.digest // empty' <<<"${vj:-{\}}")"

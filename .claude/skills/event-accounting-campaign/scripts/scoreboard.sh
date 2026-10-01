@@ -11,14 +11,19 @@
 #   --check-baseline  exit 3 if any metric differs from the Phase-0 baseline recorded below
 #                     (use it to prove a C1/C2 change did not move anything, or to see progress)
 #   --check-targets   exit 4 if any metric misses its campaign target (the end-state CI gate)
+#   A --check-* run is a gate only when every row was measured: rows skipped by
+#   --no-accounting/--no-coverage print NOT MEASURED, count in "unmeasured=N" and make
+#   the check exit 5 (incomplete), never 0. Gate line to paste: "moved=0 unmeasured=0".
 #
 # Writes only to a mktemp dir (removed on exit); builds via run.sh (temp -modfile) and
 # `go test -coverprofile=<tmp>` on the packages that have tests (plain ./... coverage
 # fails with `no such tool "covdata"` on packages without tests).
 #
-# Exit codes: 0 table printed; 2 a measurement failed to run (setup: Postgres, CGO env,
-#             build); 3 --check-baseline and a metric moved; 4 --check-targets and a
-#             target is missed (3 wins over 4 when both are requested).
+# Exit codes: 0 table printed (and every requested check passed on a full run);
+#             2 a measurement failed to run (setup: Postgres, CGO env, build) or bad flag;
+#             3 --check-baseline and a metric moved; 4 --check-targets and a target is
+#             missed; 5 a --check-* flag was given but a row is NOT MEASURED (skipped).
+#             Precedence: 2 > 3 > 4 > 5.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,12 +35,13 @@ for a in "$@"; do
     --no-coverage) do_cov=0 ;;
     --check-baseline) chk_base=1 ;;
     --check-targets) chk_tgt=1 ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
-    *) echo "scoreboard: unknown flag $a" >&2; sed -n '2,21p' "$0" >&2; exit 2 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+    *) echo "scoreboard: unknown flag $a" >&2; sed -n '2,26p' "$0" >&2; exit 2 ;;
   esac
 done
 
-# Phase-0 baseline, measured 2026-10-01 at events-processor 5308258 (HEAD 08065ef adds only .claude/).
+# Phase-0 baseline, measured 2026-10-01. Code facts as of 5308258 (events-processor tree
+# 83e012866f29); the working branch may carry skills-only commits on top.
 # metric|baseline|target|direction (eq: must equal target, le: <= target, gt: > target)
 metrics=(
   "unaccounted_records|5|0|le"
@@ -114,7 +120,7 @@ meets() { # meets <value> <target> <dir>
   esac
 }
 
-moved=0; missed=0
+moved=0; missed=0; unmeasured=0
 printf '%-40s %-10s %-10s %-10s %s\n' metric today baseline target status
 printf '%-40s %-10s %-10s %-10s %s\n' ---------------------------------------- ---------- ---------- ---------- ------
 for m in "${metrics[@]}"; do
@@ -122,6 +128,7 @@ for m in "${metrics[@]}"; do
   now="${val[$name]:-}"
   if [ -z "$now" ]; then
     printf '%-40s %-10s %-10s %-10s %s\n' "$name" "-" "$base" "$dir $target" "NOT MEASURED"
+    unmeasured=$((unmeasured+1))
     continue
   fi
   status="baseline"
@@ -129,9 +136,13 @@ for m in "${metrics[@]}"; do
   if meets "$now" "$target" "$dir"; then status="$status, TARGET MET"; else missed=$((missed+1)); fi
   printf '%-40s %-10s %-10s %-10s %s\n' "$name" "$now" "$base" "$dir $target" "$status"
 done
-echo "scoreboard: moved=$moved targets_missed=$missed (baseline 2026-10-01; targets are campaign TARGETS, not current state)"
+echo "scoreboard: moved=$moved unmeasured=$unmeasured targets_missed=$missed (baseline 2026-10-01; targets are campaign TARGETS, not current state)"
 
 [ "$setup_err" = 0 ] || exit 2
 if [ "$chk_base" = 1 ] && [ "$moved" -gt 0 ]; then exit 3; fi
 if [ "$chk_tgt" = 1 ] && [ "$missed" -gt 0 ]; then exit 4; fi
+if [ $((chk_base + chk_tgt)) -gt 0 ] && [ "$unmeasured" -gt 0 ]; then
+  echo "scoreboard: check incomplete: $unmeasured metric(s) NOT MEASURED (--no-accounting/--no-coverage); not a gate pass" >&2
+  exit 5
+fi
 exit 0

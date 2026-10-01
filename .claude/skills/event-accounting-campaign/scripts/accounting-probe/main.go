@@ -354,7 +354,7 @@ func createScratchDB(adminURL string) (*scratchDB, error) {
 		s.drop()
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(schemaSQL + fixtureSQL()); err != nil {
 		s.drop()
 		return nil, fmt.Errorf("loading fixture schema: %w", err)

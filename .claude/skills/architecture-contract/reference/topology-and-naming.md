@@ -1,6 +1,7 @@
 # Topology and naming: topics, groups, keys, payloads, downstream readers
 
-Facts verified 2026-10-01 against HEAD 5308258 (events-processor) and pinned lago-api `591ae90`
+Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on
+top. Verified 2026-10-01, with lago-api at the pin `591ae90` (2026-09-08)
 (`API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)`). Regenerate the topic part with
 `.claude/skills/architecture-contract/scripts/topic-map.sh`.
 
@@ -15,7 +16,7 @@ Facts verified 2026-10-01 against HEAD 5308258 (events-processor) and pinned lag
 
 All four names come only from env vars; there is no default in code. The three produced topics are required
 (`initProducer`, `main_processor.go:55-76`, panics if empty, then `Ping`s the broker). The raw topic is **not
-validated**: empty means the process starts and idles (verified, `startup-contract.sh` step K9).
+validated**: empty means the process starts and idles (verified, `startup-contract.sh` step SK9).
 
 Producers of the raw topic (who writes what EP reads):
 - Rails `Events::KafkaProducerService` (`$API/app/services/events/kafka_producer_service.rb:29-34` no key, `:43`
@@ -23,10 +24,12 @@ Producers of the raw topic (who writes what EP reads):
   `source_metadata.api_post_processed = !organization.clickhouse_events_store?`).
 - Rails `ReEnrichSubscriptionEventsService` (`$API/app/services/events/stores/clickhouse/re_enrich_subscription_events_service.rb:63`).
 - Redpanda Connect configs `connectors/{http,sqs,kinesis}.yml` write to `${KAFKA_TOPIC}` (different variable name)
-  with key `<organization_id>-<external_subscription_id>` (`connectors/http.yml:42-43`), numeric `ingested_at`
-  (`timestamp_unix()`, `:31`; EP accepts it) and a `precise_total_amount_cents` that stays a JSON number when given
-  as one (`:32-33`) — EP declares that field `string`, so such records fail to unmarshal (see SKILL.md loss L2) —
-  and is replaced by the string `"0"` otherwise (`:34-36`; same mapping in `connectors/sqs.yml:34-38` and `connectors/kinesis.yml:38-42`).
+  with key `<organization_id>-<external_subscription_id>` (`connectors/http.yml:42-43`), integer-seconds `ingested_at`
+  (`timestamp_unix()`, `:31`; EP accepts it; ClickHouse `events_raw` reads it as ms, 1970-01-2x: `rails-go-parity`)
+  and a `precise_total_amount_cents` that stays a JSON number when given as one (`:32-33`) — EP declares that field
+  `string`, so such records fail to unmarshal (see SKILL.md loss L2) — and is replaced by the string `"0"` otherwise
+  (`:34-36`; same mapping in `connectors/sqs.yml:34-38` and `connectors/kinesis.yml:38-42`). No connector path
+  preserves the value: a number is dropped by EP, anything else becomes `"0"` (fix plan: `event-accounting-campaign` W2).
 Payload field semantics and Rails/CH parity: `rails-go-parity`, `domain-reference`.
 
 ## 2. Consumer groups
@@ -39,7 +42,8 @@ Payload field semantics and Rails/CH parity: `rails-go-parity`, `domain-referenc
 | `lago_events_charged_in_advance_consumer` (Karafka, not EP) | `$API/karafka.rb:51` | — | Rails |
 
 Consequence (load-bearing): renaming `LAGO_KAFKA_CONSUMER_GROUP` **or** the raw topic changes the group id, and the
-new group re-processes the whole retained raw topic (duplicates are absorbed downstream only eventually, invariant I12).
+new group re-processes the whole retained raw topic (duplicates are absorbed downstream only where ClickHouse dedup is
+on, invariant I12 CONDITIONAL).
 
 ## 3. Memory-cache CDC topics (only with `LAGO_USE_MEMORY_CACHE=true`; OPEN DECISION OD-1)
 

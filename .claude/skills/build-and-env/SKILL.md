@@ -7,8 +7,8 @@ description: Recreates the Lago umbrella-repo working environment from zero and 
 How to get from an empty machine to a green `events-processor` test run, a working dev stack, or a
 local image build, and what breaks on the way (with exact error text). It owns the foundation scripts
 `ep-env.sh`, `ep-test.sh`, `doctor.sh` and the alias-free compose wrapper `dc.sh`.
-Facts verified 2026-10-01 against code at HEAD `5308258` (the working clone's newer commits only add
-`.claude/skills/`) unless marked.
+Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
+skills-only commits on top. Verified 2026-10-01 unless marked.
 
 ## When to use / when NOT to use
 
@@ -19,7 +19,8 @@ Use when:
 - you bump Go, Rust, lago-expression or a base image and need to know every place it lives.
 
 Do NOT use for (go to the sibling instead):
-- what counts as passing, baselines (235 PASS, coverage, 21 lint issues), PR gates → `validation-and-qa`;
+- what counts as passing, baselines (235 PASS, coverage, 21 lint issues) → `validation-and-qa`;
+- the pre-PR gate command list for events-processor code (N9) → `change-control`;
 - probe harnesses (kfake, `go test -overlay`, scratch Postgres, clickhouse-local) → `diagnostics-and-tooling`;
 - publishing images, tags, the release train, registries → `release-and-images`;
 - starting/operating services, where output lands, logs → `run-and-operate`;
@@ -36,7 +37,7 @@ Do NOT use for (go to the sibling instead):
 | `libexpression_go.so` | The shared library built from lago-expression `expression-go/` with `cargo build --release`. |
 | expression-go wrapper | Go module `github.com/getlago/lago-expression/expression-go` (`events-processor/go.mod:10`); cgo code that links `-lexpression_go`. Only `processors/events_processor/enrichment_service.go:8` imports it. |
 | CGO | Go's C interop. Needs a C compiler; Go turns it off silently when none is on PATH. |
-| Docker-free recipe | Build the `.so` once into a cache, point `CGO_LDFLAGS` (link) and `LD_LIBRARY_PATH` (load) at it, run plain `go test`. Mirrors CI, which also runs on the host. |
+| Docker-free recipe | Build the `.so` once into a cache, point `CGO_LDFLAGS` (link) and `LD_LIBRARY_PATH` (load) at it, run plain `go test`. Same shape as CI (host-built `.so`, `go test ./...` against Postgres, no Docker), not identical (end of section 2a). |
 | `GOTOOLCHAIN=auto` | Go's default: if `go.mod` asks for a newer Go, download that exact toolchain from `proxy.golang.org`. |
 | daemon-less sandbox | Docker CLI present, no Docker daemon: `docker compose … config` works, `up`/`exec`/`build` do not. |
 | dev stack | The services in `docker-compose.dev.yml` (project `lago_dev`). |
@@ -62,7 +63,7 @@ cd "$(git rev-parse --show-toplevel)"
 Expected `doctor.sh` in a prepared agent sandbox (2026-10-01; paths shortened):
 ```
 OK    repo root: <repo> (HEAD <sha>)
-WARN  working clone is SHALLOW (58 commits): use research-methodology/scripts/history-setup.sh for history
+WARN  working clone is SHALLOW (<N> commits): use research-methodology/scripts/history-setup.sh for history
 INFO  submodule api EMPTY (pinned 591ae9005110); read it via research-methodology/scripts/pinned-checkout.sh api
 INFO  submodule front EMPTY (pinned 0c5e539b9e23); read it via research-methodology/scripts/pinned-checkout.sh front
 OK    go: events-processor resolves to go1.25.0 (go.mod minimum: go 1.25.0; GOTOOLCHAIN=auto)
@@ -78,11 +79,12 @@ INFO  pinned checkout: <cache>/lago-api@591ae9005110
 INFO  pinned checkout: <cache>/lago-front@0c5e539b9e23
 doctor: 0 FAIL(s)
 ```
-There is one `INFO  pinned checkout:` line per checkout present in the cache (other skills may add
-more, e.g. a second `lago-api@<sha>`). On a host without go1.25.0 cached, the first `doctor.sh` run
-downloads that toolchain (~214 MB, into `$(go env GOMODCACHE)`, never into the repo).
-Expected `ep-test.sh` (about 5 s warm; about 60 s from a cold cache including the `.so` build,
-measured 55-61 s; timings vary):
+`INFO  pinned checkout:` lines cover only the current `api`/`front` pins; checkouts of other SHAs
+(other skills cache them) are counted in one extra line, `INFO  <M> more cached checkout(s) of other
+lago-api/lago-front SHAs in <cache> (…)` (50 on this host on 2026-10-01). On a host without go1.25.0 cached, the first `doctor.sh`
+run downloads that toolchain (~214 MB, into `$(go env GOMODCACHE)`, never into the repo).
+Expected `ep-test.sh` (4-5 s warm; 60-75 s from a cold cache including the `.so` build, up to ~120 s
+on a loaded host; timings vary):
 ```
 ep-env: lago-expression v0.2.0 -> <cache>/lago-expression-v0.2.0/target/release ; DATABASE_URL=postgres://lago:***@localhost:5432/lago
 ?   	github.com/getlago/lago/events-processor	[no test files]
@@ -106,7 +108,8 @@ Any FAIL, or a different result: follow section 2a for the failing item, then se
 1. **Checkout.** Any clone builds; submodules and history are not needed for events-processor work.
    `git clone --depth 1 https://github.com/getlago/lago.git` (the form in `README.md:222`). VERIFIED:
    such a clone of upstream `main` (`a0de065`, 2026-09-29) passed all 6 packages with this skill's
-   `ep-env.sh` sourced from inside it (the script uses the repo of the current directory).
+   `ep-env.sh` sourced from inside it (the script uses the lago checkout of the current directory
+   first, else the checkout that contains the script).
 2. **C compiler.** `gcc` must be on PATH (Debian/Ubuntu: `build-essential`). Check:
    `(cd events-processor && go env CGO_ENABLED)` → `1`. A `0` means trap 5.3.
 3. **Go.** Any Go >= 1.21 on PATH with the default `GOTOOLCHAIN=auto`. The first `go` command in
@@ -117,9 +120,10 @@ Any FAIL, or a different result: follow section 2a for the failing item, then se
    `curl https://sh.rustup.rs -sSf | bash -s -- -y` (as `docker/Dockerfile:25` does). Rust stable
    1.97.0 builds lago-expression v0.2.0 here; production images use `rust:1.85`.
 5. **Postgres** for the one DB test: section "Postgres for tests" below.
-6. **CGO env.** `source .claude/skills/build-and-env/scripts/ep-env.sh`. On first use it clones
-   lago-expression at the ref in `events-processor/Dockerfile:5` into `$LAGO_SKILLS_CACHE` and runs
-   `cargo build --release`. It exports `CGO_LDFLAGS`, `LD_LIBRARY_PATH`, `DATABASE_URL` and others.
+6. **CGO env.** `source .claude/skills/build-and-env/scripts/ep-env.sh` (by absolute path it works
+   from any cwd). On first use it clones lago-expression at the ref in `events-processor/Dockerfile:5`
+   into `$LAGO_SKILLS_CACHE` and runs `cargo build --release`. It exports `CGO_LDFLAGS`,
+   `LD_LIBRARY_PATH`, `DATABASE_URL` (the `config/database` test reads it) and others.
    Cold-cache output:
    ```
    ep-env: cloning getlago/lago-expression@v0.2.0 into <cache>/lago-expression-v0.2.0
@@ -131,7 +135,11 @@ Any FAIL, or a different result: follow section 2a for the failing item, then se
 7. **Tests.** `.claude/skills/build-and-env/scripts/ep-test.sh` → the 6 `ok` lines in section 1.
    `ep-test.sh -count=1 -v ./... 2>&1 | grep -c -- '--- PASS'` → `235` (113 top-level + 122 subtests).
    Pass any `go test` args; paths are relative to `events-processor/`, e.g.
-   `ep-test.sh -count=1 -run TestGetEnvAsBool ./utils/`.
+   `ep-test.sh -count=1 -run TestGetEnvAsBool ./utils/`. Flags without a package (`ep-test.sh -race
+   -count=1`) get `./...` added and a stderr note `ep-test: no package pattern given; testing ./...`
+   (plain `go test -race` there tests only the root package, which has no tests, and exits 0).
+   Before a PR, run the full list in change-control's "Pre-PR gate for events-processor code" (N9:
+   tests, `-race`, vet, gofmt, new lint issues, guards); baselines are `validation-and-qa`'s.
 8. **Lint (optional).** golangci-lint v2.5.0, no repo config (OPEN DECISION OD-6, owner). Install into
    the cache with a checksum check (verified):
    ```bash
@@ -140,20 +148,23 @@ Any FAIL, or a different result: follow section 2a for the failing item, then se
    curl -fsSL "https://github.com/golangci/golangci-lint/releases/download/v$V/golangci-lint-$V-checksums.txt" | grep " golangci-lint-$V-linux-amd64.tar.gz\$" | sed "s#golangci-lint-$V-linux-amd64.tar.gz#$D/gl.tgz#" | sha256sum -c -
    mkdir -p "$C/bin" && tar -xzf "$D/gl.tgz" -C "$C/bin" --strip-components=1 "golangci-lint-$V-linux-amd64/golangci-lint"
    "$C/bin/golangci-lint" version     # golangci-lint has version 2.5.0 built with go1.25.1 ...
+   export PATH="$C/bin:$PATH"   # doctor.sh and validation-and-qa's baseline.sh look for golangci-lint on PATH
    ```
-   Run it as `(cd events-processor && GOLANGCI_LINT_CACHE=$(mktemp -d) "$C/bin/golangci-lint" run --allow-parallel-runners ./...)`
-   → exit 1, `21 issues: errcheck: 16, staticcheck: 5` (as of 2026-10-01). `--allow-parallel-runners`
-   matters on shared hosts: without it a second concurrent run fails (trap 5.20).
-   The baseline and the "no new issues" gate are in `validation-and-qa`.
+   Run it as `(cd events-processor && GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run --allow-serial-runners ./...)`
+   → exit 1, `21 issues: errcheck: 16, staticcheck: 5` (as of 2026-10-01). `--allow-serial-runners`
+   waits for another run instead of failing with exit 3 (trap 5.20). No `ep-env.sh` needed.
+   `validation-and-qa` owns the lint baseline and the "no new issues" gate.
 9. **History and lago-api/lago-front source (read-only).**
    `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)` (776 commits, bare, blob-less)
    and `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)` (same for `front`).
    Do not populate `api/`/`front/` just to read them (change-control N10).
 
-`ep-test.sh` mirrors `.github/workflows/events-processor-tests.yml`: CI builds lago-expression v0.2.0
-(`:40-49`), copies the `.so` to `/usr/local/lib` + `ldconfig` (`:51-56`), uses Go `1.25.0` (`:61`),
-Postgres 14 (`:25`) and runs `go test -v ./...` (`:64`). Whether this recipe is an accepted pre-PR
-gate is OPEN DECISION OD-5 (owner); default: accepted (see section 4).
+`ep-test.sh` has the same shape as `.github/workflows/events-processor-tests.yml` but is not
+identical: CI builds the whole lago-expression v0.2.0 workspace with the runner's unpinned Rust
+(`:40-49`), installs the `.so` with `ldconfig` (`:51-56`), uses Go `1.25.0` (`:61`), a Postgres 14
+service (`:25`) and `go test -v ./...` (`:64`); `ep-env.sh` builds only `expression-go/` with local
+cargo and tests against the local Postgres (16 here). Whether this recipe is an accepted pre-PR gate
+is OPEN DECISION OD-5 (owner); default: accepted (see section 4).
 
 ### Postgres for tests
 
@@ -190,8 +201,9 @@ all-in-one 17) does not matter for this test today. Do not run the dev-stack `db
 
 ### 2b. Full dev stack (workstation with a Docker daemon)
 
-Not runnable in a daemon-less sandbox; every step is in `reference/dev-stack.md` with file:line and,
-where possible, a scratch verification. Checklist:
+Prerequisites only; bring-up itself (start order, `--wait`, event pipeline, checks, teardown) is
+`run-and-operate` R1. Not runnable in a daemon-less sandbox; every step is in `reference/dev-stack.md`
+with file:line and, where possible, a scratch verification. Checklist:
 1. Clone with submodules. Without an SSH key (`.gitmodules:3,6` are `git@github.com:`):
    `git -c url."https://github.com/".insteadOf="git@github.com:" clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/getlago/lago.git`
    (VERIFIED: 10 s, pins `591ae90`/`0c5e539`). Already cloned: `git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init --depth 1` (VERIFIED on a scratch clone, tree stays clean).
@@ -202,8 +214,9 @@ where possible, a scratch verification. Checklist:
    `license.lago.dev`, lacks `console`/`pghero`): see `reference/dev-stack.md` §4 (8 hosts).
 5. `cp ./api/.env.dist ./api/.env && touch ./api/config/master.key` (`docs/dev_environment.md:110-114`).
 6. `docker volume create lago_front_pnpm_store`: external volume (`docker-compose.dev.yml:11-12`, `195bbc0`), undocumented.
-7. `dc.sh up -d --wait db redis traefik clickhouse webhook`, then `dc.sh up -d --wait front api api-worker api-clock`.
-   Profiles: `mailpit`, `redis-sentinel` (`--profile` is a global flag: `dc.sh --profile redis-sentinel up -d`).
+7. Check steps 1-6 with `.claude/skills/run-and-operate/scripts/dev-preflight.sh` (expect
+   `dev-preflight: 0 FAIL(s)`), then bring the stack up per `run-and-operate` R1. Alias-free forms of
+   every docs command (`dc.sh up -d --wait …`, `--profile` as a global flag): `reference/dev-stack.md` §6.
 
 ### 2c. Image builds
 
@@ -260,10 +273,10 @@ allocation in non-interactive shells.
 `events-processor/CLAUDE.md:10` says "Direct `go build` / `go test` won't work locally due to CGO
 dependencies. Always use `lago exec`". That is stale for daemon-less sandboxes: they work with
 `ep-env.sh` (section 2a). OPEN DECISION OD-5 (owner): is `ep-test.sh` an accepted pre-PR gate, or is
-`lago exec` mandatory? Default until decided: the Docker-free recipe is accepted (it mirrors CI);
+`lago exec` mandatory? Default until decided: the Docker-free recipe is accepted (same shape as CI, not identical);
 `lago exec`/`dc.sh exec` stays valid for dev-stack users. CANDIDATE replacement text for that file
 (a C0 docs change; the stale-claim register is `docs-and-writing`): "Tests without Docker:
-`.claude/skills/build-and-env/scripts/ep-test.sh` (builds libexpression_go.so once, mirrors CI). With
+`.claude/skills/build-and-env/scripts/ep-test.sh` (builds libexpression_go.so once; same shape as CI). With
 the dev stack: `docker compose -f docker-compose.dev.yml exec -T events-processor go test ./...`."
 
 ## 5. Trap table
@@ -272,15 +285,15 @@ Exact text as captured 2026-10-01. Reproductions with full output: `reference/tr
 
 | # | Symptom (exact text) | Cause | Fix |
 |---|---|---|---|
-| 5.1 | `/usr/bin/ld: cannot find -lexpression_go: No such file or directory` (B1) | `CGO_LDFLAGS` has no `-L` to the `.so`; the wrapper only says `#cgo LDFLAGS: -lexpression_go` | `source .claude/skills/build-and-env/scripts/ep-env.sh` |
+| 5.1 | `/usr/bin/ld: cannot find -lexpression_go: No such file or directory` (B1) | `CGO_LDFLAGS` has no `-L` to the `.so`; the wrapper only says `#cgo LDFLAGS: -lexpression_go` | `source .claude/skills/build-and-env/scripts/ep-env.sh`; it also exports `DATABASE_URL`, so plain `go test ./...` without it fails `config/database` too (5.7) |
 | 5.2 | `error while loading shared libraries: libexpression_go.so: cannot open shared object file: No such file or directory`; tests: `FAIL …/processors/events_processor 0.001s` (B2) | built fine, loader cannot find the `.so` (`ldd` → `not found`) | `ep-env.sh` sets `LD_LIBRARY_PATH` (CI uses `/usr/local/lib` + `ldconfig`) |
 | 5.3 | `build constraints exclude all Go files in …/expression-go@v0.1.4` (B3) | cgo off: `CGO_ENABLED=0`, or no C compiler on PATH (Go then defaults to 0) | install gcc; unset `CGO_ENABLED`; `go env CGO_ENABLED` must be `1`; or `ep-test.sh --no-cgo` |
 | 5.4 | `cgo: C compiler "X" not found: exec: "X": executable file not found in $PATH` (B3) | `CC` names a missing compiler | fix `CC` or install it |
-| 5.5 | `go: no such tool "covdata"` and exit 1 from `go test -coverprofile=… ./...` (B4) | go1.25.0 toolchain module ships no `covdata`; needed for packages without tests | cover only packages with tests (B4 command); 47.4% today |
+| 5.5 | `go: no such tool "covdata"` and exit 1 from `go test -coverprofile=… ./...` (B4) | go1.25.0 toolchain module ships no `covdata`; needed for packages without tests | cover only packages with tests (B4 command; prints 47.4%); coverage policy and the gated 47.4% definition: `validation-and-qa` |
 | 5.6 | `go: go.mod requires go >= 1.25.0 (running go 1.24.7; GOTOOLCHAIN=local)` / `go: download go1.25.0 for linux/amd64: toolchain not available` (B5) | `GOTOOLCHAIN=local` with old Go / offline or `GOPROXY=off` | unset `GOTOOLCHAIN`; run once online; or install Go >= 1.25.0. In the sandbox `go.dev/dl` is 403, `proxy.golang.org` works |
-| 5.7 | `--- FAIL: TestNewConnection` + `panic: runtime error: invalid memory address or nil pointer dereference` at `database_test.go:24`; first line above: `dial tcp 127.0.0.1:<port>: connect: connection refused` or `password authentication failed for user "lago" (SQLSTATE 28P01)` (B6) | Postgres down (sandbox restart) or role/db/password wrong; the test uses `assert`, then dereferences nil | "Postgres for tests": `pg_ctlcluster 16 main start`, role/db block |
+| 5.7 | `--- FAIL: TestNewConnection` + `panic: runtime error: invalid memory address or nil pointer dereference` at `database_test.go:24`; first line above: `dial tcp 127.0.0.1:<port>: connect: connection refused` or `password authentication failed for user "lago" (SQLSTATE 28P01)`, or ``failed to connect to `user=root database=` `` … `role "root" does not exist (SQLSTATE 28000)` (your OS user) (B6) | Postgres down (sandbox restart) or role/db/password wrong; `DATABASE_URL` unset (plain `go test` without `ep-env.sh`; the test reads `os.Getenv("DATABASE_URL")`, `database_test.go:18`); the test uses `assert`, then dereferences nil | "Postgres for tests": `pg_ctlcluster 16 main start`, role/db block; source `ep-env.sh` or `export DATABASE_URL=…` |
 | 5.8 | `ep-env: cargo not found; install Rust (https://rustup.rs) and re-source` (B7) | no Rust, `.so` not cached for this ref | rustup (step 4), or `ep-test.sh --no-cgo` (5 packages) |
-| 5.9 | `fatal: ambiguous argument '4100da0': unknown revision or path not in the working tree.`; `git blame` shows `^8ceca4b` on every old line (B8) | shallow working clone (58 commits on 2026-10-01; full history 776) | `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`; `git -C "$H" log -- events-processor events_processor` |
+| 5.9 | `fatal: ambiguous argument '4100da0': unknown revision or path not in the working tree.`; `git blame` shows `^8ceca4b` on every old line (B8) | shallow working clone (a few dozen commits; full history 776) | `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`; `git -C "$H" log -- events-processor events_processor` |
 | 5.10 | `ls api front` empty; `git submodule status` lines start with `-` | submodules never initialized | read-only: `pinned-checkout.sh api` (or `front`); dev stack: section 2b step 1 |
 | 5.11 | `error: cannot run ssh: No such file or directory` / `fatal: clone of 'git@github.com:getlago/lago-front.git' … failed` (B9); with ssh but no key: `Permission denied (publickey).` (UNVERIFIED here) | `.gitmodules:3,6` use SSH URLs | `git -c url."https://github.com/".insteadOf="git@github.com:" submodule update --init --depth 1`, or `submodule.<name>.url` override (B9). The Claude Code cloud sandbox observed on 2026-10-01 pre-injects this rewrite via `GIT_CONFIG_*` env (`git config --show-origin --get-regexp '^url\.'` → `command line:`) |
 | 5.12 | `lago: command not found` (exit 127) / `Error: unknown command "exec" for "lago"` (B10) | alias only in interactive shells / lago-cli binary | section 4: `dc.sh …` or `ep-test.sh` |
@@ -288,35 +301,39 @@ Exact text as captured 2026-10-01. Reproductions with full output: `reference/tr
 | 5.14 | different `go version` per context, no error | `go.mod` floor 1.25.0 vs mise `"1.25"` vs `golang:1.25` (=1.25.14) vs CI 1.25.0; dependabot raised the floor (`932c06c`) 50 min before CI/Dockerfiles followed (`50015b0`) | treat CI's 1.25.0 as the test reference; bump all Go pins together (change-control N3); watch `^[-+]go ` in dependabot diffs |
 | 5.15 | `?? events-processor/event_processors` in `git status` after following `events-processor/README.md:13` (B12) | `events-processor/.gitignore:24` ignores only `events-processor` | build with `-o "$(mktemp -d)/ep"`; never commit binaries (change-control N10) |
 | 5.16 | `invalid version: unknown revision expression-go/v0.2.0` (B13) | trying to align go.mod with the `.so` ref | don't: no such tag, ABI identical (change-control N3) |
-| 5.17 | `Error: unknown flag: --cache-dir` (golangci-lint) (B14) | v2 CLI | `GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run ./...` |
+| 5.17 | `Error: unknown flag: --cache-dir` (golangci-lint) (B14) | v2 CLI | `GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run --allow-serial-runners ./...` |
 | 5.18 | `front` will not start in the dev stack (exact text UNVERIFIED, no daemon) (B15) | `lago_front_pnpm_store` is `external: true`, nobody creates it | `docker volume create lago_front_pnpm_store` |
-| 5.19 | `panic: brokers not found` when running a freshly built binary | expected with no runtime env: link and load are fine | runtime config: `config-and-flags`, `run-and-operate` |
-| 5.20 | `Error: parallel golangci-lint is running` (exit 3, after a wait) (B14) | another golangci-lint holds `${TMPDIR:-/tmp}/golangci-lint.lock` (e.g. a parallel agent) | `golangci-lint run --allow-parallel-runners ./...`, or wait |
+| 5.19 | `panic: brokers not found` when running a freshly built binary | expected with no runtime env: link and load are fine | startup panics: `debugging-playbook` §2; required env: `run-and-operate` §5.1 |
+| 5.20 | `Error: parallel golangci-lint is running` (exit 3, after a wait) (B14) | another golangci-lint holds `${TMPDIR:-/tmp}/golangci-lint.lock` (e.g. a parallel agent) | `golangci-lint run --allow-serial-runners ./...` (waits for the other run instead of exiting 3) |
 
 ## 6. Non-negotiables that bite during environment work
 
 - change-control N1: populating submodules never needs a commit; before any commit run
-  `git diff --cached --submodule` (expect no `Subproject commit` lines outside a release bump PR).
+  `.claude/skills/change-control/scripts/precommit-guard.sh` (expect `SUMMARY precommit-guard: 0 FAIL`).
+  It runs `git diff --cached --submodule=short --ignore-submodules=none -- api front`; without
+  `--ignore-submodules=none` the diff shows nothing when `diff.ignoreSubmodules=all` or
+  `submodule.<name>.ignore=all` is set.
 - change-control N3: Go, Rust image and the four lago-expression places move together; no `@latest`.
 - change-control N10: build outputs, coverage files, probe clones go to `mktemp -d` or `$LAGO_SKILLS_CACHE`.
 - change-control N11: never paste a real `DATABASE_URL` password; the scripts mask it as `***`.
-- change-control N13: when you claim "tests pass", paste the `ep-test.sh` output (validation-and-qa
-  defines what else the PR needs).
+- change-control N13: when you claim "tests pass", paste the `ep-test.sh` output; the rest of the PR
+  evidence is change-control's "Pre-PR gate for events-processor code" (N9).
 
 ## Scripts
 
 | Script | Purpose | Example | Expected output (2026-10-01) |
 |---|---|---|---|
-| `scripts/ep-env.sh` (source it) | Build/cache `libexpression_go.so` at the ref in `events-processor/Dockerfile`; export `LAGO_REPO LAGO_SKILLS_CACHE LAGO_EXPRESSION_REF LAGO_EXPRESSION_LIB CGO_LDFLAGS LD_LIBRARY_PATH DATABASE_URL`. Status 1 on failure; executed instead of sourced: exit 2. `LAGO_EXPRESSION_REF=vX source …` tests a bump. | `source .claude/skills/build-and-env/scripts/ep-env.sh` | `ep-env: lago-expression v0.2.0 -> <cache>/lago-expression-v0.2.0/target/release ; DATABASE_URL=postgres://lago:***@localhost:5432/lago` |
-| `scripts/ep-test.sh` | Docker-free `go test` (default `-count=1 ./...`); `--no-cgo [flags]` = the 5 packages that do not link the `.so` (always appended; pass flags, not packages). Warns if Postgres is unreachable. Exit = `go test`'s. | `.claude/skills/build-and-env/scripts/ep-test.sh`; `… --no-cgo -v` | 6 `ok` (full); 5 `ok` (`--no-cgo`) |
-| `scripts/doctor.sh` | Readiness report, read-only on the repo (repo depth, submodules, Go, cgo, cargo, `.so`, Postgres reachability + login, Docker daemon, `lago` alias/binary, lint, history clone, pinned checkouts). Exit = number of FAILs. May download go1.25.0 into `GOMODCACHE` on first run (`GOTOOLCHAIN=auto`). | `.claude/skills/build-and-env/scripts/doctor.sh` | `doctor: 0 FAIL(s)` (section 1) |
+| `scripts/ep-env.sh` (source it) | Build/cache `libexpression_go.so` at the ref in `events-processor/Dockerfile`; export `LAGO_REPO LAGO_SKILLS_CACHE LAGO_EXPRESSION_REF LAGO_EXPRESSION_LIB CGO_LDFLAGS LD_LIBRARY_PATH DATABASE_URL`. Repo: the cwd's lago checkout, else the script's own (works from any cwd). Status 1 on failure; executed instead of sourced: exit 2. `LAGO_EXPRESSION_REF=vX source …` tests a bump. | `source .claude/skills/build-and-env/scripts/ep-env.sh` | `ep-env: lago-expression v0.2.0 -> <cache>/lago-expression-v0.2.0/target/release ; DATABASE_URL=postgres://lago:***@localhost:5432/lago` |
+| `scripts/ep-test.sh` | Docker-free `go test` (default `-count=1 ./...`); `--no-cgo [flags]` = the 5 packages that do not link the `.so` (always appended; pass flags, not packages). Flags without a package: `./...` is added. Warns if Postgres is unreachable. Exit = `go test`'s. | `.claude/skills/build-and-env/scripts/ep-test.sh`; `… --no-cgo -v` | 6 `ok` (full); 5 `ok` (`--no-cgo`) |
+| `scripts/doctor.sh` | Readiness report, read-only on the repo (repo depth, submodules, Go, cgo, cargo, `.so`, Postgres reachability + login, Docker daemon, `lago` alias/binary, lint, history clone, pinned checkouts for the current pins + a count of others). Exit = number of FAILs. May download go1.25.0 into `GOMODCACHE` on first run (`GOTOOLCHAIN=auto`). | `.claude/skills/build-and-env/scripts/doctor.sh` | `doctor: 0 FAIL(s)` (section 1) |
 | `scripts/dc.sh` | Alias-free `docker compose -f <repo>/docker-compose.dev.yml "$@"` (`LAGO_PATH` overrides the repo). Exit = compose's; 2 if docker or the file is missing; prints a no-daemon hint on failure. | `.claude/skills/build-and-env/scripts/dc.sh config --services \| wc -l` | `25` (verified with `config` subcommands only) |
 
 All four were run on 2026-10-01, including from a cold cache (`LAGO_SKILLS_CACHE=$(mktemp -d)`:
-clone + cargo build + full suite in 55-61 s), with cargo removed from PATH, with `CGO_ENABLED=0`, offline
-(`GOPROXY=off`, empty `GOMODCACHE`), with a closed Postgres port, with a wrong or missing password
-(also under a pseudo-TTY: `doctor.sh` never prompts), and with a lago-cli binary on PATH.
-`dc.sh` was exercised with `config` subcommands only (no daemon here).
+clone + cargo build + full suite in 55-61 s; 60-75 s typical), from `/tmp` (outside the repo), with
+cargo removed from PATH, with `CGO_ENABLED=0`, offline (`GOPROXY=off`, empty `GOMODCACHE`), with a
+closed Postgres port, with a wrong or missing password (also under a pseudo-TTY: `doctor.sh` never
+prompts), and with a lago-cli binary on PATH. `dc.sh` was exercised with `config` subcommands only
+(no daemon here; `dc.sh ps` exits 1 with the no-daemon note).
 
 ## Provenance and maintenance
 
@@ -337,6 +354,8 @@ clone + cargo build + full suite in 55-61 s), with cargo removed from PATH, with
   - `ls "$(cd events-processor && go env GOTOOLDIR)" | grep -c covdata` → `0`
   - `.claude/skills/build-and-env/scripts/ep-test.sh -count=1 -v ./... 2>&1 | grep -c -- '--- PASS'` → `235`
   - `.claude/skills/build-and-env/scripts/doctor.sh >/dev/null; echo $?` → `0` (prepared sandbox)
+  - `R=$PWD; (cd /tmp && bash -c "source $R/.claude/skills/build-and-env/scripts/ep-env.sh 2>/dev/null; echo rc=\$?")` → `rc=0`
+  - `.claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 2>&1 | grep -c '^ok'` → `6` (flags only: `./...` added)
   - `.claude/skills/build-and-env/scripts/dc.sh --profile '*' config --services | wc -l` → `30`
   - `git check-ignore -q events-processor/event_processors || echo not-ignored` → `not-ignored`
   - `curl -fsS https://hub.docker.com/v2/repositories/library/golang/tags/1.25 | grep -o '"digest":"[^"]*' | head -1` → same digest as tag `1.25.14`

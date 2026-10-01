@@ -79,12 +79,12 @@ asm cgo compile cover link preprofile vet
 ```
 One `go: no such tool "covdata"` per package without tests (root, config/redis, config/tracing,
 processors, tests). The go1.25.0 toolchain module has no `covdata`; the local go1.24.7 install does.
-Fix (exit 0, total 47.4%):
+Fix (exit 0, total 47.4%: the gated own-package figure that `validation-and-qa` uses):
 ```bash
 (cd events-processor && PKGS=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...) \
   && go test -count=1 -coverprofile="$T/c.out" $PKGS >/dev/null && go tool cover -func="$T/c.out" | tail -1)
 ```
-Coverage policy and the cross-package `-coverpkg` figure are in `validation-and-qa`.
+Coverage policy and the informational `-coverpkg` / whole-module figures are in `validation-and-qa`.
 
 ## B5. Go toolchain: `GOTOOLCHAIN=local` and offline
 ```bash
@@ -123,6 +123,18 @@ Wrong password / missing role instead gives `failed SASL auth: FATAL: password a
 for user "lago" (SQLSTATE 28P01)` (reproduced with `DATABASE_URL=postgres://lago:wrong@…`), and the
 same panic. Note: `pg_isready` prints `accepting connections` even when the login would fail; `doctor.sh`
 therefore also runs `psql … -c 'select 1'`. Fix: SKILL.md "Postgres for tests".
+
+Third variant: `DATABASE_URL` unset. The test reads `os.Getenv("DATABASE_URL")` (`database_test.go:18`),
+so the first plain `go test ./...` without `ep-env.sh` fails here as well as with B1:
+```bash
+(cd events-processor && env -u DATABASE_URL go test -count=1 ./config/database/ 2>&1 | grep -m1 ERROR)
+```
+```
+... ERROR failed to initialize database, got error failed to connect to `user=root database=`: /var/run/postgresql/.s.PGSQL.5432 (/var/run/postgresql): server error: FATAL: role "root" does not exist (SQLSTATE 28000) component=db
+```
+(`root` is the OS user; pgx falls back to the local socket and the OS user name.) Same panic follows.
+Fix: `source .claude/skills/build-and-env/scripts/ep-env.sh` (exports a default `DATABASE_URL`) or
+`export DATABASE_URL=…`.
 
 ## B7. `cargo` missing
 ```bash
@@ -194,8 +206,10 @@ Notes:
 - The `-c` form is one-shot: `remote.origin.url` inside `front/` stays `git@github.com:…`, so later
   fetches in the submodule need the rewrite again. The `submodule.<name>.url` form writes only to
   `.git/config` (persistent, no tracked diff); `git submodule sync` resets it from `.gitmodules`.
-- Neither form moves the gitlink. Still run `git diff --cached --submodule` before any commit
-  (change-control N1).
+- Neither form moves the gitlink. Still run `.claude/skills/change-control/scripts/precommit-guard.sh`
+  before any commit (expect `0 FAIL`; change-control N1). It runs
+  `git diff --cached --submodule=short --ignore-submodules=none -- api front`; `--ignore-submodules=none`
+  keeps a staged gitlink move visible even when `diff.ignoreSubmodules=all` is set.
 - For READING lago-api/lago-front at the pin you do not need submodules at all:
   `.claude/skills/research-methodology/scripts/pinned-checkout.sh api|front`.
 
@@ -261,12 +275,16 @@ See `reference/toolchain-matrix.md` §2 (ABI identical; change-control N3).
 
 ## B14. golangci-lint v2 flag, and parallel runs
 `golangci-lint run --cache-dir X ./...` gives `Error: unknown flag: --cache-dir`. Use
-`GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run --allow-parallel-runners ./...` (exit 1, `21 issues: errcheck: 16,
+`GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run --allow-serial-runners ./...` (exit 1, `21 issues: errcheck: 16,
 staticcheck: 5` as of 2026-10-01).
-Without `--allow-parallel-runners`, a run started while another golangci-lint holds
+Without a runner flag, a run started while another golangci-lint holds
 `${TMPDIR:-/tmp}/golangci-lint.lock` waits briefly, then prints `Error: parallel golangci-lint is running`
 and exits 3 (reproduced by holding the lock with `flock "$TD/golangci-lint.lock" sleep 15 &` and running
-with `TMPDIR=$TD`; first seen when parallel agents linted on the same host). `go vet ./...` and golangci-lint do NOT need `ep-env.sh`: both
+with `TMPDIR=$TD`; first seen when parallel agents linted on the same host). With
+`--allow-serial-runners` the same run waits for the lock, then lints normally (lock held 20 s: exit 1,
+21 issues, 40 s total). Use serial everywhere (validation-and-qa's `baseline.sh` does);
+`--allow-parallel-runners` also exists in v2.5.0 but does not take the lock at all (`golangci-lint run --help`).
+`go vet ./...` and golangci-lint do NOT need `ep-env.sh`: both
 exited as usual with `CGO_LDFLAGS`/`LD_LIBRARY_PATH` unset, verified with a cold `GOCACHE` (they
 type-check, they do not link). Lint policy: OPEN DECISION OD-6 (owner); baseline in `validation-and-qa`.
 

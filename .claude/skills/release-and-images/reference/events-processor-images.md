@@ -1,8 +1,9 @@
 # events-processor and connectors images
 
 Read this before editing any `events-processor/Dockerfile*` or `connectors/Dockerfile`, or when an
-events-processor image is missing or differs between registries. Facts verified 2026-10-01 against
-HEAD 5308258. No Dockerfile can be built or `docker build --check`-ed without a daemon: everything
+events-processor image is missing or differs between registries. Code facts as of 5308258
+(events-processor tree 83e012866f29; the working branch may carry skills-only commits on top);
+registry facts verified 2026-10-01. No Dockerfile can be built or `docker build --check`-ed without a daemon: everything
 below is read from files, history and registry APIs. Local (Docker-free) builds and tests of the Go
 binary belong to `build-and-env`; the pin rules (change-control N3) belong to `change-control`.
 
@@ -12,7 +13,7 @@ binary belong to `build-and-env`; the pin rules (change-control N3) belong to `c
 |---|---|---|---|
 | `events-processor/Dockerfile` (prod) | `rust:1.85` -> `golang:1.25` -> `debian:13-slim` | `git clone --tags https://github.com/getlago/lago-expression/` (:3); `git checkout v0.2.0 && cargo build --release` in `expression-go/` (:4-5); `COPY . /app/` (:11); `go mod download` (:13); `.so` -> `/usr/lib` (:14); `go build -o event_processors .` (:15); runtime `apt-get upgrade` + `ca-certificates` (:19); `.so` + binary (:22-23); `ENTRYPOINT ["./event_processors"]` (:24); no `USER` (runs as root) | `release-processors-image.yml` (Docker Hub), `release-images.yml` (GHCR), `build-processors-image.yaml` (ECR) |
 | `events-processor/Dockerfile.dev` | `rust:1.85` -> `golang:1.25` | same Rust stage (:1-5); `dlv@v1.25`, `air@v1.62` pinned (:11-12, after `d589940` where `@latest` air required a newer Go); `EXPOSE 2345` (:19); `CMD ["air", "-c", ".air.toml"]` (:21) | `docker-compose.dev.yml:318-325` (`dockerfile: Dockerfile.dev`) |
-| `events-processor/Dockerfile.staging` (added at HEAD `5308258`, 2026-09-18) | `ARG BUILD_IMAGE=ghcr.io/getlago/events-processor-build:latest`, `ARG RUNTIME_IMAGE=ghcr.io/getlago/events-processor-base:latest` (:12-13); Wolfi/apko bases from getlago/lago-packages (:3-6) | `# syntax=docker/dockerfile:1.26` (:1); "Staging-only hardened image … built for SOC2 compliance" (:3-4); `ARG LAGO_EXPRESSION_REF=v0.2.0` "bump both together" (:20-23); clone + checkout + `cargo build --release` (:24-27); `go build` (:32-34); `COPY --chown=nonroot:nonroot` (:42-43); `USER 65532` (:45) | the paired workflow lives in private **lago-deploy** (`build-events-processor-staging-image.yml`, :8-10): UNVERIFIED from here. "The sibling ./Dockerfile stays untouched and continues to serve production builds" (:9-10) |
+| `events-processor/Dockerfile.staging` (added in `5308258`, 2026-09-18) | `ARG BUILD_IMAGE=ghcr.io/getlago/events-processor-build:latest`, `ARG RUNTIME_IMAGE=ghcr.io/getlago/events-processor-base:latest` (:12-13); Wolfi/apko bases from getlago/lago-packages (:3-6) | `# syntax=docker/dockerfile:1.26` (:1); "Staging-only hardened image … built for SOC2 compliance" (:3-4); `ARG LAGO_EXPRESSION_REF=v0.2.0` "bump both together" (:20-23); clone + checkout + `cargo build --release` (:24-27); `go build` (:32-34); `COPY --chown=nonroot:nonroot` (:42-43); `USER 65532` (:45) | the paired workflow lives in private **lago-deploy** (`build-events-processor-staging-image.yml`, :8-10): UNVERIFIED from here. "The sibling ./Dockerfile stays untouched and continues to serve production builds" (:9-10) |
 | `connectors/Dockerfile` | `docker.io/redpandadata/connect:4.83.0` (:6) | comment: pull from docker.io, not the redpanda mirror, to avoid anonymous 429s (:1-5, `986f29b`); `COPY *.yml ./` (:8) | `build-connectors-image.yaml` (ECR only) |
 
 - `events-processor/` and `connectors/` have NO `.dockerignore`, so `COPY . /app/` takes every file
@@ -31,7 +32,7 @@ binary belong to `build-and-env`; the pin rules (change-control N3) belong to `c
 |---|---|---|
 | lago-expression (Rust `.so`) | `v0.2.0` | `events-processor/Dockerfile:5`, `Dockerfile.dev:5`, `Dockerfile.staging:23`, `.github/workflows/events-processor-tests.yml:45` |
 | Rust image | `1.85` | `events-processor/Dockerfile:1`, `Dockerfile.dev:1` (CI uses the runner's Rust; staging uses the base image's) |
-| Go | `1.25` / `1.25.0` | `Dockerfile:7`, `Dockerfile.dev:7` (`golang:1.25`), `events-processor-tests.yml:61` (`1.25.0`), `events-processor/go.mod:3` (`go 1.25.0`), `events-processor/mise.toml:2` |
+| Go | `1.25` / `1.25.0` | `Dockerfile:7`, `Dockerfile.dev:7` (`golang:1.25`), `events-processor-tests.yml:61` (`1.25.0`), `events-processor/go.mod:3` (`go 1.25.0`), `events-processor/mise.toml:2`. `golang:1.25` == `golang:1.25.14` by digest (as of 2026-10-01; Docker Hub `library/golang` tags API): release images build with 1.25.14 while CI tests 1.25.0. `go 1.25.0` in go.mod came from dependabot `932c06c` (#724, 2026-04-09 09:29 +0200); CI and both Dockerfiles followed in `50015b0` (#725, 10:19) |
 | expression-go (Go wrapper) | `v0.1.4` | `events-processor/go.mod:10`: do NOT bump to "match" v0.2.0 (change-control N3) |
 
 The Rust image tag is part of the lago-expression pin set: `5077151` bumped the ref in 3 files and broke
@@ -52,8 +53,8 @@ the prod release until `e8bbd60` moved `rust:1.82` -> `rust:1.85` the same day.
 - ECR tag scheme changed when `4955f79` (2026-08-25) moved the build onto the reusable workflow
   (`sha-<7>` and `main`; consumers in lago-deploy: UNVERIFIED).
 - Docker Hub `lago-events-processor` covers every release v1.32.0..v1.53.0 except `v1.41.2` (404).
-- The ECR account id `201661579678` is hard-coded in `build-processors-image.yaml:15` and
-  `build-connectors-image.yaml:19` (see `security-and-supply-chain`).
+- The ECR account id is hard-coded in `build-processors-image.yaml:15` and
+  `build-connectors-image.yaml:19` (do not copy the digits; see `security-and-supply-chain`).
 
 ## 4. Connectors image
 

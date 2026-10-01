@@ -15,14 +15,15 @@ set -euo pipefail
 #              charge_filter_values; subscriptions has no deleted_at in lago-api structure.sql)
 #   N4-pin     each ApiStore query has an exact sqlmock pin (regexp.QuoteMeta) in a test   [WARN only]
 #   N5-ctx     no struct in models/, processors/, config/kafka, config/redis stores a context.Context
-#              (per-record side effects must take the record's ctx as an argument, 02a4bc8)
+#              (per-record side effects take the caller's ctx (the batch's context.Background()) as an
+#              argument, never the process/signal ctx, 02a4bc8)
 #   N7-guard   processRecordsAndCommit skips CommitRecords when findMaxCommitableRecord says !ok (9acd83e)
 #   CONTRACT   Go-side snapshot of cross-repo / delivery constants (group name, keys, Redis ZSET,
 #              bucket, retry horizon, poll size). A change is a C4 change: route via change-control.
 #
 # Output lines: "OK ...", "INFO ...", "WARN ...", "FLAG ..." (FLAG = rule violated or contract moved).
 # Exit code: 0 = no FLAG, 1 = at least one FLAG (count in the SUMMARY line), 2 = setup error.
-# Expected as of 2026-10-01 (HEAD 5308258): exit 1, the single FLAG being
+# Expected as of 2026-10-01 (code as of 5308258): exit 1, the single FLAG being
 #   FLAG N4-cols events-processor/models/billable_metrics.go:61 FetchBillableMetric ...
 # plus one WARN (N4-pin) for HasPayInAdvanceCharge (charges SQL is not pinned).
 
@@ -116,7 +117,7 @@ for f in $(go_files models) $(go_files processors) $(go_files config/kafka) $(go
     ins && /^\}/ { ins = 0 }
     ins && /[ \t]context\.Context/ {
       if (file ~ /\/cache\// && (s == "Cache" || s == "CacheConfig")) printf "INFO N5-ctx  %s:%d struct %s carries the process ctx: lifetime of the CDC consumers (they must stop on shutdown), not per-record I/O\n", file, FNR, s
-      else printf "FLAG N5-ctx  %s:%d struct %s stores a context.Context (per-record side effects must take the record ctx as an argument, 02a4bc8)\n", file, FNR, s
+      else printf "FLAG N5-ctx  %s:%d struct %s stores a context.Context (side effects take the caller ctx = the batch Background ctx as an argument, never the process ctx, 02a4bc8)\n", file, FNR, s
     }
   ' "$f" >> "$OUT"
 done

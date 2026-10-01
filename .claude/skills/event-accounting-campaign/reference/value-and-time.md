@@ -1,8 +1,9 @@
 # W2 value fidelity and W3 time semantics: corpus, derivations, candidate designs
 
 Read when you work on Phase 2 or Phase 3, change `corpus.tsv`, or need to argue what "faithful" means
-for a `value` string or a timestamp. Facts verified 2026-10-01 against events-processor `5308258`,
-lago-api `591ae90` (`$API`), Ruby 3.3.6, ClickHouse 26.2.9.9 and 26.2.19.43.
+for a `value` string or a timestamp. Code facts as of 5308258 (events-processor tree 83e012866f29); the
+working branch may carry skills-only commits on top; lago-api at the pin `591ae90` (2026-09-08, `$API`).
+Verified 2026-10-01 with Ruby 3.3.6, ClickHouse 26.2.9.9 and 26.2.19.43.
 
 ## 1. How a property becomes billed quantity (today)
 
@@ -25,7 +26,7 @@ emulation (`|x| >= 1e12 -> 0`, unparsable -> 0); `-ch-bin` cross-checks it again
 ## 2. Expected-today corpus output (Phase-0 numbers)
 
 ```
-$ .claude/skills/event-accounting-campaign/scripts/run.sh value-corpus -ruby -ch-bin "${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/clickhouse/26.2.19.43/clickhouse"
+$ .claude/skills/event-accounting-campaign/scripts/run.sh value-corpus -ruby -ch-bin "$(.claude/skills/diagnostics-and-tooling/scripts/ch-local.sh --path)"
 id                 json                   go_value                 want_value               ch_decimal(emul)         want_decimal             verdict
 int_1e6            1000000                1e+06                    1000000                  1000000                  1000000                  FORMAT
 int_1e12_minus_1   999999999999           9.99999999999e+11        999999999999             999999999999             999999999999             FORMAT
@@ -47,12 +48,17 @@ ch cross-check (toDecimal128OrZero(v, 26) on ClickHouse 26.2.19.43): 27/27 value
 SUMMARY corpus_rows=27 value_mismatches=13 go_decimal_mismatches=2 ch_zeroed=4 end_to_end_decimal_mismatches=6 totime_mismatches=496/1000 rfc3339_utc_ms=false
 ```
 
-Verdicts: FORMAT = string differs, number equal (breaks unique_count only); NIL = Go writes `"<nil>"`
-where Rails uses 0; PRECISION = float64 lost digits (> 2^53); CH_ZERO = ClickHouse stores 0 for a value
-Rails keeps. Readings that matter:
+The `ch cross-check` line names the version `ch-local.sh --path` resolved (whatever the cache holds;
+26.2.19.43 here). Verdicts: FORMAT = string differs, number equal (breaks unique_count only); NIL = Go
+writes `"<nil>"` where Rails uses 0; PRECISION = float64 lost digits (> 2^53); CH_ZERO = ClickHouse stores 0
+for a value Rails keeps. SUMMARY counters: `ch_zeroed` = rows whose Go string is numerically exact but
+ClickHouse stores 0 (zeroed by the column alone); `end_to_end_decimal_mismatches` = rows whose stored
+decimal differs from Rails' for any reason (today: the 4 `ch_zeroed` rows + the 2 PRECISION rows).
+Readings that matter:
 - 2 rows are wrong in Go itself (PRECISION, `int_2p53_plus_1` and `int_20_digits`): fixable in Go alone (W2).
-- 4 more rows are zeroed only by `Decimal(38,26)` (`int_1e12`, `exp_1e21`, `neg_1e12`, `str_1e12`): even a
-  perfect Go string is billed 0. Go cannot fix that without OPEN DECISION OD-3 (owner); Go can detect it and
+- 4 more rows are zeroed only by `Decimal(38,26)` (`int_1e12`, `exp_1e21`, `neg_1e12`, `str_1e12`): their
+  Go string is numerically exact (`1e+12` = 1000000000000; only `str_1e12` is also textually equal), yet they
+  are billed 0, as a perfect string would be. Go cannot fix that without OPEN DECISION OD-3 (owner); Go can detect it and
   DLQ it instead of letting it become 0 (CANDIDATE).
 - `dec_18_sig` matches because Rails also parses JSON floats into `Float` (Ruby cross-check of that row): the contract for non-integers is
   "shortest round-trip float", not "the literal text". Only integers (Ruby `Integer` is exact) need `json.Number`.
@@ -69,7 +75,10 @@ ToTime("2025-03-03T15:03:29.123456+02:00") = 2025-03-03T15:03:29.123456+02:00 (u
 - Only the subscription-lookup time (`EnrichedEvent.Time`, `events-processor/models/event.go:77-81`) uses
   `ToTime`; the emitted `timestamp` uses `ToFloat64Timestamp` (`time.go:51-78`), whose string branch
   truncates correctly (rails-go-parity measures 0/1000 there).
-- Rails sends `timestamp: event.timestamp.to_f.to_s` (`$API/app/services/events/kafka_producer_service.rb:43`)
+- Rails sends `timestamp: event.timestamp.to_f.to_s` (`$API/app/services/events/kafka_producer_service.rb:43`;
+  on Ruby 3.3.6 that string itself lands 129/1000 ms values of epoch second 1727787600 1 ms early after
+  millisecond truncation: CANDIDATE drift,
+  `rails-go-parity` P22, `domain-reference` MC17; lago-api pins Ruby 4.0.6, UNVERIFIED there)
   and matches subscriptions with `date_trunc('millisecond', started_at) <= ts`
   (`$API/app/services/events/post_process_service.rb:50-53`); Go DB mode uses the same SQL
   (`events-processor/models/subscriptions.go:29-34`). So a 1 ms-early `ToTime` only matters at a window
@@ -124,7 +133,8 @@ W2 value (Phase 2):
    end_to_end_decimal_mismatches still 6 (needs OD-3 or the overflow policy below).
 2. Overflow policy (needs an owner answer, routed through change-control; part of OD-3): when the exact
    value has `|x| >= 1e12` or more than 26 decimals, either (a) DLQ with a new cause such as
-   `value_out_of_range` (a new DLQ code is a C3/C4 change), or (b) accept and document, or (c) change the CH
+   `value_out_of_range` (a new DLQ cause changes disposition: C4 under change-control's precedence rule,
+   ADR + owner acceptance; DLQ'd rows are not replayable today), or (b) accept and document, or (c) change the CH
    schema (lago-api work, migration budget, `$API/AGENTS.md:176` says cloud DDL in
    `db/clickhouse_migrate/cloud/*.sql` is edited in place). Never (c) without OD-3.
 3. `precise_total_amount_cents` (case 5 of the ledger): accept JSON number and string in
@@ -140,8 +150,8 @@ W3 time (Phase 3):
 1. Parse `"<sec>.<frac>"` without floats (split on `.`, right-pad/truncate the fraction to 3 digits), or
    `math.Round(f*1000)` with a proof over the corpus; target `totime_mismatches=0/1000`.
 2. RFC3339 branch: `.UTC().Truncate(time.Millisecond)`; target `rfc3339_utc_ms=true`. This changes which
-   subscription matches events sent with an offset (DB mode compares the wall clock today). C3; run the
-   rails-go-parity subscription probe before and after.
-3. Add a `json.Number` case to `ToTime`/`ToFloat64Timestamp` if W2 lands first (section 4).
+   subscription matches events sent with an offset (DB mode compares the wall clock today). C3 (C4 if the
+   enriched `timestamp` payload format changes); run the rails-go-parity subscription probe before and after.
+3. CANDIDATE: add a `json.Number` case to `ToTime`/`ToFloat64Timestamp` if W2 lands first (section 4).
 4. Optional sanity bound on epoch magnitude: `utils.ToTime("1741007009123")` (a ms epoch) succeeds today
-   with year 57140 (VERIFIED 2026-10-01 with a scratch module); a new DLQ cause = C3/C4 and an owner call.
+   with year 57140 (VERIFIED 2026-10-01 with a scratch module); a new DLQ cause = C4 and an owner call.

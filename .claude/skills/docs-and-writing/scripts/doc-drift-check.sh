@@ -139,9 +139,10 @@ E+=(sc11); sc11() { def SC-11 doc events-processor/Dockerfile.staging:22 "'bump 
     for f in events-processor/Dockerfile events-processor/Dockerfile.dev events-processor/Dockerfile.staging .github/workflows/events-processor-tests.yml; do
       has_e "$f" 'git checkout v[0-9]|LAGO_EXPRESSION_REF=v[0-9]|ref: v[0-9]' && n=$((n+1)); done
     [ "$n" -eq 4 ]; }; }
-E+=(sc12); sc12() { def SC-12 doc docs/dev_environment.md:154 "LAGO_CLICKHOUSE_ENABLED=false disables ClickHouse (.present? => enabled)"
+E+=(sc12); sc12() { def SC-12 doc docs/dev_environment.md:154 "LAGO_CLICKHOUSE_ENABLED=false disables ClickHouse (MIXED: .present? sites stay on, org creation turns off)"
   claim() { at_f docs/dev_environment.md 'LAGO_CLICKHOUSE_ENABLED=false'; }
-  truth() { api_f app/services/events/stores/store_factory.rb 'ENV["LAGO_CLICKHOUSE_ENABLED"].present?'; }; }
+  truth() { api_f app/services/events/stores/store_factory.rb 'ENV["LAGO_CLICKHOUSE_ENABLED"].present?' &&
+            api_f app/services/organizations/create_service.rb 'ActiveModel::Type::Boolean.new.cast(ENV["LAGO_CLICKHOUSE_ENABLED"])'; }; }
 E+=(sc13); sc13() { def SC-13 doc docs/dev_environment.md:158 "env files 'are not interpolated' (they are)"
   claim() { at_f docs/dev_environment.md 'files are not interpolated'; }
   truth() { has_f .env.development.default 'DATABASE_URL=postgresql://${POSTGRES_USER}' || return 1
@@ -161,7 +162,7 @@ E+=(sc14); sc14() { def SC-14 doc docs/dev_environment.md:97 "/etc/hosts list di
 E+=(sc15); sc15() { def SC-15 doc "docs/dev_environment.md (absent)" "never mentions the external volume lago_front_pnpm_store"
   claim() { ! has_f docs/dev_environment.md 'lago_front_pnpm_store'; }
   truth() { awk '/^  lago_front_pnpm_store:/{getline; if ($0 ~ /external: true/) f=1} END{exit !f}' "$R/docker-compose.dev.yml"; }; }
-E+=(sc16); sc16() { def SC-16 doc docs/dev_environment.md:277 "'Updating a reference': commit the gitlink and git push origin main (change-control N1, N2)"
+E+=(sc16); sc16() { def SC-16 doc docs/dev_environment.md:277 "'Updating a reference': commit the gitlink and git push origin main (change-control N1)"
   claim() { has_f docs/dev_environment.md 'git add api' && at_e docs/dev_environment.md '^git push origin main$'; }
   truth() { [ -n "$H" ] || { NEED="history clone"; return 2; }
     local s; s="$(git -C "$H" log -1 --format=%s ba292b6 2>/dev/null || true)"; grep -qF '(#792)' <<<"$s"; }; }
@@ -234,7 +235,7 @@ E+=(sc33); sc33() { def SC-33 doc connectors/README.md:20 "event format: numeric
   claim() { local b=0 first=""
     at_f connectors/README.md '"precise_total_amount_cents": 1000' && { b=$((b+1)); first="$LOC"; }
     has_f connectors/README.md 'organization_id' || { b=$((b+1)); first="${first:-connectors/README.md:8}"; }
-    awk '/^## Kinesis Connector/{f=1;next} /^## /{f=0} f && /ORGANIZATION_ID/{x=1} END{exit x}' "$R/connectors/README.md" && { b=$((b+1)); first="${first:-connectors/README.md:49}"; }
+    awk '/^## Kinesis Connector/{f=1;next} /^## /{f=0} f && /ORGANIZATION_ID/{x=1} END{exit x}' "$R/connectors/README.md" && { b=$((b+1)); first="${first:-connectors/README.md:54}"; }
     [ "$b" -gt 0 ] || return 1; LOC="$first"; MSG="$MSG ($b of 3 present)"; }
   truth() { has_e events-processor/models/event.go 'PreciseTotalAmountCents +string' &&
             has_f connectors/http.yml 'precise_total_amount_cents.type() == "number"' &&
@@ -261,6 +262,28 @@ E+=(sc38); sc38() { def SC-38 immutable "commit 5308258 message" "says lago-depl
   claim() { [ -n "$H" ] || { NEED="history clone"; return 2; }
     local m; m="$(git -C "$H" log -1 --format=%B 5308258 2>/dev/null || true)"; grep -qF 'AWS account id out of a public repository' <<<"$m"; }
   truth() { grep -qE '[0-9]{12}\.dkr\.ecr\.' "$R"/.github/workflows/*.y*ml 2>/dev/null; }; }
+
+E+=(sc39); sc39() { def SC-39 doc docs/dev_environment.md:290 "Mailpit catches dev mail, but lago-api sends to SMTP host mailhog:1025 (no such service or alias)"
+  claim() { at_f docs/dev_environment.md 'We rely on [Mailpit]' && ! has_f docs/dev_environment.md 'mailhog'; }
+  truth() { has_e docker-compose.dev.yml '^  mailpit:' && ! has_f docker-compose.dev.yml 'mailhog' &&
+            api_f config/environments/development.rb 'address: "mailhog"'; }; }
+E+=(sc40); sc40() { def SC-40 doc connectors/README.md:31 "documents LOG_LEVEL, which no connector config reads"
+  claim() { at_f connectors/README.md '|LOG_LEVEL|'; }
+  truth() { ! grep -qF 'LOG_LEVEL' "$R"/connectors/*.yml "$R/connectors/Dockerfile" 2>/dev/null; }; }
+E+=(sc41); sc41() { def SC-41 doc README.md:190 "Prometheus metrics 'for APIs, queues, workers, events, billing, webhooks, and dependencies' (lago-api: requests+Puma; Sidekiq only with LAGO_SIDEKIQ_WEB; EP none)"
+  claim() { at_f README.md 'Prometheus metrics for APIs, queues, workers, events, billing, webhooks'; }
+  truth() { [ -n "$API" ] || { NEED="pinned lago-api"; return 2; }
+    api_f config/routes.rb 'mount Yabeda::Prometheus::Exporter, at: "/metrics"' &&
+    ! grep -rqF 'Yabeda.' "$API/app" "$API/lib" 2>/dev/null &&
+    ! grep -rqE 'ListenAndServe|promhttp' --include='*.go' "$R/events-processor"; }; }
+E+=(sc42); sc42() { def SC-42 doc docs/database_partitioning.md:84 "retroactive steps: step 4 index names collide with the renamed table's; step 3 PRIMARY KEY absent from the schema"
+  claim() { local b=0 first=""
+    if has_f docs/database_partitioning.md 'RENAME TO enriched_events_old' && ! has_e docs/database_partitioning.md '(DROP|ALTER) INDEX'; then
+      at_f docs/database_partitioning.md 'CREATE INDEX idx_billing_on_enriched_events' && { b=$((b+1)); first="$LOC"; }; fi
+    at_e docs/database_partitioning.md '^ +PRIMARY KEY \(id, "timestamp"\)' && { b=$((b+1)); first="${first:-$LOC}"; }
+    [ "$b" -gt 0 ] || return 1; LOC="$first"; MSG="$MSG ($b of 2 present)"; }
+  truth() { api_f db/migrate/20260109110146_create_enriched_events.rb 'name: "idx_billing_on_enriched_events"' || return $?
+    ! grep -qE 'enriched_events_pkey|enriched_events.*PRIMARY KEY' "$API/db/structure.sql"; }; }
 
 # ---- evaluate -----------------------------------------------------------------------------
 n_STALE=0 n_PASS=0 n_RECHECK=0 n_OPEN=0 n_KNOWN=0 n_SKIP=0 total=0

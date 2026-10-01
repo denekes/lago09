@@ -29,6 +29,9 @@
 # Exit: 0 no FAIL; 1 at least one FAIL; 2 usage error; 3 could not read a source (network / sha).
 set -euo pipefail
 export GIT_TERMINAL_PROMPT="${GIT_TERMINAL_PROMPT:-0}"
+# No auto-gc / auto-maintenance in the shared history clone while lazy blob fetches add objects
+# (other agents may be reading it): every git call on a clone goes through gitc.
+gitc() { git -c gc.auto=0 -c maintenance.auto=false -C "$@"; }
 ref=""; offline=0
 need() { [ -n "$2" ] || { echo "single-image-pins: $1" >&2; exit 2; }; }   # missing option value = usage error
 while [ $# -gt 0 ]; do
@@ -40,7 +43,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo="$(git rev-parse --show-toplevel 2>/dev/null || git -C "$here" rev-parse --show-toplevel)"
+repo="$(git rev-parse --show-toplevel 2>/dev/null || gitc "$here" rev-parse --show-toplevel)"
 # Foundation scripts: next to THIS script first (works on a release branch cut from a main
 # that does not carry .claude/skills), else in the checkout being audited.
 rm_dir="$(cd "$here/../.." && pwd)/research-methodology/scripts"
@@ -56,8 +59,8 @@ info() { printf 'INFO  %-8s %s\n' "$1" "$2"; }
 if [ -z "$ref" ]; then
   src="working tree + index"
   rd() { cat "$repo/$1"; }
-  api_sha="$(git -C "$repo" ls-files -s api | awk '{print $2}')"
-  front_sha="$(git -C "$repo" ls-files -s front | awk '{print $2}')"
+  api_sha="$(gitc "$repo" ls-files -s api | awk '{print $2}')"
+  front_sha="$(gitc "$repo" ls-files -s front | awk '{print $2}')"
 else
   H="$("$rm_dir/history-setup.sh")"
   c=""
@@ -67,13 +70,13 @@ else
     c="$(awk '/\^\{\}$/ {p=$1} !/\^\{\}$/ {t=$1} END {print (p!="")?p:t}' <<<"$lr")"
     [ -n "$c" ] || { echo "single-image-pins: getlago/lago has no tag $ref" >&2; exit 2; }
   fi
-  if g="$repo" && git -C "$g" cat-file -e "${c:-$ref}^{commit}" 2>/dev/null; then :
-  elif g="$H" && git -C "$g" cat-file -e "${c:-$ref}^{commit}" 2>/dev/null; then :
+  if g="$repo" && gitc "$g" cat-file -e "${c:-$ref}^{commit}" 2>/dev/null; then :
+  elif g="$H" && gitc "$g" cat-file -e "${c:-$ref}^{commit}" 2>/dev/null; then :
   else echo "single-image-pins: cannot resolve $ref in the working or history clone" >&2; exit 2; fi
-  c="$(git -C "$g" rev-parse "${c:-$ref}^{commit}")"
+  c="$(gitc "$g" rev-parse "${c:-$ref}^{commit}")"
   src="$ref (${c:0:7})"
-  rd() { git -C "$g" show "$c:$1"; }
-  api_sha="$(git -C "$g" rev-parse "$c:api")"; front_sha="$(git -C "$g" rev-parse "$c:front")"
+  rd() { gitc "$g" show "$c:$1"; }
+  api_sha="$(gitc "$g" rev-parse "$c:api")"; front_sha="$(gitc "$g" rev-parse "$c:front")"
 fi
 API="$("$pco" api "$api_sha")" || { echo "single-image-pins: cannot check out lago-api@$api_sha" >&2; exit 3; }
 FRONT="$("$pco" front "$front_sha")" || { echo "single-image-pins: cannot check out lago-front@$front_sha" >&2; exit 3; }

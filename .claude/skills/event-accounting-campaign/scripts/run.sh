@@ -5,20 +5,29 @@
 #
 # Usage (from anywhere inside the lago repo):
 #   .claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe [-case A,B] [-list] [-db-url URL] [-timeout 20s] [-v]
-#   .claude/skills/event-accounting-campaign/scripts/run.sh value-corpus [-mode all|value|time] [-ruby] [-ch-bin PATH] [-fail-on-mismatch] [-v]
+#   .claude/skills/event-accounting-campaign/scripts/run.sh value-corpus [-mode all|value|time] [-ruby] [-ch-bin PATH] [-value JSON]... [-fail-on-mismatch] [-v]
 #   .claude/skills/event-accounting-campaign/scripts/run.sh --check      # go vet + gofmt -l + franz-go pin check
 #
 #   accounting-probe  kfake fault matrix through the REAL consumer group + processor (DB mode,
 #                     needs Postgres at DATABASE_URL, default postgres://lago:lago@localhost:5432/lago,
 #                     role with CREATEDB; a throwaway database is created and dropped)
 #   value-corpus      golden property corpus through the REAL unmarshal + EnrichEvent; Rails/PG
-#                     expected column; ClickHouse Decimal(38,26) emulation; utils.ToTime ms count
+#                     expected column; ClickHouse Decimal(38,26) emulation; utils.ToTime ms count;
+#                     -value (repeatable, needs ruby) triages one customer value instead of the corpus
 #
 # How it stays read-only: go.mod/go.sum are copied to a mktemp dir and passed with
 # -modfile=<tmp>/go.mod -mod=mod (a dependency bump in events-processor/go.mod is absorbed
 # in the temp copy); the binary is built in that temp dir and executed directly (not
 # `go run`, which turns every non-zero exit into 1); the temp dir is removed on exit.
 # The CGO env (libexpression_go) comes from build-and-env's ep-env.sh.
+#
+# Evaluate a candidate change (yours or a reviewed PR's) without editing the repo:
+# write the patched file to a temp dir and pass a `go build -overlay` map through GOFLAGS:
+#   d=$(mktemp -d); cp events-processor/config/kafka/consumer.go "$d/"   # then edit "$d/consumer.go"
+#   printf '{"Replace":{"%s":"%s"}}\n' "$PWD/events-processor/config/kafka/consumer.go" "$d/consumer.go" >"$d/overlay.json"
+#   GOFLAGS=-overlay="$d/overlay.json" .claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe
+# (from the repo root; absolute paths in the map). Verified 2026-10-01: "commit every record"
+# (the findMaxCommitableRecord branch made unreachable) -> UNACCOUNTED 5 -> 7, exit 7.
 #
 # Exit codes: the probe's own exit code (accounting-probe: 0 all accounted, 1..99 =
 #             UNACCOUNTED rows, 100 setup error; value-corpus: 0, 1 = mismatches with
@@ -30,8 +39,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 probe="${1:-}"
 case "$probe" in
   accounting-probe|value-corpus|--check) ;;
-  -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
-  "") sed -n '2,26p' "$0" >&2; exit 2 ;;
+  -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
+  "") sed -n '2,35p' "$0" >&2; exit 2 ;;
   *) echo "run.sh: unknown probe '$probe' (accounting-probe|value-corpus|--check)" >&2; exit 2 ;;
 esac
 shift

@@ -5,7 +5,7 @@ tables, ClickHouse tables, logs, Sentry, DLQ, volumes, ports/hosts) or where to 
 Topic names below are the dev defaults from `.env.development.default:77-90`; self-host compose files
 (root, deploy/, all-in-one) run NO Kafka, ClickHouse or events-processor at all. `$API` = pinned lago-api
 checkout (`.claude/skills/research-methodology/scripts/pinned-checkout.sh api`, 591ae90).
-Verified 2026-10-01.
+Verified 2026-10-01; code facts as of 5308258 (events-processor tree 83e012866f29).
 
 ## 1. Kafka / Redpanda topics (dev: created by `redpandacreatetopics`, docker-compose.dev.yml:398-405)
 
@@ -62,7 +62,10 @@ list and topic are baked into the DDL from ENV at migration time) â†’ `<x>_mv` â
 | `activity_logs`, `api_logs`, `security_logs` | MergeTree families | same-name topics |
 
 Duplicates: re-emitted enriched rows with the same ORDER BY key collapse only at merge time
-(ReplacingMergeTree); DLQ rows never collapse (MergeTree).
+(ReplacingMergeTree); billing reads them with `FINAL` only for orgs with `clickhouse_deduplication_enabled`
+(default false; `$API/app/services/billable_metrics/aggregations/base_service.rb:161-169`;
+`architecture-contract` I12), so before a merge duplicates can double-count. DLQ rows never collapse
+(MergeTree).
 
 ## 5. Logs and error reporting
 

@@ -9,7 +9,14 @@
 // Usage (no CGO needed for this driver; the binary itself needs
 // LD_LIBRARY_PATH to find libexpression_go.so, which is passed through):
 //
-//	smoke -bin PATH -db-url URL [-mode db|cache|cache-cdc] [-log FILE] [-expected FILE] [-timeout 30s]
+//	smoke -bin PATH -db-url URL [-mode db|cache|cache-cdc] [-log FILE] [-expected FILE] [-timeout 30s] [-env K=V ...]
+//
+// -env (repeatable) appends K=V to the binary's fixed environment; a later
+// entry overrides an earlier one (os/exec keeps the last duplicate), so it can
+// add a new variable or override a default (K= sets it empty). Use it to prove
+// a new events-processor variable is wired end to end. If the binary exits
+// before committing (e.g. a startup panic), the result block says
+// exit_before_sigterm=... instead of waiting for -timeout.
 //
 // The database must contain ../../fixtures/smoke-schema.sql (smoke-binary.sh
 // does this with scratch-pg.sh). In cache modes the binary snapshots it at startup.
@@ -83,6 +90,18 @@ func cases() []tc {
 	}
 }
 
+// envList is a repeatable -env K=V flag.
+type envList []string
+
+func (e *envList) String() string { return strings.Join(*e, " ") }
+func (e *envList) Set(v string) error {
+	if !strings.Contains(v, "=") || strings.HasPrefix(v, "=") {
+		return fmt.Errorf("want K=V, got %q", v)
+	}
+	*e = append(*e, v)
+	return nil
+}
+
 type disp struct {
 	enriched, inAdvance bool
 	value, sub, dlq     string
@@ -95,12 +114,14 @@ func main() {
 	logPath := flag.String("log", "", "write the binary's stdout/stderr here (default: a temp file)")
 	expected := flag.String("expected", "", "compare the observed result block with this file")
 	timeout := flag.Duration("timeout", 30*time.Second, "max wait for the committed offset to reach the number of events")
+	var extra envList
+	flag.Var(&extra, "env", "extra K=V for the binary's environment (repeatable; overrides the defaults)")
 	flag.Parse()
 	if *bin == "" || *dbURL == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
-	code, err := run(*bin, *mode, *dbURL, *logPath, *expected, *timeout)
+	code, err := run(*bin, *mode, *dbURL, *logPath, *expected, *timeout, extra)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "smoke: setup error:", err)
 		os.Exit(2)
@@ -108,7 +129,7 @@ func main() {
 	os.Exit(code)
 }
 
-func run(bin, mode, dbURL, logPath, expectedPath string, timeout time.Duration) (int, error) {
+func run(bin, mode, dbURL, logPath, expectedPath string, timeout time.Duration, extra []string) (int, error) {
 	ctx := context.Background()
 	topics := []string{raw, enriched, inAdvance, dlq}
 	for _, t := range []string{"billable_metrics", "subscriptions", "charges", "billable_metric_filters", "charge_filters", "charge_filter_values"} {
@@ -166,6 +187,7 @@ func run(bin, mode, dbURL, logPath, expectedPath string, timeout time.Duration) 
 	} else if mode != "db" {
 		return 0, fmt.Errorf("unknown -mode %q", mode)
 	}
+	env = append(env, extra...)
 	cmd := exec.Command(bin)
 	cmd.Env = env
 	cmd.Stdout, cmd.Stderr = lf, lf
@@ -186,7 +208,26 @@ func run(bin, mode, dbURL, logPath, expectedPath string, timeout time.Duration) 
 		return 0, err
 	}
 	gid := group + "_" + raw
-	committed, werr := cl.WaitCommitted(ctx, gid, raw, 0, int64(len(cs)), timeout)
+	type waitResult struct {
+		at  int64
+		err error
+	}
+	waited := make(chan waitResult, 1)
+	go func() {
+		at, err := cl.WaitCommitted(ctx, gid, raw, 0, int64(len(cs)), timeout)
+		waited <- waitResult{at, err}
+	}()
+	var committed int64
+	var werr, earlyExit error
+	exitedEarly := false
+	select {
+	case r := <-waited:
+		committed, werr = r.at, r.err
+	case earlyExit = <-exited: // the binary stopped on its own (startup panic, crash)
+		exitedEarly = true
+		committed, _ = cl.Committed(ctx, gid, raw, 0)
+		werr = fmt.Errorf("binary exited before committing %d records: %v", len(cs), earlyExit)
+	}
 	if werr != nil {
 		fmt.Println("WARN", werr)
 	}
@@ -244,14 +285,18 @@ func run(bin, mode, dbURL, logPath, expectedPath string, timeout time.Duration) 
 	groups, _ := cl.Groups(ctx)
 	sort.Strings(groups)
 
-	_ = cmd.Process.Signal(syscall.SIGTERM)
 	exitLine := ""
-	select {
-	case err := <-exited:
-		exitLine = fmt.Sprintf("exit_after_sigterm=%v", err)
-	case <-time.After(20 * time.Second):
-		_ = cmd.Process.Kill()
-		exitLine = "exit_after_sigterm=TIMEOUT(killed after 20s)"
+	if exitedEarly {
+		exitLine = fmt.Sprintf("exit_before_sigterm=%v", earlyExit)
+	} else {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case err := <-exited:
+			exitLine = fmt.Sprintf("exit_after_sigterm=%v", err)
+		case <-time.After(20 * time.Second):
+			_ = cmd.Process.Kill()
+			exitLine = "exit_after_sigterm=TIMEOUT(killed after 20s)"
+		}
 	}
 	uptime := time.Since(started).Round(100 * time.Millisecond)
 

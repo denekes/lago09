@@ -1,8 +1,9 @@
 # Docs of record: inventory
 
 Read this when you need to know which doc to trust, who last touched it, or where a fact should be
-written down. Facts as of 2026-10-01: repo HEAD `5308258` (+ skills-only `08065ef`), history clone
-`$H` (776 commits), lago-api at the pinned `591ae90` (`$API`).
+written down. Facts as of 2026-10-01. Code facts as of `5308258` (events-processor tree
+`83e012866f29`); the working branch may carry skills-only commits on top. History clone `$H` (776
+commits as of 2026-10-01); lago-api at the pin `591ae90` (2026-09-08, `$API`).
 
 ## Trust levels (used below)
 
@@ -25,7 +26,7 @@ CODEOWNERS, so no doc has a stated owner.
 
 | Doc | Lines | Purpose | Audience | Main authors (commits) | Last touched | Trust | Open entries |
 |---|---|---|---|---|---|---|---|
-| `README.md` | 262 | product pitch, agent entry points (`:49-68`), agentic demo (`:70-109`), self-host quickstart (`:217-229`), SDK list | evaluators, self-hosters, coding agents | Raffi Sarkissian 9, Vincent Pochet 7 (49 total) | 2026-09-17 `eb58675` | MKT overall. The quickstart is T1: `.github/workflows/docker-ci.yml:16-32` runs that shape on every push to main | SC-34 (`:106` wording) |
+| `README.md` | 262 | product pitch, agent entry points (`:49-68`), agentic demo (`:70-109`), self-host quickstart (`:217-229`), SDK list | evaluators, self-hosters, coding agents | Raffi Sarkissian 9, Vincent Pochet 7 (49 total) | 2026-09-17 `eb58675` | MKT overall. The quickstart is T1: `.github/workflows/docker-ci.yml:16-32` runs that shape on every push to main | SC-34 (`:106` wording), SC-41 (`:190` metrics) |
 | `CONTRIBUTING.md` | 213 | contribution process, commit style, labels | outside contributors | Vincent Pochet 4 (10 total) | 2025-09-16 `2002489` | T3 (process not practised) | SC-36 (OD-7), minor list |
 | `PULL_REQUEST_TEMPLATE.md` | 28 | PR checklist | PR authors | 3 authors, 1 each | 2025-09-16 `9946c06` | T3 | SC-35, SC-36 |
 | `CODE_OF_CONDUCT.md` | 128 | Contributor Covenant 2.0 (`:117-118`) | everyone | 1 commit | 2022-05-30 `f4b917a` | T1 (policy) | none |
@@ -33,12 +34,12 @@ CODEOWNERS, so no doc has a stated owner.
 | `.github/ISSUE_TEMPLATE/config.yml` | 8 | blank issues off; features go to Canny | reporters | 3 commits | 2023-02-28 `5d33210` | T1 | none |
 | `docs/architecture.md` | 548 | components, Sidekiq workers and queues, clock jobs, Redis, encryption, core flows, glossary | operators, engineers | Maxime Vidori 7, Vincent Pochet 3 (13 total) | 2026-09-01 `4230f1f` | T3 for semantics (retry, glossary, flows). T2 for the worker tables | SC-18 to SC-25 |
 | `docs/arch_diagram.png` | n/a | component diagram (`docs/architecture.md:28`) | everyone | 1 commit | 2025-09-26 `870d141` | T2 | SC-26 |
-| `docs/dev_environment.md` | 314 | contributor dev stack: clone, `lago` alias, TLS certs, hosts, env files, workers, tests, submodules, mail, webhooks | contributors | 4 authors, 1 each | 2026-09-03 `8f8334e` | T2 (the procedure works in principle) | SC-12 to SC-17 |
-| `docs/database_partitioning.md` | 251 | `enriched_events` pg_partman design, retroactive migration, maintenance | operators | Vincent Pochet 2 | 2026-02-12 `4cba248` | design T1. Retroactive steps T3 | SC-27, SC-28 |
+| `docs/dev_environment.md` | 314 | contributor dev stack: clone, `lago` alias, TLS certs, hosts, env files, workers, tests, submodules, mail, webhooks | contributors | 4 authors, 1 each | 2026-09-03 `8f8334e` | T2 (the procedure works in principle) | SC-12 to SC-17, SC-39 |
+| `docs/database_partitioning.md` | 251 | `enriched_events` pg_partman design, retroactive migration, maintenance | operators | Vincent Pochet 2 | 2026-02-12 `4cba248` | design T1. Retroactive steps T3 | SC-27, SC-28, SC-42 |
 | `docs/monitoring.md` | 349 | Sidekiq metrics, alert rules, Grafana | operators | Maxime Vidori 1 | 2026-01-12 `206646b` | T3. Metric names UNVERIFIED (no running exporter here) | SC-29, SC-23 |
 | `deploy/README.md` | 175 | self-host compose variants (local, light, production) and profiles | self-hosters | Jérémy Denquin 3, Maxime Vidori 2 | 2026-01-12 `206646b` | T3 (every start command fails as written) | SC-30. Its images are pinned at `v1.27.1`: see `release-and-images` |
 | `docker/README.md` | 74 | all-in-one image (testing and staging only, `:5`) | evaluators | Jérémy Denquin 3 | 2025-05-22 `dc7b513` | T2 | SC-32 |
-| `connectors/README.md` | 84 | Redpanda Connect ingest connectors (SQS, Kinesis, HTTP): event format, env tables | integrators | Jérémy Denquin 2 | 2026-04-27 `a12752f` | T3 (its event format loses data) | SC-33 |
+| `connectors/README.md` | 84 | Redpanda Connect ingest connectors (SQS, Kinesis, HTTP): event format, env tables | integrators | Jérémy Denquin 2 | 2026-04-27 `a12752f` | T3 (its event format loses data) | SC-33, SC-40 |
 | `events-processor/README.md` | 68 | events-processor run, test and env tables | EP developers, operators | Vincent Pochet 3, Jérémy Denquin 3 (8 total, incl. the pre-rename path) | 2026-09-18 `d9c32b6` | T3 | SC-02 to SC-10 |
 | `extra/kafka-connect/clickhouse-kafka-connect-v1.3.4/doc/README.md` | 42 | vendored connector docs | n/a | 1 commit | 2025-11-25 `d7355a6` | EXT | n/a |
 | `docs/images/*.png` | n/a | README marketing images | evaluators | `530a0f3` (#775) | 2026-08-18 | MKT | n/a |

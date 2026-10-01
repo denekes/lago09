@@ -19,13 +19,14 @@
 #   SOCK   DOCKER-SOCK <file:line>                  docker.sock mounted or used (root-equivalent on host)
 #   SUMMARY ...
 # Exit codes: 0 scan done; 1 --fail-on-latest and at least one LATEST/NO-TAG image or AT-LATEST/
-#   VERSION-LATEST tool; 2 usage.
+#   VERSION-LATEST tool; 2 usage (unknown option or missing option value).
 set -euo pipefail
 
 REPO=""; SUMMARY_ONLY=0; FAIL_LATEST=0
+need() { [ -n "$2" ] || { echo "$1" >&2; exit 2; }; }   # missing option value = usage (exit 2), never exit 1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo) REPO="${2:?}"; shift 2 ;;
+    --repo) need "--repo needs a directory" "${2:-}"; REPO="$2"; shift 2 ;;
     --summary) SUMMARY_ONLY=1; shift ;;
     --fail-on-latest) FAIL_LATEST=1; shift ;;
     -h|--help) sed -n '2,22p' "$0"; exit 0 ;;

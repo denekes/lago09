@@ -3,8 +3,10 @@
 Read this when you audit or harden a self-host plane (root `docker-compose.yml`, `deploy/*`,
 the all-in-one `getlago/lago` image), or when you review a C6/C7 change to any of them.
 
-All rows were checked on 2026-10-01 against HEAD (code at `5308258`) and lago-api at the
-pinned SHA `591ae90` (`$API` = `pinned-checkout.sh api`). Line numbers are repo-relative.
+Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
+skills-only commits on top. lago-api at the pinned SHA `591ae90` (2026-09-08; `$API` = `pinned-checkout.sh api`).
+All rows checked 2026-10-01. Line numbers are repo-relative. Row ids SD1-SD13 are in SKILL.md
+section 1.
 "Inferred" means it follows from the cited lines but was not exercised (no Docker daemon here).
 
 ## 1. Planes
@@ -88,9 +90,9 @@ Run `scripts/secret-defaults-scan.sh` to regenerate sections 2 and 3 (counts in 
   (inferred, not exercised; dev only).
 - Run `scripts/sidekiq-web-exposure.sh` for the per-plane verdict.
 
-OPEN question for the owner (route via change-control): should `LAGO_SIDEKIQ_WEB` default to
-`false` in self-host files, or is an upstream auth layer expected? Nothing in this repo or the
-pinned lago-api provides one.
+OPEN DECISION OD-16 (owner; register in change-control section 9): should `LAGO_SIDEKIQ_WEB`
+default to `false` in self-host files, or is an upstream auth layer expected? Nothing in this repo
+or the pinned lago-api provides one.
 
 ## 5. TLS certificates and telemetry
 

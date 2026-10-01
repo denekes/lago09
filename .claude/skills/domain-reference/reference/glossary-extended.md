@@ -2,7 +2,8 @@
 
 Read this when a term is not in SKILL.md section 2: filter internals, caches, re-enrichment, flags,
 dev seed data. Same conventions as SKILL.md (`$API` = pinned lago-api checkout; every `path:line` is
-asserted by `scripts/lifecycle-check.sh`). Verified 2026-10-01.
+asserted by `scripts/lifecycle-check.sh`). Verified 2026-10-01 (events-processor `5308258`, lago-api at the
+pin `591ae90`).
 
 ## Charge filters at billing time
 
@@ -38,7 +39,7 @@ asserted by `scripts/lifecycle-check.sh`). Verified 2026-10-01.
 | `events_charged_in_advance` | Topic Go writes for CH-store pay-in-advance events; consumed by Rails Karafka. | `events-processor/processors/events_processor/processor.go:123`, `$API/karafka.rb:51` |
 | `events_enriched_expanded` | Per-charge/filter fan-out table. No longer fed by Go (`d9c32b6`), still read by the pinned Rails through `ClickhouseEnrichedStore`. | `$API/app/services/events/stores/clickhouse_store.rb:133` |
 | `events_aggregated` | Former ClickHouse AggregatingMergeTree pre-aggregation; created in migration 20250814130828 and dropped in 20251202134733. | `$API/db/clickhouse_migrate/20251202134733_drop_events_aggregated.rb:9` |
-| Re-enrichment | Rails replays a subscription's `events_raw` rows (deduplicated with `LIMIT 1 BY transaction_id, timestamp`) to the raw topic, with `source: http_ruby` and `api_post_processed: true`. Properties come back as strings. | `$API/app/services/events/stores/clickhouse/re_enrich_subscription_events_service.rb:58`, `$API/app/services/events/stores/clickhouse/re_enrich_subscription_events_service.rb:89` |
+| Re-enrichment | Rails replays a subscription's `events_raw` rows (deduplicated with `LIMIT 1 BY transaction_id, timestamp`) to the raw topic, with `source: http_ruby` and `api_post_processed: true`. Properties come back as strings. It re-reads `events_raw`, not the DLQ: no DLQ replay tool exists (a manual re-feed is CANDIDATE, OPEN DECISION OD-2 (owner)). | `$API/app/services/events/stores/clickhouse/re_enrich_subscription_events_service.rb:58`, `$API/app/services/events/stores/clickhouse/re_enrich_subscription_events_service.rb:89` |
 | Post-validation | Hourly Rails job that scans the last hour of PG events and, for orgs with a webhook endpoint, sends an `events.errors` webhook (unknown code, missing or non-numeric property, invalid filter values). Disabled by `LAGO_DISABLE_EVENTS_VALIDATION`. CH-store events are not in Postgres, so they are never post-validated (code-read). | `$API/clock.rb:176`, `$API/app/jobs/clock/events_validation_job.rb:20` |
 | Events DB role | PG `Event` rows live behind the `events` connection role (same database URL unless configured otherwise). | `$API/app/models/events_record.rb:6` |
 | Debezium CDC | Postgres logical-replication stream that feeds Go's memory cache in `LAGO_USE_MEMORY_CACHE=true` mode. The repo config lacks `recurring` and `pay_in_advance` columns. Production use: OPEN DECISION OD-1 (owner). Details: `architecture-contract`. | `extra/debezium_config.json:2` |

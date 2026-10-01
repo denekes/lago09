@@ -17,7 +17,8 @@ done
 ```
 Output: `v1.47.0 200`, `v1.48.0 404`, `v1.49.0 404`, `v1.50.0 404`, `v1.51.0 200`, `v1.53.0 200`.
 The 404 body is `{"message":"httperror 404: tag 'v1.48.0' not found",…}`. The same three tags return
-200 for `getlago/lago-events-processor`.
+200 for `getlago/lago-events-processor`. This loop shows the method; the full list of `getlago/lago`
+tags never published (as of 2026-10-01) is owned by the `release-and-images` skill.
 
 ```bash
 curl -s https://hub.docker.com/v2/repositories/getlago/lago/tags/v1.53.0 \

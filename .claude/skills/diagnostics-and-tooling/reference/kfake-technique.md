@@ -2,7 +2,8 @@
 
 Read when you need to observe what the real consumer group, commit logic or processor does with
 specific records, or when you build a new scenario (including the event-accounting-campaign ledger).
-Facts verified 2026-10-01 against HEAD 5308258 unless marked.
+Facts verified 2026-10-01 unless marked. Code facts as of 5308258 (events-processor tree 83e012866f29);
+the working branch may carry skills-only commits on top.
 
 ## 1. Why kfake
 
@@ -30,6 +31,7 @@ kfake has **no tags**; you depend on a pseudo-version. events-processor pins fra
 |---|---|
 | `go get github.com/twmb/franz-go/pkg/kfake@latest` | resolves `v0.0.0-20260927204940-b5a45ccfdf7e`, which requires franz-go v1.21.7 and `go 1.26.0`. Go upgrades franz-go to v1.21.7 and kmsg to v1.14.0 (one `go: upgraded` line each, easy to miss) and switches to a go1.26.x toolchain: **you are now testing events-processor against a franz-go it does not ship with**. |
 | same, plus `replace github.com/twmb/franz-go => github.com/twmb/franz-go v1.20.5` | compile error: `18_api_versions.go:122:5: vs.EachSupportedFeature undefined (type *kversion.Versions has no field or method EachSupportedFeature)` (also `EachFinalizedFeature`). |
+| `go get github.com/twmb/franz-go/pkg/kfake@latest github.com/twmb/franz-go@v1.20.5` (both in one command) | refused, exit 1: `kfake@latest (v0.0.0-20260927204940-b5a45ccfdf7e) requires github.com/twmb/franz-go@v1.21.7, not github.com/twmb/franz-go@v1.20.5`. All three behaviours are current (re-run 2026-10-01). |
 | pin `github.com/twmb/franz-go/pkg/kfake v0.0.0-20251123185109-2b5c574e9ddd` (franz-go commit `2b5c574e9ddd`) | its go.mod requires franz-go v1.20.4, kadm v1.17.1, kmsg v1.12.0, `go 1.24.0`; minimal version selection keeps franz-go **v1.20.5**. No replace needed. **This is what `scripts/kfake-harness/go.mod` pins.** |
 
 Reproduce the failure (throwaway dir, ~25 s):
@@ -47,7 +49,8 @@ When events-processor bumps franz-go (done by hand so far: v1.20.3 -> v1.20.5 in
 `475761d` (#633)), re-pin kfake: pick the newest kfake
 pseudo-version whose go.mod requires a franz-go <= the new events-processor version
 (`go list -m -json github.com/twmb/franz-go/pkg/kfake@<commit>` then read its `GoMod` file), run
-`go mod tidy` in `scripts/kfake-harness/`, then `kfake-run.sh --check` and both demo scenarios.
+`go mod tidy` in `scripts/kfake-harness/`, then `kfake-run.sh --check` and both demo scenarios, then the
+dependent campaign module (section 7).
 
 ## 3. Module layout (`scripts/kfake-harness/`, module `lagoskills/kfakeharness`)
 
@@ -108,7 +111,9 @@ LAGO_KAFKA_BOOTSTRAP_SERVERS brokers=1 comma_joined=false: ConsumeChanges err=<n
 LAGO_KAFKA_BOOTSTRAP_SERVERS brokers=2 comma_joined=true: ConsumeChanges err=<nil>, CDC update visible in cache=false
 ```
 No ERROR log line is printed in the failing case (that silence is part of the measurement).
-What it means and who fixes it: `architecture-contract` (weak points) and `config-and-flags`.
+Meaning: `architecture-contract` WP10 (as-is weak point); the variable: `config-and-flags`. Fixing it is
+unowned: memory-cache hardening is owner question OPEN DECISION OD-20 (owner), next to OD-1; candidate
+future campaign (`event-accounting-campaign` excludes it).
 
 ## 5. Writing a new scenario (template)
 
@@ -152,8 +157,17 @@ Fault-injection hooks (building blocks only; the matrix is `event-accounting-cam
 
 ## 7. Handoff notes for event-accounting-campaign
 
-- Reuse `kfx`, `fixture` and `pipeline` as they are; add your ledger as `cmd/<name>` here, or in your
-  own module with `require lagoskills/kfakeharness v0.0.0` plus TWO replace directives:
+- **DEPENDENT (structural build dependency).** `event-accounting-campaign/scripts/go.mod` requires
+  `lagoskills/kfakeharness v0.0.0` through
+  `replace lagoskills/kfakeharness => ../../diagnostics-and-tooling/scripts/kfake-harness`, and its
+  `accounting-probe` and `value-corpus` import `kfx`, `fixture` (and `pipeline`). Renaming the module
+  `lagoskills/kfakeharness`, moving `scripts/kfake-harness/` or changing the exported API of
+  `kfx`/`fixture`/`pipeline` breaks them. After any such change, in the same PR run
+  `.claude/skills/event-accounting-campaign/scripts/run.sh --check` (go vet + gofmt + franz-go pin of that
+  module; expect `run.sh: check OK`) and the campaign's `scoreboard.sh`. After a kfake re-pin here, also run
+  `go mod tidy` in that module (its go.mod lists the same kfake pseudo-version as `// indirect`).
+- Reuse `kfx`, `fixture` and `pipeline` as they are; a new probe goes in a scenario `cmd/<name>` here or,
+  like the campaign, in its own module with `require lagoskills/kfakeharness v0.0.0` plus TWO replace directives:
   `replace lagoskills/kfakeharness => <relative path to scripts/kfake-harness>` and
   `replace github.com/getlago/lago/events-processor => <relative path to events-processor>`
   (Go ignores `replace` directives of dependencies, so the harness's own replace is not inherited),

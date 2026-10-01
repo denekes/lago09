@@ -10,8 +10,8 @@ API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)   # ap
 ```
 
 The pinned lago-api (`591ae90`, 2026-09-08) is **older** than events-processor HEAD
-(`5308258`, 2026-09-18). lago-api `main` may already differ. Reading it needs network access;
-see `research-methodology`.
+(`5308258`, 2026-09-18). lago-api `main` may already differ, so every drift claim says "at the
+pin `591ae90` (2026-09-08)". Reading it needs network access; see `research-methodology`.
 
 ## 1. Contract inventory (who writes, who reads)
 
@@ -29,7 +29,7 @@ All anchors were verified on 2026-10-01. The behaviour of each side is described
 | K7 | events-processor consumer group `<LAGO_KAFKA_CONSUMER_GROUP>_<topic>`; a new group starts at the **earliest** offset | ops / env | Kafka | `config/kafka/consumer.go:237` (franz-go v1.20.5 default reset `AtStart`, `pkg/kgo/config.go:578`) | n/a (ClickHouse uses `LAGO_KAFKA_CLICKHOUSE_CONSUMER_GROUP`) |
 | K8 | Rails table columns that Go selects explicitly | lago-api migrations | events-processor | `models/subscriptions.go:24,37` (`schema.Parse`, `Select`); `SelectFields` in `models/{billable_metrics,charges,charge_filters,charge_filter_values,billable_metric_filters}.go` | `$API/docs/dropping_columns_and_tables.md` (two-release drop) |
 | K9 | Debezium CDC column list (memory-cache mode only, OPEN DECISION OD-1 (owner)) | Postgres via Debezium, configured outside this repo | events-processor cache | `cache/*.go` topic suffixes `.public.<table>`; `main.go:24` | `extra/debezium_config.json:2,47` (reference config in this repo) |
-| K10 | Reusable image-build workflow interface | this repo | lago-front release at `@main` | `.github/workflows/docker-build-multi-arch.yaml` inputs | `$FRONT/.github/workflows/release.yml:13` (`FRONT=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh front)`) |
+| K10 | Reusable image-build workflow interface (unpinned caller: OPEN DECISION OD-14 (owner)) | this repo | lago-front release at `@main` | `.github/workflows/docker-build-multi-arch.yaml` inputs | `$FRONT/.github/workflows/release.yml:13` (`FRONT=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh front)`) |
 
 Facts that shape the protocol:
 
@@ -38,7 +38,10 @@ Facts that shape the protocol:
 - **Group names replay.** Renaming the topic or `LAGO_KAFKA_CONSUMER_GROUP` makes a new group,
   which replays the whole retained raw topic (K7).
 - **Replays duplicate.** Duplicates in `events_enriched` collapse only at merge time
-  (`ReplacingMergeTree(timestamp)`, `$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:6`).
+  (`ReplacingMergeTree(timestamp)`, `$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:6`),
+  or at query time with `FINAL`, which lago-api uses only for orgs with
+  `clickhouse_deduplication_enabled` (default false, `$API/app/models/organization.rb:348`;
+  gate at `$API/app/services/billable_metrics/aggregations/base_service.rb:168`).
 - **Extra fields are tolerated; the read fields are not.** The enriched queue reads only 8
   fields. The events-processor already sends more, and production ingests it (`d9c32b6` body:
   the queue "never read the charge columns"). Removing, renaming or retyping one of the 8 fields
@@ -70,6 +73,7 @@ Facts that shape the protocol:
      the lago-api spec asserts what it reads (spec conventions in `$API/AGENTS.md:206-243`).
 5. **Get sign-off.** The events-processor maintainer, the lago-api owner of the reader or writer,
    and the owner for any delivery-semantics part (N7, OD-2). Review routing is in SKILL.md.
+   If the PR changes no K-row, write "N6: not applicable because <reason>" instead of steps 2-6.
 6. **Deploy in this order: tolerant reader, then writer, then cleanup** (expand, migrate,
    contract).
 
@@ -98,8 +102,10 @@ Facts that shape the protocol:
 - **Irreversible steps only in cleanup:** column drops, topic deletion, ClickHouse DDL. Do them
   only after a full release cycle on the new path.
 - **The events-processor commits offsets.** A writer rollback does not re-emit records that
-  were already committed. If a bad format reached a topic, plan a replay: a new consumer group
-  from a timestamp offset (ops; `run-and-operate`) and accept duplicates.
+  were already committed. If a bad format reached a topic, plan a raw-topic replay: a new
+  consumer group from a timestamp offset (ops; `run-and-operate`) and accept duplicates. On a
+  shared or production cluster that is an owner call (OD-2) and C4. There is no DLQ replay tool:
+  a manual re-feed from the DLQ is CANDIDATE and needs OPEN DECISION OD-2 (owner).
 
 ## 4. Smells that mean "stop, this is C4"
 
@@ -107,9 +113,12 @@ Facts that shape the protocol:
   Example: `SUBSCRIPTION_BUCKET_DURATION` must equal Rails `SUBSCRIPTION_BUCKET_DURATION = 10`.
 - A JSON tag in `models/event.go` changes, or a field type changes. Example:
   `precise_total_amount_cents` is a `string` in Go (`models/event.go:18`), while
-  `connectors/http.yml:32-33` passes numbers through.
+  `connectors/http.yml:32-36` passes a JSON number through (Go then fails to unmarshal it:
+  committed, Sentry only) and maps any non-number to `"0"`. No value-preserving workaround
+  exists through the connectors; the fix is campaign W2 (`event-accounting-campaign`).
 - The `value` string formatting changes (`enrichment_service.go:114`). ClickHouse parses it with
-  `toDecimal128OrZero`. Fixing it is campaign work: `event-accounting-campaign`, OD-3.
+  `toDecimal128OrZero`. That is C3 + C4 (K4): paired lago-api PR (OD-4); a ClickHouse schema
+  change only via OD-3; campaign work in `event-accounting-campaign`.
 - Rails-side flags that change which side does the work: `pre_filter_events`,
   `lazy_charge_usage_cache`, `enriched_events_aggregation`. Their production state is OPEN
   DECISION OD-8 (owner). State "impact depends on OD-8".

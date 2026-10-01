@@ -1,8 +1,9 @@
 # W5 observability and production verification (Phases 1 and 6)
 
 Read when you design the Phase 1 signals, review a PR that adds them, or plan a production rollout and
-its verification (Phase 6). Facts verified 2026-10-01 against events-processor `5308258` and lago-api
-`591ae90` unless marked. Production itself is invisible from this repo: everything about production
+its verification (Phase 6). Code facts as of 5308258 (events-processor tree 83e012866f29); the working
+branch may carry skills-only commits on top; lago-api at the pin `591ae90` (2026-09-08). Verified 2026-10-01
+unless marked. Production itself is invisible from this repo: everything about production
 below is UNVERIFIED and routed to the owner.
 
 ## 1. What events-processor tells you today
@@ -16,7 +17,7 @@ below is UNVERIFIED and routed to the owner.
 | `error while pushing to dead letter topic` | `processors/events_processor/event_producer_service.go:71` | that the record was then committed (case 7) |
 | `Error when committing offets to kafka…` | `consumer.go:106` | — (not retried) |
 | Sentry events | `main.go:53`; `processor.go:70-72`; `event_producer_service.go:72`; `config/kafka/producer.go:65` | not-found failures are NonCapturable (ledger case 10: 0 captures) |
-| Kafka client metrics (kotel) | `config/kafka/kafka.go:42`, only with `TRACING_PROVIDER=opentelemetry` (`config/tracing/tracer.go:91`) and `KAFKA_TRACING_ENABLED=true` (`tracer.go:27,117`); meter provider set at `config/tracing/otel_tracer.go:183` | anything about dispositions; no consumer-lag-per-record view |
+| Kafka client metrics (kotel) | `config/kafka/kafka.go:42`, only with the OpenTelemetry provider (`TRACING_PROVIDER=opentelemetry`, or `TRACING_PROVIDER` unset/other with `OTEL_EXPORTER_OTLP_ENDPOINT` set and `DD_TRACE_ENABLED` not true: `config/tracing/tracer.go:87-102`) and `KAFKA_TRACING_ENABLED=true` (`tracer.go:27,117`); meter provider set at `config/tracing/otel_tracer.go:183` | anything about dispositions; no consumer-lag-per-record view |
 | HTTP health/metrics endpoint | none: `grep -rn 'ListenAndServe' --include=*.go events-processor` = 0 hits | — |
 
 ## 2. Phase 1 signal spec (CANDIDATE)
@@ -25,6 +26,7 @@ One disposition per raw record, emitted where the decision is made (`processor.g
 `event_producer_service.go:60-90`), plus one line per batch where the commit is decided
 (`consumer.go:89-108`):
 
+<!-- evidence-check: off design spec (CANDIDATE), not claims -->
 | Name (log field `disposition` / counter label) | Emitted when | Ledger case that must show it |
 |---|---|---|
 | `enriched` | enriched produce succeeded | neighbours, sentinels |
@@ -35,7 +37,6 @@ One disposition per raw record, emitted where the decision is made (`processor.g
 | `enriched_push_failed` | enriched produce failed (then `dlq`) | 6 |
 | batch line: `batch_size`, `processed`, `withheld`, `commit_offset` or `commit_skipped` | per `processRecordsAndCommit` | all |
 
-<!-- evidence-check: off design spec (CANDIDATE), not claims -->
 Rules for the implementation:
 - Fields: `topic`, `partition`, `offset`, `error_code`, `transaction_id`; never the event JSON or
   properties (PII; the DLQ already embeds it: see `security-and-supply-chain`).
@@ -68,7 +69,8 @@ GROUP BY r.organization_id ORDER BY r.organization_id;
 - VERIFIED only for syntax and semantics on `clickhouse local` 26.2.19.43 with synthetic tables (same
   column names and types as the migrations; rows: o1 a enriched, o1 b DLQ, o1 c missing, o2 a missing):
   output `o1 1 ['c']` and `o2 1 ['a']`. Re-run: create the three tables and rows in a `--queries-file`
-  and run `clickhouse local --multiquery --queries-file <file> </dev/null` (without `</dev/null` it waits on stdin).
+  and run `"$(.claude/skills/diagnostics-and-tooling/scripts/ch-local.sh --path)" local --multiquery --queries-file <file> </dev/null`
+  (without `</dev/null` it waits on stdin).
 - Not run against production. Cost on large tables UNVERIFIED: start with one organization and one hour.
 - Connector blind spot (VERIFIED 2026-10-01 on `clickhouse local` 26.2.19.43 and 26.2.9.9, JSONEachRow
   with the `events_raw_queue` column types): connectors send `ingested_at` as an integer of Unix seconds

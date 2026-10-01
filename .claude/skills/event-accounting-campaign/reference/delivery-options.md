@@ -2,8 +2,9 @@
 
 Read when you prepare Phase 4: the ADR, the owner question OPEN DECISION OD-2 (owner), or a review of any
 change to `events-processor/config/kafka/consumer.go` or the disposition block of `processor.go`.
-Facts verified 2026-10-01 against events-processor `5308258`, franz-go v1.20.5 (module cache source),
-lago-api `591ae90`. Nothing in this file is implemented; every option is a CANDIDATE.
+Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only
+commits on top. franz-go v1.20.5 (module cache source); lago-api at the pin `591ae90` (2026-09-08).
+Verified 2026-10-01. Nothing in this file is implemented; every option is a CANDIDATE.
 
 ## 1. The mechanism (measured: ledger cases 1, 2, 8)
 
@@ -35,25 +36,27 @@ and the record is still committed.
 | Produce is synchronous with unbounded retries | `config/kafka/producer.go:62`; franz-go `recordRetries: math.MaxInt64` (`config.go:563`); events-processor sets no producer retry/timeout option (`config/kafka/producer.go:33-35`) | a broker outage blocks (does not lose); only non-retriable broker errors (ledger case 6) and, by franz-go's defaults, a topic that stays UNKNOWN_TOPIC_OR_PARTITION after 4 tries (`maxUnknownFailures: 4`, `config.go:564`; code-read, not probed) reach the DLQ path |
 | 12 h horizon from `ingested_at` | `processor.go:74`; zero `ingested_at` = immediate DLQ | measured in case 3. Raising it changes nothing in case 1 (the record is never re-polled). Whether 12 h is a product rule: OD-2 |
 | `SetOffsets` caveats | `franz-go@v1.20.5/pkg/kgo/consumer.go:665-681`: with group consuming, call it "outside of the context of a PollFetches loop", not concurrent with revokes or commits | a seek-back cannot be issued from a partition goroutine as the code is structured today |
-| History | chain `4100da0` -> `cec0eb2` (#502) -> `600e195` (#628) -> `b6d3616` (#608) -> `9acd83e` (#735, ING-15 "segfaulting the pod inside franz-go") | change-control N7: kfake test + ADR + owner sign-off before any change here |
+| History | chain A (`failure-archaeology`): `4100da0` (#474, committed every record, DLQ'd every failure) -> `cec0eb2` (#502, withhold retryable failures) -> `656c829` (#511) -> `600e195` (#628, introduced an infinite poll loop) -> `b604769` (#629, hotfix 3 days later) -> `b6d3616` (#608) -> `9acd83e` (#735, ING-15 "segfaulting the pod inside franz-go") | change-control N7: kfake test + ADR + owner sign-off before any change here. Going back to "commit every record" turns REDELIVERED into LOST (ledger UNACCOUNTED 5 -> 7, measured with a build overlay: SKILL.md Phase 4) |
 
 ## 3. Ranked solution menu (CANDIDATE; the choice is OPEN DECISION OD-2 (owner))
 
 | Rank | Option | How | Ledger target (what the probe must show after) | Pros | Cons / risks | Class |
 |---|---|---|---|---|---|---|
-| 1 (recommended default) | **In-process bounded retry, then DLQ** | retry only the failed step (BM, subscription, pay-in-advance lookup, Redis flag) N times with capped backoff inside `processEvent`; on exhaustion DLQ with a distinct cause (e.g. `retry_exhausted:<code>`) and commit | case 1 -> ENRICHED (blip shorter than the budget) or DLQ; case 8 -> ENRICHED with flag; nothing withheld, so no LOST by construction | `processRecordsAndCommit` untouched (chain A risk avoided); small diff; accounted by construction; bounded latency | a long outage turns into DLQ volume, and the pinned lago-api has no DLQ replay (only `$API/app/models/clickhouse/events_dead_letter.rb` reads it): ship a replay runbook/tool in the same campaign; total backoff must stay far below the 60 s rebalance timeout; the 12 h intent becomes seconds-to-minutes | C4 |
+| 1 (recommended default) | **In-process bounded retry, then DLQ** | retry only the failed step (BM, subscription, pay-in-advance lookup, Redis flag) N times with capped backoff inside `processEvent`; on exhaustion DLQ with a distinct cause (e.g. `retry_exhausted:<code>`) and commit | case 1 -> ENRICHED (blip shorter than the budget) or DLQ; case 8 -> ENRICHED with flag; nothing withheld, so no LOST by construction | `processRecordsAndCommit` untouched (chain A risk avoided); small diff; accounted by construction; bounded latency | a long outage turns into DLQ volume, and no DLQ replay tool exists (at the pin only `$API/app/models/clickhouse/events_dead_letter.rb` reads the DLQ; `rake events:reprocess` is re-enrichment, not DLQ replay): a manual re-feed is CANDIDATE and needs OPEN DECISION OD-2 (owner), so ship it in the same campaign; total backoff must stay far below the 60 s rebalance timeout; the 12 h intent becomes seconds-to-minutes | C4 |
 | 2 | **Retry topic with bounded attempts, then DLQ** | on retryable failure produce the raw record to a retry topic (attempt count + not-before in headers) and commit; a second consumer group in the same binary re-processes after the delay; after N attempts or 12 h -> DLQ | case 1 -> REDELIVERED via retry topic; case 7 -> retry-topic, never SENTRY_ONLY if the retry produce must succeed before commit | never blocks the main partition; keeps a long (12 h) horizon; commit rule stays "commit once the record is on exactly one topic" | new topic = new contract: dev topic list (`docker-compose.dev.yml:398-405`, `.env.development.default:78-86`), production provisioning outside this repo (invisible from here), deploy order (topic before binary); reordering of retried events (enrichment is per event; impact on Rails consumers UNVERIFIED); most code | C4 + C6 |
 | 3 | **Seek back / pause the partition** | on a withheld record, commit the prefix, then rewind the fetch position to it (`SetOffsets`, `franz-go@v1.20.5/pkg/kgo/consumer.go:682`) and pause the partition with backoff (`PauseFetchPartitions` `:617` / `ResumeFetchPartitions` `:651`), coordinated through the poll loop | case 1 -> REDELIVERED; per-partition order kept | no new topic; keeps today's intent (retry until 12 h) | head-of-line blocking up to 12 h behind one record; must drop already-fetched records of that partition; `SetOffsets` caveats (section 2); re-processes successful records behind the failed one (duplicates); touches exactly the code of chain A | C4 |
-| 4 | **Commit and DLQ immediately** | treat every failure as non-retryable | case 1 -> DLQ; case 8 would become ENRICHED+DLQ (predicted, not run) | trivial; accounted | every transient blip becomes DLQ volume with no replay tool; case 8 would double-account (enriched AND DLQ) unless side effects are reordered | C4 |
+| 4 | **Commit and DLQ immediately** | treat every failure as non-retryable | case 1 -> DLQ; case 8 would become ENRICHED+DLQ (predicted, not run) | trivial; accounted | every transient blip becomes DLQ volume and no DLQ replay tool exists; case 8 would double-account (enriched AND DLQ) unless side effects are reordered | C4 |
 
 Decision guide for the owner (OD-2), to put in the ADR:
+<!-- evidence-check: off decision guide (owner input), not claims -->
 
 | If the owner says | Pick |
 |---|---|
-| "Retry for minutes is enough; DLQ + replay is acceptable" | 1 |
+| "Retry for minutes is enough; DLQ + a manual re-feed (to be built) is acceptable" | 1 |
 | "The 12 h horizon is a product requirement" and new topics are acceptable | 2 |
 | "12 h, no new topics, per-partition order matters" | 3 (accept the blocking risk explicitly) |
-| "Never retry" | 4, plus a replay tool first |
+| "Never retry" | 4, plus a DLQ re-feed tool first (none exists) |
+<!-- evidence-check: on -->
 
 Independent of OD-2 (still C4, still change-control N7):
 - Do NOT turn the DLQ-produce failure (case 7) into "withhold" before W1 is fixed: withhold + later commit

@@ -11,58 +11,59 @@ of the same name has no `exec`. Write `docker compose -f docker-compose.dev.yml 
 
 ## R1. Dev stack (`docker-compose.dev.yml`, project `lago_dev`)
 
-1. Preflight (ran): `.claude/skills/run-and-operate/scripts/dev-preflight.sh` → aim for `dev-preflight: 0 FAIL(s)`.
-   In this sandbox it reports 6 FAILs: no daemon, empty `api/` and `front/`, no certs, `api.lago.dev` and
-   `app.lago.dev` unresolved.
-2. Submodules: `git submodule update --init api front` (SSH URLs; HTTPS rewrite in `build-and-env`).
-   Never commit the moved gitlinks (change-control N1).
-3. Certificates (`traefik/dynamic.yml` expects these names):
-   ```bash
-   mkcert -install
-   mkdir -p traefik/certs && (cd traefik/certs && mkcert -cert-file lago.dev.pem -key-file lago.dev-key.pem lago.dev "*.lago.dev")
-   ```
-   `traefik/certs` is git-ignored (.gitignore:11).
-4. `/etc/hosts`: one `127.0.0.1` line per Host() rule. The compose file routes 8 hosts
-   (`api app console mail pdf pghero traefik webhook` `.lago.dev`); the doc list
-   (docs/dev_environment.md:99-105) omits console and pghero and adds `license.lago.dev` (no service).
-   `lago.dev` is a real public domain: on 2026-10-01 `getent hosts pdf.lago.dev` returned a public
-   address in this sandbox, so a missing hosts entry can silently send your browser to the internet.
-5. API files from the docs (docs/dev_environment.md:112-113):
-   `cp ./api/.env.dist ./api/.env && touch ./api/config/master.key`.
-   `api/.env` only fills vars that are still unset (`$API/config/environments/development.rb:76`
-   `Dotenv.load`); the compose `env_file` values win.
-6. External volume (undocumented; `docker-compose.dev.yml:11-12`, added `195bbc0`):
-   `docker volume create lago_front_pnpm_store`. Compose refuses to start `front` without it.
-7. Optional overrides in `.env.development` (git-ignored). Do not set `LAGO_CLICKHOUSE_ENABLED=false`
-   (still enables ClickHouse; leave it empty) and do not change `POSTGRES_USER/PASSWORD/DB` (hard-coded in
-   `$API/config/database.yml` development roles, `extra/debezium_config.json`,
-   `scripts/postgresql.conf:86-88`). Semantics: `config-and-flags`.
-8. Dependencies: `docker compose -f docker-compose.dev.yml up -d --wait db redis traefik clickhouse webhook`.
+**Steps 1-4: prerequisites.** Owner: `build-and-env` §2b steps 1-6 (commands and verification there):
+submodules over the HTTPS rewrite (`.gitmodules` uses `git@github.com:` URLs, so a plain
+`git submodule update --init` fails without an SSH key), mkcert certificates in `traefik/certs`
+(names from `traefik/dynamic.yml`; git-ignored, .gitignore:11), `/etc/hosts`, `api/.env` +
+`api/config/master.key`, and the external volume `lago_front_pnpm_store`. Operator notes:
+- Never commit the moved gitlinks (change-control N1).
+- Hosts: the compose file routes 8 hosts (`api app console mail pdf pghero traefik webhook` `.lago.dev`);
+  the doc list (docs/dev_environment.md:99-105) omits console and pghero and adds `license.lago.dev`.
+  `lago.dev` is a real public domain: on 2026-10-01 `getent hosts pdf.lago.dev` returned a public
+  address in this sandbox, so a missing hosts entry can silently send your browser to the internet.
+- `api/.env` only fills vars that are still unset (`$API/config/environments/development.rb:76`
+  `Dotenv.load`); the compose `env_file` values win.
+- `lago_front_pnpm_store` is external (`docker-compose.dev.yml:11-12`, added `195bbc0`): compose
+  refuses to start `front` without it.
+
+Check steps 1-4 (ran): `.claude/skills/run-and-operate/scripts/dev-preflight.sh` → aim for
+`dev-preflight: 0 FAIL(s)`. In this sandbox it reports 6 FAILs: no daemon, empty `api/` and `front/`, no
+certs, `api.lago.dev` and `app.lago.dev` unresolved.
+
+Optional overrides go in `.env.development` (git-ignored). Do not set `LAGO_CLICKHOUSE_ENABLED=false`
+(MIXED: the 12 `.present?`/`.blank?` readers stay ON, only org creation and 2 seed files turn off; leave
+it empty to disable) and do not change `POSTGRES_USER/PASSWORD/DB` (hard-coded in
+`$API/config/database.yml` development roles, `extra/debezium_config.json`,
+`scripts/postgresql.conf:86-88`). Semantics: `config-and-flags` §4.
+
+5. Dependencies: `docker compose -f docker-compose.dev.yml up -d --wait db redis traefik clickhouse webhook`.
    `clickhouse` depends on `redpanda` and `redpandacreatetopics` (:465-471), so Redpanda and the 7 topics
    come up too. Topic creation is idempotent (`scripts/create-topics.sh`, `5477e39`).
-9. App: `docker compose -f docker-compose.dev.yml up -d --wait front api api-worker api-clock`.
+6. App: `docker compose -f docker-compose.dev.yml up -d --wait front api api-worker api-clock`.
    `migrate` runs first (`./scripts/migrate.dev.sh`: RSA key generation + `db:prepare`), `api` runs
    `./scripts/start.dev.sh` (also `signup:seed_organization`). Open https://app.lago.dev.
-10. Event pipeline (not in the docs' default list):
-    `docker compose -f docker-compose.dev.yml up -d events-processor api-events-consumer`.
-    `events-processor` runs `air` (hot reload, `.air.toml` `send_interrupt=true`, `kill_delay=10s`) on the
-    bind-mounted source; `api-events-consumer` is the Karafka consumer of `events_charged_in_advance`.
-11. Optional: `--profile mailpit` (`docker compose -f docker-compose.dev.yml --profile mailpit up -d --wait mailpit`;
-    docs/dev_environment.md:292-302 says API mail raises a delivery error without it). Caveat (inferred
-    by reading, not run): the pinned lago-api still sends dev mail to `mailhog:1025`
-    (`$API/config/environments/development.rb:70-73`, `raise_delivery_errors = true` at :68), while
-    `8f8334e` (#777, 2026-09-03) renamed the service to `mailpit` with no `mailhog` alias, so delivery
-    likely fails until the lago-api pin catches up. Check with
-    `grep -n 'address:' "$API/config/environments/development.rb"`.
-    Also optional:
-    `--profile redis-sentinel` (set `LAGO_REDIS_SIDEKIQ_SENTINELS`/`_MASTER_NAME` first; the doc example
-    has a stray space after the comma, docs/dev_environment.md:199), dedicated workers (set
-    `SIDEKIQ_<X>=true` in `.env.development` AND start `api-<x>-worker`, or jobs are never picked up).
-12. Tests inside the stack: `docker compose -f docker-compose.dev.yml exec events-processor go test ./...`
-    (the Docker-free equivalent is `.claude/skills/build-and-env/scripts/ep-test.sh`; OPEN DECISION OD-5
-    (owner), default until decided: the Docker-free recipe is accepted as the local gate).
-13. Teardown: `docker compose -f docker-compose.dev.yml down` (keeps volumes); `down -v` drops
-    `lago_dev_*` volumes but never the external `lago_front_pnpm_store`.
+7. Event pipeline (not in the docs' default list):
+   `docker compose -f docker-compose.dev.yml up -d events-processor api-events-consumer`.
+   `events-processor` runs `air` (hot reload, `.air.toml` `send_interrupt=true`, `kill_delay=10s`) on the
+   bind-mounted source; `api-events-consumer` is the Karafka consumer of `events_charged_in_advance`.
+8. Optional: `--profile mailpit` (`docker compose -f docker-compose.dev.yml --profile mailpit up -d --wait mailpit`;
+   docs/dev_environment.md:292-302 says API mail raises a delivery error without it). Caveat (inferred
+   by reading, not run): the pinned lago-api still sends dev mail to `mailhog:1025`
+   (`$API/config/environments/development.rb:70-73`, `raise_delivery_errors = true` at :68), while
+   `8f8334e` (#777, 2026-09-03) renamed the service to `mailpit` with no `mailhog` alias, so delivery
+   likely fails until the lago-api pin catches up. Check with
+   `grep -n 'address:' "$API/config/environments/development.rb"`.
+   Also optional:
+   `--profile redis-sentinel` (set `LAGO_REDIS_SIDEKIQ_SENTINELS`/`_MASTER_NAME` first; the doc example
+   has a stray space after the comma, docs/dev_environment.md:199), dedicated workers (set
+   `SIDEKIQ_<X>=true` in `.env.development` AND start `api-<x>-worker`, or jobs are never picked up).
+9. Tests inside the stack: `docker compose -f docker-compose.dev.yml exec events-processor go test ./...`
+   (the Docker-free equivalent is `.claude/skills/build-and-env/scripts/ep-test.sh`; OPEN DECISION OD-5
+   (owner), default until decided: the Docker-free recipe is accepted as the local gate).
+10. Teardown: `docker compose -f docker-compose.dev.yml down` (keeps volumes).
+    WARNING (dev only): `down -v` DELETES the `lago_dev_*` volumes (Postgres, Redis, Redpanda topics,
+    ClickHouse data); it never removes the external `lago_front_pnpm_store`. Never run `down -v` against
+    a self-host project.
 
 Failure points seen in history: dependency races (`c80a7b5`, fixed with `service_healthy`), non-idempotent
 topic creation (`5477e39`), a Traefik label on a non-existent `ws` entrypoint (`12b8101`), the `lago_test`
@@ -113,7 +114,8 @@ docker compose exec -T db pg_dumpall -U lago > lago-pg14.sql      # verify the f
 docker compose down
 # 2. confirm what is on the volume (<project> = directory name, e.g. lago)
 docker run --rm -v <project>_lago_postgres_data:/d alpine cat /d/postgres/PG_VERSION   # prints 14
-docker volume rm <project>_lago_postgres_data                       # destructive
+# WARNING: the next line DELETES every row in the database; run it only after the dump is verified
+docker volume rm <project>_lago_postgres_data
 # 3. new compose file (partman 15)
 docker compose up -d --wait db
 docker compose exec -T db psql -U lago -d postgres < lago-pg14.sql
@@ -133,10 +135,11 @@ cp .env.production.example .env        # light: .env.light.example; local needs 
 docker compose -f docker-compose.production.yml --profile all up -d
 ```
 - `docker compose up --profile all` (deploy/README.md) fails: `unknown flag: --profile` (ran, `--dry-run`).
-- Without a profile, db/redis/rsa-keys are not started.
+- Without a profile, db/redis/rsa-keys are not started (their `profiles:` keys,
+  deploy/docker-compose.production.yml:119,138,149).
 - `deploy.sh` (interactive, downloads from deploy.getlago.com): avoid; if a run left `✅ ... is already
   set` lines in `.env`, delete them (selfhost-preflight flags them as `line N: not KEY=VALUE`).
-- production: also fix or remove `pdf-worker` (missing script) and decide on `SIDEKIQ_*=true` routing,
+- production: also fix or remove `pdf-worker` (missing script, deploy/docker-compose.production.yml:346) and decide on `SIDEKIQ_*=true` routing,
   otherwise dedicated workers idle (OPEN question for the owner; see change-control before editing
   deploy/, class C6).
 - Before trusting TLS: the ACME resolver uses the Let's Encrypt STAGING CA (production.yml:87).
@@ -148,8 +151,8 @@ docker run -d --name lago -p 80:80 -p 3000:3000 -v lago_data:/data getlago/lago:
 docker logs -f lago                       # app logs (foreman)
 docker exec lago cat /data/db.log         # db:create/migrate/seed output
 ```
-- Pin a version tag rather than `latest` (Docker Hub lacks some tags, e.g. v1.48.0-v1.50.0: see
-  `release-and-images`). The README command (docker/README.md:22) has no `-v`: data then lives in an
+- Pin a version tag rather than `latest`, and check it exists: some `getlago/lago` tags were never
+  published (as of 2026-10-01; list: `release-and-images`). The README command (docker/README.md:22) has no `-v`: data then lives in an
   anonymous volume that the next `docker run` will not reuse.
 - PDF: add `-v /var/run/docker.sock:/var/run/docker.sock` (root-equivalent on the host) and, on Linux,
   `--add-host=host.docker.internal:host-gateway` (inferred from runner.sh:19).
@@ -188,5 +191,7 @@ daemon it prints `Docker is installed but the Docker daemon is not available.` a
 ## R7. Connectors
 
 No runnable recipe in the repo (private ECR image only, no compose service). If you must run one, start
-from `variants.md` §7 and treat the result as UNVERIFIED; the numeric `precise_total_amount_cents` they
-emit is dropped by the events-processor (unmarshal error, no DLQ).
+from `variants.md` §7 and treat the result as UNVERIFIED. Value trap: a JSON-number
+`precise_total_amount_cents` is passed through and the events-processor drops the record (unmarshal
+error, committed, Sentry only, no DLQ); any non-number becomes `"0"` (connectors/http.yml:32-36). There
+is no value-preserving workaround through the connectors; the fix is `event-accounting-campaign` W2.

@@ -30,7 +30,7 @@ lifecycle: starts=0 shutdown_signals=0 stopped=0
   start-kafka-dial             1  Kafka broker unreachable (first producer Ping fails at startup; at runtime franz-go retries and logs WARN)
   dlq-flag-refresh             1  ZADD to the Redis ZSET subscription_refreshed_v2 failed -> retryable (enriched already produced)
   dlq-flag-ctx-canceled        1  REGRESSION SIGNATURE: Redis writes canceled by the process context on SIGTERM (fixed 02a4bc8, #785)
-  dlq-empty-code               1  produce to events_enriched / events_charged_in_advance failed -> DLQ row with error_code "" and the record is COMMITTED (no per-event ERROR line)
+  dlq-empty-code               1  produce to events_enriched / events_charged_in_advance failed -> DLQ row with error_code "" and the record is COMMITTED (no per-event ERROR line); after a failed ENRICHED push the in-advance event is still produced
   loss-dlq-push                1  the DLQ produce failed too: the event is now only in Sentry (if SENTRY_DSN is set) and the record is committed = LOST
   loss-unmarshal               1  raw record is not valid JSON for models.Event: committed, NO DLQ, Sentry only = LOST
   loss-ptac-number             1  connector events with a numeric precise_total_amount_cents are dropped (EP declares it string, models/event.go:18)

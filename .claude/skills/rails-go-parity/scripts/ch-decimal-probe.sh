@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # ch-decimal-probe.sh — run the ClickHouse side of the Go<->Rails contract in clickhouse-local:
 # how ClickHouse turns what events-processor (and Rails, and the connectors) send into stored
-# columns. Every check carries an EXPECTED value (recorded 2026-10-01 on ClickHouse 26.2.9.9,
-# the minor the dev compose image `clickhouse/clickhouse-server:26.2-alpine` pins).
+# columns. Every check carries an EXPECTED value (recorded 2026-10-01 on ClickHouse 26.2.9.9, a
+# patch of the 26.2 minor the dev compose image `clickhouse/clickhouse-server:26.2-alpine` pins;
+# 26.2.19.43, the patch ch-local.sh fetched that day, gives the same results).
 #
 # Usage (from anywhere; network needed on first run, ~210 MB download, Linux amd64/arm64):
 #   .claude/skills/rails-go-parity/scripts/ch-decimal-probe.sh
 #   .claude/skills/rails-go-parity/scripts/ch-decimal-probe.sh --version 25.8.9.20   # another CH release
 #   .claude/skills/rails-go-parity/scripts/ch-decimal-probe.sh --bin /path/to/clickhouse
+#   .claude/skills/rails-go-parity/scripts/ch-decimal-probe.sh \
+#     --bin "$(.claude/skills/diagnostics-and-tooling/scripts/ch-local.sh --path)"  # reuse ch-local's binary
 #   .claude/skills/rails-go-parity/scripts/run-probe.sh value -values-only | \
 #     .claude/skills/rails-go-parity/scripts/ch-decimal-probe.sh -     # also map these Go values
 #
@@ -17,14 +20,16 @@
 #   L  events_dead_letter MV: timestamp COALESCE and ingested_at parse of Go FailedEvent.event
 #   R  events_raw_queue/MV: timestamp and ingested_at forms sent by Rails and by connectors/*.yml
 #
-# Binary: ${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/clickhouse-<version>/clickhouse
-#         (downloaded from the ClickHouse GitHub release, only usr/bin/clickhouse is kept).
+# Binary: ${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/clickhouse/<version>/clickhouse, the layout
+#         diagnostics-and-tooling's ch-local.sh owns (a legacy clickhouse-<version>/clickhouse is reused
+#         if present); downloaded from the ClickHouse GitHub release, only usr/bin/clickhouse is kept.
+#         clickhouse local always runs with stdin from /dev/null or a pipe (an open stdin can block it).
 # Exit codes: 0 every check matched EXPECTED; 1 at least one MISMATCH (re-verify the contract
 #             table for this CH version); 2 usage error / download or extraction failed.
 # Read-only on the repo; works in a mktemp -d scratch dir.
 set -euo pipefail
 
-usage() { sed -n '2,25p' "$0"; }
+usage() { sed -n '2,29p' "$0"; }
 V="${CH_VERSION:-26.2.9.9}" BIN="" STDIN=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,8 +48,9 @@ if [ -z "$BIN" ]; then
     Linux-aarch64|Linux-arm64) arch=arm64 ;;
     *) echo "ch-decimal-probe: no static build for $(uname -s)-$(uname -m); pass --bin <clickhouse>" >&2; exit 2 ;;
   esac
-  dir="$CACHE/clickhouse-$V"
+  dir="$CACHE/clickhouse/$V"
   BIN="$dir/clickhouse"
+  [ -x "$BIN" ] || [ ! -x "$CACHE/clickhouse-$V/clickhouse" ] || BIN="$CACHE/clickhouse-$V/clickhouse"  # legacy layout
   if [ ! -x "$BIN" ]; then
     mkdir -p "$dir"
     tgz="$dir/ch.tgz"
@@ -66,7 +72,8 @@ fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/rgp-ch.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 cd "$work"
-chq() { "$BIN" local "$@"; }
+chq() { "$BIN" local "$@" </dev/null; }   # query only: never inherit an open stdin
+chqin() { "$BIN" local "$@"; }            # reads table data from the caller's pipe
 
 echo "# ch-decimal-probe: ClickHouse $(chq --query 'SELECT version()') (default settings; production settings UNVERIFIED)"
 miss=0
@@ -112,7 +119,7 @@ fi
 # ---- E: events_enriched_queue (columns of $API/db/clickhouse_migrate/20240705084952_*) + MV expressions
 QS="organization_id String, external_subscription_id String, code String, timestamp String, transaction_id String, properties String, value Nullable(String), precise_total_amount_cents Nullable(Decimal(40,15))"
 GOJSON='{"organization_id":"org","external_subscription_id":"sub","subscription_id":"","plan_id":"","transaction_id":"tx","code":"c","aggregation_type":"sum","properties":{"amount":1000000,"flag":true,"ratio":2,"nested":{"a":1},"n":null},"precise_total_amount_cents":"0.0","source":"http_ruby","value":"1e+06","timestamp":1741007009.123}'
-out="$(echo "$GOJSON" | chq --structure "$QS" --input-format JSONEachRow --query \
+out="$(echo "$GOJSON" | chqin --structure "$QS" --input-format JSONEachRow --query \
   "SELECT toString(toDateTime64(timestamp, 3)), toString(JSONExtract(properties, 'Map(String, String)')), value, toString(toDecimal128OrZero(value, 26)), toString(precise_total_amount_cents) FROM table FORMAT TSVRaw")"
 IFS=$'\t' read -r e_ts e_props e_val e_dec e_ptac <<<"$out"
 report E "timestamp 1741007009.123 (JSON number)" "$e_ts" "2025-03-03 13:03:29.123"
@@ -120,7 +127,7 @@ report E "properties (numbers/bool/object/null)" "$e_props" "{'amount':'1000000'
 report E "value '1e+06' -> decimal_value" "$e_val -> $e_dec" "1e+06 -> 1000000"
 report E "precise_total_amount_cents '0.0'" "$e_ptac" "0"
 out="$(echo '{"organization_id":"o","external_subscription_id":"s","code":"c","timestamp":1,"transaction_id":"t","properties":{},"value":"1","precise_total_amount_cents":""}' | \
-  chq --structure "$QS" --input-format JSONEachRow --query "SELECT toString(precise_total_amount_cents) FROM table FORMAT TSVRaw" 2>&1 | head -n1)"
+  chqin --structure "$QS" --input-format JSONEachRow --query "SELECT toString(precise_total_amount_cents) FROM table FORMAT TSVRaw" 2>&1 | head -n1)"
 report E "precise_total_amount_cents '' (Go zero value)" "$out" "0"
 
 # ---- L: events_dead_letter MV (COALESCE from $API/db/clickhouse_migrate/20260430075848_update_events_dead_letter_mv.rb)
@@ -150,7 +157,7 @@ EOF
 err="$(chq --query "SELECT toDateTime64('2025-03-03T13:03:29.123Z', 3)" 2>&1 | grep -oE 'CANNOT_PARSE_TEXT' | head -n1 || true)"
 report R "MV toDateTime64 (non-OrNull) on RFC3339 'Z'" "${err:-no error}" "CANNOT_PARSE_TEXT"
 while IFS='|' read -r v exp; do
-  got="$(echo "{\"i\":$v}" | chq --structure "i DateTime64(3)" --input-format JSONEachRow --query "SELECT toString(i) FROM table FORMAT TSVRaw" 2>&1 | head -n1)"
+  got="$(echo "{\"i\":$v}" | chqin --structure "i DateTime64(3)" --input-format JSONEachRow --query "SELECT toString(i) FROM table FORMAT TSVRaw" 2>&1 | head -n1)"
   report R "ingested_at JSON $v -> DateTime64(3)" "$got" "$exp"
 done <<'EOF'
 "2025-03-03T13:03:30.456"|2025-03-03 13:03:30.456

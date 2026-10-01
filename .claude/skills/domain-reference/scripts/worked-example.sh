@@ -18,10 +18,10 @@
 #   miniredis. Needs CGO: sources build-and-env's ep-env.sh (builds libexpression_go once).
 # ClickHouse stage: feeds the captured events_enriched messages to `clickhouse local` with the
 #   events_enriched_queue structure and the MV/table expressions (toDateTime64, JSONExtract Map,
-#   toDecimal128OrZero(value, 26)). Binary: --ch-bin, $CH_BIN, the first
-#   ${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/clickhouse-*/clickhouse or .../clickhouse/*/clickhouse,
-#   or `clickhouse` on PATH. None found -> the stage prints SKIP (it never downloads; to fetch one,
-#   see the diagnostics-and-tooling skill, ClickHouse local).
+#   toDecimal128OrZero(value, 26)). Binary: --ch-bin, $CH_BIN, the shared cache layout owned by
+#   diagnostics-and-tooling's ch-local.sh (${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/clickhouse/<ver>/clickhouse),
+#   the legacy .../clickhouse-<ver>/clickhouse, or `clickhouse` on PATH. None found -> the stage prints
+#   SKIP (it never downloads; fetch one with diagnostics-and-tooling/scripts/ch-local.sh --path).
 #
 # Exit codes: 0 every CHECK matched; 1 at least one CHECK MISMATCH (domain behaviour changed:
 #             re-verify the skill); 2 usage error, CGO env failure or the overlay test failed to build/run.
@@ -249,15 +249,15 @@ if [ "$no_ch" -eq 1 ]; then
 else
   if [ -z "$ch_bin" ]; then
     cache="${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}"
-    for c in "$cache"/clickhouse-*/clickhouse "$cache"/clickhouse/*/clickhouse; do
+    for c in "$cache"/clickhouse/*/clickhouse "$cache"/clickhouse-*/clickhouse; do
       [ -x "$c" ] && { ch_bin="$c"; break; }
     done
     [ -n "$ch_bin" ] || ch_bin="$(command -v clickhouse 2>/dev/null || true)"
   fi
   if [ -z "$ch_bin" ] || [ ! -x "$ch_bin" ]; then
-    echo "## ClickHouse stage: SKIP (no clickhouse binary; pass --ch-bin, or fetch one via the diagnostics-and-tooling skill)"
+    echo "## ClickHouse stage: SKIP (no clickhouse binary; pass --ch-bin, or fetch one: .claude/skills/diagnostics-and-tooling/scripts/ch-local.sh --path)"
   else
-    echo "## ClickHouse stage: $("$ch_bin" local --version 2>/dev/null | head -n1)"
+    echo "## ClickHouse stage: $("$ch_bin" local --version </dev/null 2>/dev/null | head -n1)"
     awk '/^OUT    topic=events_enriched /{getline; sub(/^ +/, ""); print}' "$tmp/report.txt" > "$tmp/enriched.jsonl"
     structure="organization_id String, external_subscription_id String, code String, timestamp String, transaction_id String, properties String, value Nullable(String), precise_total_amount_cents Nullable(Decimal(40, 15))"
     echo "-- events_enriched_queue -> events_enriched_mv -> events_enriched column defaults"

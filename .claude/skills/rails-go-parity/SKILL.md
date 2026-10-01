@@ -10,8 +10,8 @@ row by row (Go `file:line` vs `$API/<path>:line`), labels each row MATCH or DIVE
 and ships the probes that re-prove it. Divergences are documented here and fixed in
 `event-accounting-campaign`.
 
-Facts verified 2026-10-01 against HEAD `5308258` (events-processor unchanged through `08065ef`, which
-only adds `.claude/`) and lago-api `591ae90` unless marked.
+Facts verified 2026-10-01. Code facts as of `5308258` (events-processor tree `83e012866f29`); the working
+branch may carry skills-only commits on top. lago-api at the pin `591ae90` (2026-09-08) unless marked.
 
 ## When to use / when NOT to use
 
@@ -68,46 +68,48 @@ The pinned lago-api still reads `events_enriched_expanded` (when `pre_filter_eve
 ClickHouse migration, still sends `reprocess`, and keeps CH-store orgs' charge-usage cache fresh only when
 `lazy_charge_usage_cache` is on. Impact depends on **OPEN DECISION OD-8 (owner)**. The dev stack runs exactly
 this pairing (`docker-compose.dev.yml:318-325` builds Go from source, `:179` mounts the `./api` submodule tree).
-Full list with `$API` lines (D1-D8) and rules: `reference/pinned-sha-drift.md`.
+Full list with `$API` lines (drift items DR1-DR8) and rules: `reference/pinned-sha-drift.md`.
 
 ## 2. The contract at a glance
 
 Full rows with Go and Rails `file:line`, evidence and consequence: `reference/contract-table.md`.
+The K# column names change-control's cross-repo contract (`.claude/skills/change-control/reference/cross-repo-protocol.md`
+section 1): changing a row with a K# follows that contract's paired-PR and deploy-order rules (change-control N6).
 
 <!-- evidence-check: off index of contract rows; each row's file:line and probe evidence is in reference/contract-table.md -->
-| # | Behaviour | Status | If you break it |
-|---|---|---|---|
-| P1 | Subscription window with `date_trunc('millisecond', …)` | MATCH | events attach to the wrong subscription |
-| P2 | `ORDER BY terminated_at DESC NULLS FIRST, started_at DESC` | MATCH | wrong sub on upgrade/downgrade boundaries |
-| P3 | Cache mode skips ms truncation | DIVERGE-VERIFIED | memory-cache mode only (OD-1) |
-| P4 | `utils.ToTime` float math: 496/1000 ms strings land 1 ms early | DIVERGE-VERIFIED | boundary-ms events miss their sub |
-| P5 | RFC3339 timestamps: offset kept, not truncated; CH raw MV rejects them | DIVERGE-VERIFIED | wrong sub by the offset (DB mode) |
-| P6 | No `status` filter in Go; Rails PostProcess excludes `incomplete` | DIVERGE-VERIFIED | refresh / in-advance for incomplete subs |
-| P7 | Recurring fallback: Go window at now(), Rails `.active` | DIVERGE-VERIFIED | backdated events on non-active subs |
-| P8 | BM lookup on kept rows | MATCH | deleted BMs billed again |
-| P9 | count → `"1"`, else `properties[field_name]` | MATCH | wrong quantity |
-| P10 | `value` = Go `%v`: `1000000→"1e+06"`, missing → `"<nil>"` | DIVERGE-VERIFIED | feeds P11/P12 |
-| P11 | `Decimal(38,26)`: values with \|x\| ≥ 1e12 and `"<nil>"` become 0 | DIVERGE-VERIFIED | silent zero billing (OD-3) |
-| P12 | unique_count compares raw `value` strings | DIVERGE-VERIFIED | double-counted uniques, `"<nil>"` counted |
-| P13 | CH `properties` map text ≠ `value` text in the same row | DIVERGE-VERIFIED | never compare them as strings |
-| P14 | lago-expression core source identical (Go v0.2.0, Rails gem `2abd2b3`); `Cargo.lock` crate versions differ | MATCH (source) / UNVERIFIED (behaviour) | different formula results |
-| P15 | `event.timestamp`: Go float with ms, Rails integer seconds | DIVERGE-VERIFIED | value depends on ingestion path |
-| P16 | `properties: null` + expression → Go DLQ | DIVERGE-VERIFIED | non-Rails producers must send `{}` |
-| P17 | Go evaluates expressions only if `source != "http_ruby"` | MATCH | double evaluation |
-| P18 | `api_post_processed = !clickhouse_events_store?`: one side post-processes | MATCH | double or missing side effects |
-| P19 | In-advance pre-filter: any non-deleted `pay_in_advance` charge | MATCH | missing in-advance fees |
-| P20 | Redis `subscription_refreshed_v2`, `<org>:<sub>\|<bucket>`, 10 s, wall-clock score | MATCH | wallets/alerts stop refreshing |
-| P21 | Rails pops it only if `LAGO_REDIS_STORE_URL` and `LAGO_CLICKHOUSE_ENABLED` are present | INFO | ZSET grows forever |
-| P22 | Rails `timestamp` = `to_f.to_s` / `%s.%3N` | MATCH | parse failures → DLQ |
-| P23 | `ingested_at` = `iso8601(3)` minus `Z`; DLQ re-marshal drops ms | MATCH / DIVERGE-VERIFIED | retries disabled, 1970 in CH |
-| P24 | Topic env names | MATCH | data to nowhere |
-| P25 | Keys: Go `<org>-<transaction_id>`, Rails raw none, DLQ none | MATCH | — (no consumer reads keys) |
-| P26 | Enriched JSON covers every CH queue column | MATCH | CH column silently empty |
-| P27 | In-advance JSON vs `Events::CommonFactory` (no `id`) | MATCH | Rails treats it as API-origin |
-| P28 | DLQ JSON vs CH DLQ MV | MATCH / DIVERGE-VERIFIED | wrong DLQ timestamps |
-| P29 | Go drops `external_customer_id`, ignores `reprocess` | DIVERGE-CODE | absent downstream |
-| P30 | Connector numeric `precise_total_amount_cents` → unmarshal error, no DLQ | DIVERGE-VERIFIED | silent loss |
-| P31-P34 | Charge-filter choice, charge-usage key, expanded/reprocess, refresh v1 | HISTORICAL | do not re-fight (change-control N8) |
+| # | Behaviour | Status | Contract (change-control K#) | If you break it |
+|---|---|---|---|---|
+| P1 | Subscription window with `date_trunc('millisecond', …)` | MATCH | K8 | events attach to the wrong subscription |
+| P2 | `ORDER BY terminated_at DESC NULLS FIRST, started_at DESC` | MATCH | K8 | wrong sub on upgrade/downgrade boundaries |
+| P3 | Cache mode skips ms truncation | DIVERGE-VERIFIED | K9 | memory-cache mode only (OD-1) |
+| P4 | `utils.ToTime` float math: 496/1000 ms strings land 1 ms early | DIVERGE-VERIFIED | K2 | boundary-ms events miss their sub |
+| P5 | RFC3339 timestamps: offset kept, not truncated; CH raw MV rejects them | DIVERGE-VERIFIED | K2 | wrong sub by the offset (DB mode) |
+| P6 | No `status` filter in Go; Rails PostProcess excludes `incomplete` | DIVERGE-VERIFIED | K8 | refresh / in-advance for incomplete subs |
+| P7 | Recurring fallback: Go window at now(), Rails `.active` | DIVERGE-VERIFIED | K8 | backdated events on non-active subs |
+| P8 | BM lookup on kept rows | MATCH | K8 | deleted BMs billed again |
+| P9 | count → `"1"`, else `properties[field_name]` | MATCH | K4 | wrong quantity |
+| P10 | `value` = Go `%v`: `1000000→"1e+06"`, missing → `"<nil>"` | DIVERGE-VERIFIED | K4 | feeds P11/P12 |
+| P11 | `Decimal(38,26)`: values with \|x\| ≥ 1e12 and `"<nil>"` become 0 | DIVERGE-VERIFIED | K4 | silent zero billing (OD-3) |
+| P12 | unique_count compares raw `value` strings | DIVERGE-VERIFIED | K4 | double-counted uniques, `"<nil>"` counted |
+| P13 | CH `properties` map text ≠ `value` text in the same row | DIVERGE-VERIFIED | K4 | never compare them as strings |
+| P14 | lago-expression core source identical (Go v0.2.0, Rails gem `2abd2b3`); `Cargo.lock` crate versions differ | MATCH (source) / UNVERIFIED (behaviour) | — (N3 pins) | different formula results |
+| P15 | `event.timestamp`: Go float with ms, Rails integer seconds | DIVERGE-VERIFIED | — | value depends on ingestion path |
+| P16 | `properties: null` + expression → Go DLQ | DIVERGE-VERIFIED | — | non-Rails producers must send `{}` |
+| P17 | Go evaluates expressions only if `source != "http_ruby"` | MATCH | K3 | double evaluation |
+| P18 | `api_post_processed = !clickhouse_events_store?`: one side post-processes | MATCH | K3 | double or missing side effects |
+| P19 | In-advance pre-filter: any non-deleted `pay_in_advance` charge | MATCH | K5 | missing in-advance fees |
+| P20 | Redis `subscription_refreshed_v2`, `<org>:<sub>\|<bucket>`, 10 s, wall-clock score | MATCH | K1 | wallets/alerts stop refreshing |
+| P21 | Rails pops it only if `LAGO_REDIS_STORE_URL` and `LAGO_CLICKHOUSE_ENABLED` are present | INFO | K1 | ZSET grows forever |
+| P22 | Rails `timestamp` = `to_f.to_s` / `%s.%3N` | MATCH (parsing); CANDIDATE drift: `Time#to_f.to_s` puts 129/1000 ms values 1 ms early after Go truncation on Ruby 3.3.6 (Ruby 4.0.6 UNVERIFIED; domain-reference MC17) | K2 | parse failures → DLQ |
+| P23 | `ingested_at` = `iso8601(3)` minus `Z`; DLQ re-marshal drops ms | MATCH / DIVERGE-VERIFIED | K2, K6 | retries disabled, 1970 in CH |
+| P24 | Topic env names | MATCH | K2, K4-K6 | data to nowhere |
+| P25 | Keys: Go `<org>-<transaction_id>`, Rails raw none, DLQ none | MATCH | K2, K4, K5 | — (no consumer reads keys) |
+| P26 | Enriched JSON covers every CH queue column | MATCH | K4 | CH column silently empty |
+| P27 | In-advance JSON vs `Events::CommonFactory` (no `id`) | MATCH | K5 | Rails treats it as API-origin |
+| P28 | DLQ JSON vs CH DLQ MV | MATCH / DIVERGE-VERIFIED | K6 | wrong DLQ timestamps |
+| P29 | Go drops `external_customer_id` (always null from the API at the pin), ignores `reprocess` | DIVERGE-CODE | K2, K6 | absent downstream |
+| P30 | Connector numeric `precise_total_amount_cents` → unmarshal error, no DLQ | DIVERGE-VERIFIED | K2 | silent loss |
+| P31-P34 | Charge-filter choice, charge-usage key, expanded/reprocess, refresh v1 | HISTORICAL | — (P34: K1) | do not re-fight (change-control N8) |
 <!-- evidence-check: on -->
 
 ## 3. Payload schemas
@@ -116,10 +118,12 @@ Field-by-field tables for the raw event (Rails, re-enrichment, connectors), the 
 ClickHouse `events_enriched` queue/MV/table, the charged-in-advance event vs `Events::CommonFactory`,
 the dead-letter payload vs the ClickHouse DLQ MV, and the Redis member: `reference/payload-schemas.md`.
 The four facts people get wrong most:
-1. Go drops `external_customer_id` (`events-processor/models/event.go:12-23`); the DLQ `event` is a re-marshalled Go
-   struct, not the original bytes (`events-processor/processors/events_processor/event_producer_service.go:52-53`).
+1. Go drops `external_customer_id` (`events-processor/models/event.go:12-23`), which the Rails API always sends as
+   null at the pin (`$API/app/controllers/api/v1/events_controller.rb:172-196` does not permit it), so nothing is lost
+   from API events; the DLQ `event` is a re-marshalled Go struct, not the original bytes
+   (`events-processor/processors/events_processor/event_producer_service.go:52-53`).
 2. ClickHouse skips unknown JSON fields, so a renamed Go tag empties a column without any error
-   (`"${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/clickhouse-26.2.9.9/clickhouse" local --query "SELECT value FROM system.settings WHERE name='input_format_skip_unknown_fields'"` → `1`;
+   (`.claude/skills/diagnostics-and-tooling/scripts/ch-local.sh "SELECT value FROM system.settings WHERE name='input_format_skip_unknown_fields'" </dev/null` → `1`;
    `.claude/skills/rails-go-parity/scripts/ch-decimal-probe.sh` section E parses a Go payload with extra fields).
 3. Rails sends no Kafka key on the raw topic (`$API/app/services/events/kafka_producer_service.rb:29-34`); Go keys
    enriched/in-advance by `<org>-<transaction_id>` (`events-processor/processors/events_processor/event_producer_service.go:30,41`).
@@ -131,7 +135,9 @@ The four facts people get wrong most:
 Run from the repo root (`cd "$(git rev-parse --show-toplevel)"`). The probes compile against YOUR working
 tree (the probe module `replace`s onto `../../../../events-processor`), so they test the change itself.
 
-1. Classify the change with `change-control` (C3 = events-processor behaviour, C4 = delivery or cross-repo contract).
+1. Classify the change with `change-control` (C3 = events-processor behaviour, C4 = delivery or cross-repo contract;
+   its C3/C4 precedence rule settles edge cases). `utils/time.go` parsing is C3, C4 if the enriched `timestamp`
+   payload format changes.
 2. List the rows you touch: `git diff --name-only origin/main...HEAD -- events-processor` (committed) plus
    `git status --short events-processor` (uncommitted), and map files with this table.
    <!-- evidence-check: off routing table (file -> contract rows), not claims -->
@@ -162,15 +168,18 @@ tree (the probe module `replace`s onto `../../../../events-processor`), so they 
    ```
    Any line that differs from EXPECTED is a behaviour change. It is fine only if intended and written into
    `reference/contract-table.md` in the same PR.
-5. If a MATCH row, a payload field, a topic, or the Redis protocol changes: it is cross-repo
-   (change-control N6). Open the paired lago-api PR (OPEN DECISION OD-4 (owner), default YES), version the key/topic,
-   write the deploy order, and run the guard against the paired branch:
-   `.claude/skills/rails-go-parity/scripts/parity-constants.sh --api <dir of the lago-api branch>`.
+5. If a MATCH row, a payload field, the `value` string format (P10-P13), a topic, or the Redis protocol changes
+   (in either direction, including closing a DIVERGE row): it is cross-repo (change-control N6; a `value` change in
+   `enrichment_service.go` is C3 + C4, a ClickHouse schema part needs OD-3). Open the paired lago-api PR (OPEN DECISION
+   OD-4 (owner), default YES), version the key/topic, write the deploy order, and run the guard against the
+   paired branch: `.claude/skills/rails-go-parity/scripts/parity-constants.sh --api <dir of the lago-api branch>`.
+   The K# column of section 2 names the contract.
 6. If the change closes or widens a DIVERGE row: update that row and the EXPECTED block here, and
-   reference the `event-accounting-campaign` workstream (W2 value: P10-P13; W3 time: P3-P5, P23; W4 parity
-   harness: P1-P7; W1 delivery: P30).
-7. Paste the commands and their summary lines in the PR body (change-control N13), next to the
-   events-processor gate (`ep-test.sh`, vet, gofmt: change-control N9).
+   reference the `event-accounting-campaign` workstream (W2 value: P10-P13 and P30, which its accounting-probe
+   ledger case 5 measures; W3 time: P3-P5, P23; W4 parity harness: P1-P7). Closing a value row (P10-P13) is
+   also step 5.
+7. Paste the commands and their summary lines in the PR body (change-control N13), next to the output of
+   change-control's "Pre-PR gate for events-processor code" block (N9).
 
 ## 5. If you see X, do Y
 
@@ -184,7 +193,7 @@ tree (the probe module `replace`s onto `../../../../events-processor`), so they 
 | Wallet / alert refresh never happens for CH-store orgs | P20, P21 | `parity-constants.sh` lines `P20a`-`P20e`, `P21`; check Rails env gating (`$API/clock.rb:210`) |
 | Expression result differs between API and connector events | P15 | `event.timestamp` precision differs (`$API/app/services/events/calculate_expression_service.rb:22` passes `to_i`); avoid it in expressions or fix both sides together |
 | DLQ row timestamp equals its ingested_at | P28, P5 | RFC3339 timestamp from a non-Rails producer (MV fallback `$API/db/clickhouse_migrate/20260430075848_update_events_dead_letter_mv.rb:13-19`) |
-| Connector events vanish, Sentry shows `cannot unmarshal number … precise_total_amount_cents` | P30 | Silent loss; send it as a string; fix belongs to `event-accounting-campaign` |
+| Connector events vanish, Sentry shows `cannot unmarshal number … precise_total_amount_cents` | P30 | Silent loss (unmarshal error, record committed, no DLQ). Direct producers can send it as a string; through `connectors/*.yml` there is no value-preserving workaround: numbers pass through (Go fails) and anything else, strings included, becomes `"0"` (`connectors/http.yml:32-36`). Fix: `event-accounting-campaign` W2 (Phase 2 item 3) |
 | Rails code mentions `events_enriched_expanded` / `reprocess` | P33 | Read `reference/pinned-sha-drift.md`; OD-8 |
 | You want Go to pick charge filters or expire Rails cache again | P31, P32 | Don't (change-control N8) |
 
@@ -199,7 +208,7 @@ All read-only on the repo; temp files go to `mktemp -d`, downloads to `${LAGO_SK
 | `scripts/time-precision-probe/` | `utils.ToTime`/`ToFloat64Timestamp`/`CustomTime` over `"<s>.<ms>"` ms 0..999 | `run-probe.sh time [-base N] [-scan N] [-fail-on-mismatch]` | 0; 1 with `-fail-on-mismatch` and mismatches > 0; 2 bad flag or unparsable corpus string |
 | `scripts/value-format-probe/` | Real `EnrichEvent` `value` for a golden corpus; expression and wire samples (CGO) | `run-probe.sh value [-values-only]` | 0; 1 setup error |
 | `scripts/subscription-parity-probe/` | Go DB vs Go cache vs Rails SQL on a throwaway PG database (dropped on exit, also after a setup error) | `DATABASE_URL=… run-probe.sh subscription` | 0 (divergences are data); 1 setup error |
-| `scripts/ch-decimal-probe.sh` | clickhouse-local checks for `decimal_value`, queue/MV parsing, DLQ MV, raw MV | `ch-decimal-probe.sh [--version V] [--bin PATH] [-]` | 0 all EXPECTED; 1 mismatch; 2 setup |
+| `scripts/ch-decimal-probe.sh` | clickhouse-local checks for `decimal_value`, queue/MV parsing, DLQ MV, raw MV; binary in the shared cache layout `clickhouse/<ver>/clickhouse` (owner: diagnostics-and-tooling `ch-local.sh`) | `ch-decimal-probe.sh [--version V] [--bin PATH] [-]` | 0 all EXPECTED; 1 mismatch; 2 setup |
 
 EXPECTED output (recorded 2026-10-01 at events-processor `5308258` with Postgres 16 and ClickHouse 26.2.9.9):
 
@@ -240,7 +249,9 @@ F recurring fallback  00:00:00.000Z       d1     d1        none      none      D
 ```
 
 `ch-decimal-probe.sh`: 39 checks (sections D, E, L, R), `summary: mismatches=0`, exit 0 (same on 25.8.9.20 LTS with
-`--version 25.8.9.20`; that release is only published under the `-lts` tag, which the script falls back to). Pipe Go values in with
+`--version 25.8.9.20`; that release is only published under the `-lts` tag, which the script falls back to; same on
+26.2.19.43, the patch `ch-local.sh` cached on 2026-10-01: reuse it with
+`--bin "$(.claude/skills/diagnostics-and-tooling/scripts/ch-local.sh --path)"` to avoid a second download). Pipe Go values in with
 `run-probe.sh value -values-only | ch-decimal-probe.sh -` (extra `D+` lines, not asserted).
 
 `parity-constants.sh`: `summary: OK=27 KNOWN=12 INFO=4 FAIL=0 CHANGED=0`; with `--network`:
@@ -257,7 +268,7 @@ crates differ: pest 2.7.13 vs 2.8.5, bigdecimal 0.4.6 vs 0.4.10, serde_json 1.0.
   OPEN DECISION OD-3 (owner): ClickHouse schema change for `decimal_value` (P11);
   OPEN DECISION OD-4 (owner): paired lago-api PR for contract changes (default YES);
   OPEN DECISION OD-8 (owner): production state of `pre_filter_events`, `lazy_charge_usage_cache`,
-  `enriched_events_aggregation` (pinned-SHA drift D2-D7).
+  `enriched_events_aggregation` (pinned-SHA drift DR2-DR7).
 <!-- evidence-check: off maintenance instruction, not a claim -->
 - When a fix lands, flip the row's status, update the EXPECTED block above, and keep the old behaviour in
   the row text so readers of older data understand it.
@@ -271,17 +282,21 @@ crates differ: pest 2.7.13 vs 2.8.5, bigdecimal 0.4.6 vs 0.4.10, serde_json 1.0.
   `events-processor/processors/main_processor.go`, `connectors/*.yml`; `$API/app/services/events/{kafka_producer_service,post_process_service,pay_in_advance_service,calculate_expression_service,create_service,enrich_service,common_factory}.rb`,
   `$API/app/models/events/common.rb`, `$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb`,
   `$API/clock.rb`, `$API/karafka.rb`, `$API/db/clickhouse_migrate/*events_{raw,enriched,dead_letter}*`;
-  commits `d9c32b6`, `2fd8e8b`, `0b56915`, `42615c9`, `fb6401d`, `7421650`, `731e18f`, `76c1b3b`, `8ceca4b`;
+  commits `4100da0` (origin of the `%v` value), `d9c32b6`, `2fd8e8b`, `0b56915`, `42615c9`, `fb6401d`, `7421650`, `731e18f`,
+  `76c1b3b`, `8ceca4b`;
   getlago/lago-expression `v0.2.0`, `2abd2b3`, `0ff1b8d` (Cargo.lock bump).
 - Volatile facts and one-line re-verification (as of 2026-10-01). Set up once from the repo root:
   `S=.claude/skills/rails-go-parity/scripts; API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api); H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`
   - pin: `git ls-tree HEAD api` → `591ae9005110…`; `git -C "$API" log -1 --format='%h %cs'` → `591ae90 2026-09-08`
-  - Go HEAD for events-processor: `git log -1 --format='%h %cs' -- events-processor` → `5308258 2026-09-18`
+  - Go HEAD for events-processor: `git log -1 --format='%h %cs' -- events-processor` → `5308258 2026-09-18`;
+    `git rev-parse 5308258:events-processor` → `83e012866f29…`
   - Go commits after the pin: `git -C "$H" log --oneline ba292b6..5308258 -- events-processor` → 7 commits incl. `2fd8e8b`, `d9c32b6`
   - all MATCH/KNOWN rows: `$S/parity-constants.sh -q` → `summary: OK=27 KNOWN=12 INFO=4 FAIL=0 CHANGED=0`
   - ToTime precision: `$S/run-probe.sh time | sed -n 2p` → `ToTime(string) mismatches: 496/1000 …`
   - value strings: `$S/run-probe.sh value -values-only 2>/dev/null | head -2` → `999999`, `1e+06`
   - CH decimal cap: `$S/ch-decimal-probe.sh | grep "'1000000000000'"` → `D  '1000000000000'  0  0  ok` (fields are tab-separated)
+  - Ruby float timestamp (P22 CANDIDATE, needs `ruby`): `ruby -rbigdecimal -e 'p Time.at(BigDecimal("1727787600.123")).to_f.to_s'`
+    → `"1727787600.1230001"` on Ruby 3.3.6 (lago-api pins Ruby 4.0.6: `grep -n '^ruby' "$API/Gemfile"` → `6:ruby "4.0.6"`)
   - expression core: `$S/parity-constants.sh --network | grep -E ' P14[nd] '` → `OK P14n expression-core identical between v0.2.0 and 2abd2b3 …` and
     `KNOWN P14d expression-core deps differ in Cargo.lock: v0.2.0 bigdecimal=0.4.6 pest=2.7.13 serde_json=1.0.132 vs 2abd2b3 …`
   - dev CH image: `grep -n 'image: clickhouse/clickhouse-server' docker-compose.dev.yml` → `460:    image: clickhouse/clickhouse-server:26.2-alpine`

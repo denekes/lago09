@@ -9,9 +9,12 @@ and run against an in-process Kafka (kfake) + Redis (miniredis or redis-server) 
 The harnesses that reproduce these setups belong to `diagnostics-and-tooling` (binary smoke, kfake);
 the per-offset loss ledger belongs to `event-accounting-campaign`.
 
-## E1. Startup contract, in order, with the exact failure output
+## E1. Startup failures, in order, with the exact failure output
 
-The process is fail-fast: each step panics; the orchestrator restarts it. Nothing below is retried
+Startup is only PARTIALLY fail-fast (`architecture-contract` I14; the startup order and panic contract
+are owned by `architecture-contract` section 2): most steps panic and the orchestrator restarts the
+process, but an empty raw topic or consumer group is accepted (step 6), memory-cache snapshot errors are
+swallowed (step 1) and a bad SCRAM value crashes with a bare SIGSEGV (step 3a). Nothing is retried
 in-process. `LogAndPanic` (`utils/error_tracker.go:30-34`) logs `msg`=step + `error`, calls Sentry
 `CaptureError`, then panics with the error text.
 
@@ -41,7 +44,7 @@ expect the next step's failure until the env is complete.
 | non-retryable failure | ERROR `<error_message>` + `error_code` + `error` | yes | yes, with code | only if capturable (not-found: no) |
 | retryable failure, `ingested_at` < 12 h | same ERROR line | **no** (commit = longest processed prefix) | **no** | yes |
 | retryable failure, `ingested_at` >= 12 h or missing (zero time) | same ERROR line | yes | yes, with code | yes |
-| enriched or in-advance produce failed | ERROR `record had a produce error while synchronously producing` (`component=kafka-producer`); NO per-event line | yes | yes, `error_code` = `""`, `initial_error_message` = `failed to push to <topic> topic` | yes |
+| enriched or in-advance produce failed | ERROR `record had a produce error while synchronously producing` (`component=kafka-producer`); NO per-event line | yes | yes, `error_code` = `""`, `initial_error_message` = `failed to push to <topic> topic`; if the ENRICHED push failed, the in-advance event (when the plan has one) is still produced (`processor.go:110-126`), so re-feeding that DLQ row duplicates it | yes |
 | DLQ produce failed too | + ERROR `error while pushing to dead letter topic` | yes | **NO (lost)** | yes (with event) |
 | first record of the batch unprocessed | WARN `No commitable record in batch, skipping commit. ... batch_size: N processed: M` | nothing in the batch | - | - |
 
@@ -51,15 +54,19 @@ no Kafka key; its `ingested_at` loses milliseconds (`utils/time.go:103-111`). In
 
 ## E3. DLQ error codes
 
-| `error_code` | `error_message` (= log `msg`) | Retryable | Live evidence 2026-10-01 | Most likely causes, ranked |
-|---|---|---|---|---|
-| `build_enriched_event` | Error while converting event to enriched event | no | smoke tx_C `strconv.ParseFloat: parsing "2025-03-06 12:00:00": invalid syntax` | 1 timestamp not unix-seconds / RFC3339; 2 wrong JSON type. The text is ParseFloat's even when RFC3339 failed (`utils/time.go:25-27`) |
-| `fetch_billable_metric` | Error fetching billable metric | no for `record not found` / `Key not found`; **yes** for DB errors | smoke tx_B; `42P01` against an empty DB; `0A000` after `ALTER TABLE billable_metrics ADD COLUMN` | 1 wrong code/org or deleted metric; 2 cache mode with empty snapshot (ALL events); 3 Rails migration + `SELECT *` (0A000 burst); 4 wrong `DATABASE_URL` (42P01) |
-| `evaluate_expression` | Error evaluating custom expression | no | smoke tx_E (property `flag:true` next to the used `a`) | 1 a bool/null/object/array property anywhere in `properties`; 2 property used by the expression missing; 3 parse error / function not in lago-expression v0.2.0 (`min` vs `least`). The message embeds the whole event JSON (PII) |
-| `fetch_subscription` | Error fetching subscription | yes | `subscriptions` renamed mid-run -> `42P01` | DB/badger error. A MISSING subscription is not an error: the event is enriched with `subscription_id:""` (`enrichment_service.go:61-67`) |
-| `fetch_pay_in_advance_charge` | Error fetching pay in advance charge | yes | `charges` renamed mid-run; the enriched event had ALREADY been produced | DB/badger error on charges (`processor.go:115-119`) |
-| `flag_subscription_refresh` | Error flagging subscription refresh | yes | `redis-server` shut down mid-run: `dial tcp 127.0.0.1:16380: connect: connection refused` | Redis down; pool timeout (PoolSize 10, `config/redis/redis.go:38`, vs up to 10 000 goroutines per poll); with `context canceled` = regression of `02a4bc8` |
-| `""` | `""` | n/a | `LAGO_KAFKA_ENRICHED_EVENTS_TOPIC=missing_topic`: DLQ row `"initial_error_message":"failed to push to missing_topic topic","error_message":"","error_code":""` | topic missing (`UNKNOWN_TOPIC_OR_PARTITION`), broker outage, record too large |
+Whether a failure is retried is a property of the FAILURE, not of the code (owner: `architecture-contract`
+section 9): not-found lookups go to the DLQ at once; DB, badger and Redis errors are retried (not
+committed, not DLQ'd) while `ingested_at` is less than 12 h old.
+
+| `error_code` | `error_message` (= log `msg`) | Live evidence 2026-10-01 | Most likely causes, ranked |
+|---|---|---|---|
+| `build_enriched_event` | Error while converting event to enriched event | smoke tx_C `strconv.ParseFloat: parsing "2025-03-06 12:00:00": invalid syntax` | 1 timestamp not unix-seconds / RFC3339; 2 wrong JSON type. The text is ParseFloat's even when RFC3339 failed (`utils/time.go:25-27`) |
+| `fetch_billable_metric` | Error fetching billable metric | smoke tx_B; `42P01` against an empty DB; `0A000` after `ALTER TABLE billable_metrics ADD COLUMN` | 1 wrong code/org or deleted metric; 2 cache mode with empty snapshot (ALL events); 3 Rails migration + `SELECT *` (0A000 burst); 4 wrong `DATABASE_URL` (42P01) |
+| `evaluate_expression` | Error evaluating custom expression | smoke tx_E (property `flag:true` next to the used `a`) | 1 a bool/null/object/array property anywhere in `properties`; 2 property used by the expression missing; 3 parse error / function not in lago-expression v0.2.0 (`min` vs `least`). The message embeds the whole event JSON (PII) |
+| `fetch_subscription` | Error fetching subscription | `subscriptions` renamed mid-run -> `42P01` | DB/badger error. A MISSING subscription is not an error: the event is enriched with `subscription_id:""` (`enrichment_service.go:61-67`) |
+| `fetch_pay_in_advance_charge` | Error fetching pay in advance charge | `charges` renamed mid-run; the enriched event had ALREADY been produced | DB/badger error on charges (`processor.go:115-119`) |
+| `flag_subscription_refresh` | Error flagging subscription refresh | `redis-server` shut down mid-run: `dial tcp 127.0.0.1:16380: connect: connection refused` | Redis down; pool timeout (PoolSize 10, `config/redis/redis.go:38`, vs up to 10 000 goroutines per poll); with `context canceled` = regression of `02a4bc8` |
+| `""` | `""` | `LAGO_KAFKA_ENRICHED_EVENTS_TOPIC=missing_topic`: DLQ row `"initial_error_message":"failed to push to missing_topic topic","error_message":"","error_code":""` | topic missing (`UNKNOWN_TOPIC_OR_PARTITION`), broker outage, record too large |
 
 Count DLQ rows by code in ClickHouse (query validated with `clickhouse local` 26.2 against the same
 columns; run it on your ClickHouse):
@@ -72,13 +79,18 @@ GROUP BY error_code ORDER BY n DESC;
 
 ## E4. Silent loss: the mechanisms and how each one shows (or does not)
 
+IDs are `architecture-contract`'s loss IDs L1-L7 (`reference/concurrency-and-commit.md` section 4); this
+table is the debugging view of each.
+
 | # | Mechanism | What you see | What you do NOT see | Confirm |
 |---|---|---|---|---|
 | L1 | retryable failure, later batch on the same partition commits | ERROR line with a retryable code; maybe WARN `No commitable record in batch` | no DLQ row, no enriched row, no retry | E4.1 ledger; the transaction_id is in `events_raw` but in neither output table (query below) |
-| L2 | unmarshal error | ERROR `Error unmarshalling message` | no DLQ row, no enriched row; whether ClickHouse `events_raw` (its own Kafka engine on the raw topic) keeps such a record is UNVERIFIED, so the NOT IN query may miss it | Sentry |
-| L3 | DLQ produce failure after an enriched/in-advance produce failure | `record had a produce error...` + `error while pushing to dead letter topic` | the event anywhere but Sentry | Sentry, broker logs |
-| L4 | values zeroed downstream | nothing in EP logs | - | E5 |
-| L5 | time 1 ms early for subscription lookup (`utils/time.go:20-23`, about half of ms timestamps) | event enriched with `subscription_id:""` at a subscription boundary | - | `rails-go-parity` probes |
+| L2 | unmarshal error | ERROR `Error unmarshalling message` | no DLQ row, no enriched row | Sentry. A numeric `precise_total_amount_cents` from connectors IS in `events_raw` (ClickHouse parses it into `Decimal(40,15)`): use the connector-aware E4.1 query. Invalid JSON is presumably absent from `events_raw` too (UNVERIFIED) |
+| L3 | enriched / in-advance produce failure: DLQ row with `error_code` `""`, committed | `record had a produce error while synchronously producing` | the output event (only the DLQ copy remains) | DLQ rows with empty `error_code` (E3 query) |
+| L4 | DLQ produce failure after an enriched/in-advance produce failure | `record had a produce error...` + `error while pushing to dead letter topic` | the event anywhere but Sentry | Sentry, broker logs |
+| L5 | partial side effects: enriched produced, then the in-advance lookup or the ZADD fails retryably | `fetch_pay_in_advance_charge` / `flag_subscription_refresh` ERROR | the in-advance event / refresh flag (lost under L1, or the enriched event duplicated on redelivery) | E4.1 rows `tx_charges_gone` |
+| L6 | values zeroed downstream | nothing in EP logs | - | E5 |
+| L7 | time 1 ms early for subscription lookup (`utils/time.go:20-23`, about half of ms timestamps) | event enriched with `subscription_id:""` at a subscription boundary | - | `rails-go-parity` probes |
 
 ### E4.1 Measured ledger (real binary, DB mode, 2026-10-01)
 
@@ -96,15 +108,23 @@ accounting probe (its fault matrix includes "transient DB error, then more traff
 | | 8 | `tx_charges_gone` | enriched PRODUCED, then `fetch_pay_in_advance_charge` -> uncommitted (a restart re-produces it: duplicate) |
 | | 9 | `tx_subs_gone` | `fetch_subscription` -> uncommitted; group committed = 8 |
 
-Find candidates for L1/L2 in ClickHouse (raw has the record, neither output table does). Validated with
-`clickhouse local` (the `LEFT ANTI JOIN` form returned nothing there; use `NOT IN`):
+Find candidates for L1/L2 in ClickHouse (raw has the record, neither output table does). The second
+window line is the connector-aware clause: connectors send `ingested_at` as integer Unix seconds
+(`connectors/http.yml:31`, `sqs.yml:33`, `kinesis.yml:37`) and ClickHouse reads that number as ms, so
+connector rows carry `ingested_at` in January 1970 and a plain `ingested_at` window never sees them (the
+production version of this audit: `event-accounting-campaign` `reference/observability-and-production.md`
+section 3). Validated 2026-10-01 with `clickhouse local` 26.2.19.43 on synthetic tables with the
+migration column types: one connector row (`ingested_at` 1790856000 -> `1970-01-21 17:27:36.000`,
+`precise_total_amount_cents` 12.5 parsed) is found only with the second line; the `LEFT ANTI JOIN` form
+returned nothing there, so use `NOT IN`:
 ```sql
-SELECT organization_id, transaction_id, code, ingested_at
+SELECT organization_id, transaction_id, code, timestamp, ingested_at
 FROM events_raw
-WHERE ingested_at > now() - INTERVAL 1 DAY
+WHERE (ingested_at > now() - INTERVAL 1 DAY
+       OR (ingested_at < toDateTime64('1971-01-01 00:00:00', 3) AND timestamp > now() - INTERVAL 1 DAY))
   AND (organization_id, transaction_id) NOT IN (SELECT organization_id, transaction_id FROM events_enriched)
   AND (organization_id, transaction_id) NOT IN (SELECT organization_id, transaction_id FROM events_dead_letter)
-ORDER BY ingested_at LIMIT 100;
+ORDER BY timestamp LIMIT 100;
 ```
 `events_raw` is fed from the raw topic by its own ClickHouse Kafka engine
 (`$API/db/clickhouse_migrate/20231026124912_create_events_raw_queue.rb:9-10`). Results are candidates,
@@ -116,8 +136,8 @@ what you find (change-control N7, OPEN DECISION OD-2 (owner)); feed it to `event
 | Symptom | Mechanism | Confirm | Owner |
 |---|---|---|---|
 | `value` `"1e+06"`, `"1.2345678e+07"`, `"1e-07"` | `fmt.Sprintf("%v", properties[field_name])` on float64 (`enrichment_service.go:114`) | probe: `%v` of 1000000 = `"1e+06"`; smoke tx_A `"1e-07"` | `rails-go-parity` (contract), `event-accounting-campaign` W2 |
-| `value` `"<nil>"` | property missing or null | `%v` of a missing key = `"<nil>"` | same |
-| sum/max/latest = 0 in ClickHouse | `decimal_value Decimal(38,26) DEFAULT toDecimal128OrZero(value, 26)` (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`): `'<nil>'` -> 0, `'1000000000000'` -> 0, `'999999999999'` ok, `'1e+06'` -> 1000000 | `clickhouse local` 26.2.19.43, verified 2026-10-01 | OPEN DECISION OD-3 (owner) for schema changes |
+| `value` `"<nil>"` | property missing or null | `%v` of a missing key = `"<nil>"`. On the Kafka wire Go's `json.Marshal` escapes it as `"\u003cnil\u003e"` (`event_producer_service.go:77`), so grep the topic for `u003cnil`; ClickHouse stores `<nil>` | same |
+| sum/max/latest = 0 in ClickHouse | `decimal_value Decimal(38,26) DEFAULT toDecimal128OrZero(value, 26)` (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`): `'<nil>'` -> 0, `'1000000000000'` and `'-1000000000000'` -> 0, `'true'` / `'map[x:1]'` -> 0, `'999999999999'` ok, `'1e+06'` -> 1000000 | `clickhouse local` 26.2.19.43 (`diagnostics-and-tooling` `ch-local.sh`), verified 2026-10-01 | OPEN DECISION OD-3 (owner) for schema changes; a Go-only `%v` fix does not cure values >= 1e12 in magnitude |
 | unique_count too high | raw string compare: `"1e+06"` != `"1000000"`; `"<nil>"` counts once | `rails-go-parity` (its contract rows P10-P12) | `rails-go-parity` |
 | integer above 2^53 off by one | JSON -> float64 | `9007199254740993` -> `9007199254740992` | `event-accounting-campaign` |
 | event at a subscription boundary not matched | `ToTime` float math 1 ms early; RFC3339 offset not normalized (`utils/time.go:20-29`) | `rails-go-parity` time probe | `rails-go-parity` |
@@ -139,13 +159,13 @@ GROUP BY code ORDER BY zeroed DESC;
 | Symptom | Cause | Confirm | Evidence |
 |---|---|---|---|
 | EVERY event DLQs as `fetch_billable_metric` `Key not found` | snapshot failed and was swallowed (`cache/cache.go:78-106`, `LoadSnapshot` returns the error unlogged at `:240-243`) | `triage-ep-log.sh`: `snapshot loads: started 6, completed 0`; `component=db` 42P01 lines at startup | VERIFIED: empty DB -> 8 of 9 events DLQ'd, committed 9/9, process kept running |
-| edits (new metric, new charge) never reach the cache, nothing logged | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS`: CDC clients pass the raw string as ONE seed (`cache/consumer.go:28-31`) and have no logger | `env \| grep BOOTSTRAP` contains a comma; DEBUG `Cache updated from stream` never appears | VERIFIED: comma list -> CDC consumers start, 0 WARN/ERROR lines; `diagnostics-and-tooling` `cdc-brokers` measures visible=false |
+| edits (new metric, new charge) never reach the cache, nothing logged | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS`: CDC clients pass the raw string as ONE seed (`cache/consumer.go:28-31`) and have no logger | `printenv LAGO_KAFKA_BOOTSTRAP_SERVERS` contains a comma; DEBUG `Cache updated from stream` never appears | VERIFIED: comma list -> CDC consumers start, 0 WARN/ERROR lines; `diagnostics-and-tooling` `cdc-brokers` measures visible=false |
 | CDC never connects on a SASL/TLS cluster | CDC clients have no SASL/TLS options (`cache/consumer.go:30-35`) | `cache-cdc-fetch` lines if the error surfaces | CODE |
 | pay-in-advance stops for a plan after any charge edit; recurring fallback stops after a metric edit | `extra/debezium_config.json:2` `column.include.list` lacks `charges.pay_in_advance`, `charges.accepts_target_wallet`, `billable_metrics.recurring`; CDC upserts replace the whole cached row | `python3 -c "import json;print(json.load(open('extra/debezium_config.json'))['column.include.list'])"`; `events_charged_in_advance` volume drops while `events_enriched` continues | VERIFIED (smoke cache-cdc row A: in_advance=no) |
 | event at the exact ms a subscription starts: DB mode matches, cache mode does not | cache compares at full precision (`cache/subscriptions.go:56-66`), DB truncates to ms (`models/subscriptions.go:32-33`) | smoke row H | VERIFIED |
 | brand-new subscription's first events enriched with `subscription_id:""` | CDC lag; not-found is not an error | timing of the subscription insert vs event | UNVERIFIED in prod |
 | `LAGO_USE_MEMORY_CACHE=TRUE` (or `1`) runs DB mode | only the literal `true` enables it (`main.go:67`) | no `Starting snapshot load` lines | CODE |
-| broker accumulates `lago_evp_<model>_<uuid>` groups | fresh UUID group per start (`cache/consumer.go:27`), full replay each start | `rpk group list` | VERIFIED (6 groups per start) |
+| broker accumulates `lago_evp_<model>_<uuid>` groups | fresh UUID group per start (`cache/consumer.go:27`), full re-read of the CDC topics each start | `rpk group list` | VERIFIED (6 groups per start) |
 
 ## E7. Shutdown and `context canceled`
 
@@ -155,8 +175,10 @@ group` -> `partition consumer quit` -> franz-go INFO `heartbeat errored ... "err
 INFO `Context canceled during fetch` per model. All benign (`run-shutdown-ctx`).
 
 Not benign: `flag_subscription_refresh` with `"error":"context canceled"` around shutdown. That was every
-rolling restart until `02a4bc8` (#785) scoped Redis writes per record; seeing it again means someone passed
-the process context to a per-record side effect (change-control N5; `dlq-flag-ctx-canceled`).
+rolling restart until `02a4bc8` (#785) made the Redis writes take the batch context that
+`processRecordsAndCommit` passes to every record, instead of the process context the stores had captured.
+Seeing it again means someone passed the process/signal context to a per-record side effect
+(change-control N5; `dlq-flag-ctx-canceled`).
 
 ## E8. Rails side of the refresh flag
 

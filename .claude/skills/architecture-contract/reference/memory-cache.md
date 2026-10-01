@@ -1,6 +1,7 @@
 # DB mode vs memory-cache mode (badger snapshot + Debezium CDC)
 
-Verified 2026-10-01 at HEAD 5308258 by reading `events-processor/{main.go,cache/*.go,models/*.go}` and
+Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on
+top. Verified 2026-10-01 by reading `events-processor/{main.go,cache/*.go,models/*.go}` and
 `extra/debezium_config.json`, plus scratch probes against the real `cache` package and the binary
 (`startup-contract.sh` S5-S7). Paths relative to `events-processor/` unless they start with `extra/`.
 
@@ -19,7 +20,7 @@ below is a real code-level defect whose **production impact is UNVERIFIED**.
 | Subscription | SQL copied from Rails `Events::Common#subscription`: `date_trunc('millisecond', started_at) <= ts AND (terminated_at IS NULL OR date_trunc('millisecond', terminated_at) >= ts) ORDER BY terminated_at DESC NULLS FIRST, started_at DESC LIMIT 1`, explicit columns (`models/subscriptions.go:24-52`) | prefix scan `sub:<org>:<external_id>:` + Go emulation of the ordering at **full (µs) precision** (`cache/subscriptions.go:45-117`) |
 | Pay-in-advance check | `SELECT id FROM charges WHERE organization_id=? AND plan_id=? AND billable_metric_id=? AND pay_in_advance IS TRUE AND deleted_at IS NULL LIMIT 1` (`models/charges.go:47-66`) | prefix scan `ch:<org>:<plan>:<bm_id>:` and any `PayInAdvance` (`cache/charges.go:87-102`) |
 | Freshness | read-your-writes from Postgres | snapshot at start + CDC lag |
-| Startup | fails fast if PG unreachable | snapshot connect failure panics; **per-table load failures are swallowed** |
+| Startup | panics if PG unreachable (`processors/main_processor.go:144-147`) | snapshot connect failure panics (`cache/cache.go:69-72`); **per-table load failures are swallowed** |
 | Tests | sqlmock (`tests/mocked_store.go`) | real badger (`cache/*_test.go`); `processors/events_processor` tests run both modes (`processor_test.go:184`, `enrichment_service_test.go:63`) |
 
 Per-event Postgres cost in DB mode: 1 BM query + 1 subscription query (2 for a recurring BM with no subscription
@@ -93,5 +94,5 @@ Because step 3 overwrites the whole entry from a zero-valued struct, **any CDC u
 | shutdown | `Cache.Wait()` never called; badger may close under a CDC goroutine (UNVERIFIED impact) | `main.go:75`, `cache/cache.go:59-61` |
 | memory | whole tables held in Go slices during warm-up; badger in-memory unbounded; terminated subscriptions kept 1 month (snapshot) / 30 days (CDC); 3 dead filter tables still loaded | `models/query_streaming.go:96`, `cache/subscriptions.go:126` |
 
-Hardening beyond the shared parity harness is not owned by any campaign (see `event-accounting-campaign` scope);
-DB/cache/Rails parity cases are in `rails-go-parity`.
+Memory-cache CDC hardening (WP6-WP10) is unowned: owner question OPEN DECISION OD-20 (owner), next to OD-1; candidate
+future campaign. `event-accounting-campaign` excludes it. DB/cache/Rails parity cases are in `rails-go-parity`.

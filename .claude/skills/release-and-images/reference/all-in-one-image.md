@@ -2,8 +2,9 @@
 
 Read this before editing `docker/Dockerfile`, `docker/runner.sh` or `docker/Procfile`, before a
 release when api/front changed toolchains, or when `release-docker-image.yml` failed.
-Facts verified 2026-10-01 against HEAD 5308258, the pinned lago-api 591ae90 (`$API`) and lago-front
-0c5e539 (`$FRONT`) from `pinned-checkout.sh`. Building the image needs a Docker daemon and populated
+Code facts as of 5308258 (events-processor tree 83e012866f29; the working branch may carry
+skills-only commits on top), the pinned lago-api 591ae90 (`$API`) and lago-front 0c5e539 (`$FRONT`)
+from `pinned-checkout.sh`; registry facts verified 2026-10-01. Building the image needs a Docker daemon and populated
 `api/`+`front/`: NOT runnable in an agent sandbox. `docker/README.md:5` says the image is
 "designed for testing and staging environments only". Runtime behaviour (what runs, where data
 lands, PDF sidecar, insecure defaults) belongs to `run-and-operate` and `security-and-supply-chain`.
@@ -34,7 +35,7 @@ lands, PDF sidecar, insecure defaults) belongs to `run-and-operate` and `securit
   while the key is written to `postgresql-archive-keyring.gpg` (:43). The build works ONLY because
   Debian trixie itself ships `postgresql-17` and `postgresql-17-partman`. Today `ruby:4.0.6-slim` has the
   same digest as `ruby:4.0.6-slim-trixie` (Docker Hub API). The day the Ruby base rolls to a Debian
-  without PG17 in main, the build breaks (it already happened once: chain 3 below).
+  without PG17 in main, the build breaks (it already happened once: break 3 below).
 
 ## 2. Version sync requirements (what must match what)
 
@@ -53,9 +54,10 @@ Drift from lago-api's own `Dockerfile` (`$API/Dockerfile`), impact UNVERIFIED: t
 `pdfcpu` (`$API/Dockerfile:1-8,54`), `libjemalloc2` + `LD_PRELOAD` (:38-40), `postgresql-client` (:38),
 the `BUNDLE_GEMS__CONTRIBSYS__COM` secret mount (:29), and `ARG SEGMENT_WRITE_KEY`/`GOCARDLESS_*` (:42-48).
 
-## 3. Release-day breakage chains (the pre-release checklist is built from these)
+## 3. Release-day breaks 1-7 (the pre-release checklist is built from these)
 
-Each chain was found only when the release event built the image. "Pushed" = `getlago/lago:vX`
+The commit-by-commit narrative of these breaks is `failure-archaeology` chain X1; the numbering below
+is local to this file. Each break was found only when the release event built the image. "Pushed" = `getlago/lago:vX`
 `last_updated` on Docker Hub. Shas verified in the history clone.
 
 | # | Release | Symptom / cause | Fix | Guard (pre-release) |
@@ -68,7 +70,7 @@ Each chain was found only when the release event built the image. "Pushed" = `ge
 | 6 | v1.45.0, 2026-04-07 | Bundler 4 (bumped by `57508c2`, 2026-03-23, latent 15 days) removed `bundle install --without` | `558814a`; v1.45.1 cut the same day | without check |
 | 7 | v1.53.0, 2026-09-08 | image still had Node 20 / Ruby 4.0.2 while front needed Node 24 and api pinned Ruby 4.0.6 (`Gemfile:6`) | `b267320`, `f719ef1` (both after the tag) | ruby + node checks |
 
-Workflow-level chains that hit both release images:
+Workflow-level breaks that hit both release images:
 - v1.37.0 (2025-12-09 -> 12-11): invalid runner labels `linux/amd64` and self-hosted `lago-runner`
   replaced by `ubuntu-latest` (`c6abc1e` all-in-one, `5439dd5` events-processor); images pushed two days late.
 - 2026-01-02: `5077151` bumped lago-expression to v0.2.0 while `events-processor/Dockerfile` still used
@@ -83,23 +85,26 @@ were (see `release-history.md` §6).
 
 1. `.claude/skills/release-and-images/scripts/single-image-pins.sh` with the bump STAGED -> expect
    `# fails=0`. Today's expected WARNs: node (floating `24`), bundler (4.0.4 vs 4.0.16), pnpm
-   (`pnpm@latest` unused), lockfile (not frozen). Any FAIL: fix `docker/Dockerfile` in the SAME bump PR.
+   (`pnpm@latest` unused), lockfile (not frozen). Any FAIL: sync the ARGs in `docker/Dockerfile` (`:1-2`
+   Node/Ruby, `:18` Bundler) in the same bump PR, expect and explain change-control's
+   `WARN G1-release-shape` for `docker/Dockerfile`, re-run; any other fix goes in its own PR
+   (change-control `reference/change-classes.md` §7).
 2. If lago-api changed Ruby minor or lago-front changed Node major since the last release, re-read
-   `$API/Dockerfile` apt packages and `$FRONT/Dockerfile` for new system deps (chain 2).
+   `$API/Dockerfile` apt packages and `$FRONT/Dockerfile` for new system deps (break 2).
 3. From the repo root, with the bump staged:
    `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api "$(git ls-files -s api | awk '{print $2}')")`, then
    `diff <(sed -n '/db:create/,/seed_organization/p' docker/runner.sh) <(sed -n '/db:create/,/seed_organization/p' "$API/scripts/migrate.sh")`
-   and read the differences (chain 5). Expected today: diff exits 1 on wording only (`rake` vs `rails`,
+   and read the differences (break 5). Expected today: diff exits 1 on wording only (`rake` vs `rails`,
    log redirects, `LAGO_CREATE_ORG` guard in migrate.sh); the order create -> migrate -> roles -> org matches.
 4. If you can build (daemon + populated submodules; not here):
    `docker buildx build -f docker/Dockerfile --platform linux/amd64 .` before tagging. CANDIDATE:
    a PR-time `push: false` build through the reusable workflow (target, not current state).
 5. After the release: `artifact-verify.sh vX.Y.Z` must show `getlago/lago` OK; if MISS, see SKILL.md
-   "Runbook: cut release vX.Y.Z", step 8.
+   "Runbook: cut release vX.Y.Z", step 9.
 
 ## 5. Known residual risks (as of 2026-10-01)
 
-- No PR-time build of `docker/Dockerfile`: breakage surfaces only on release day (7 chains).
+- No PR-time build of `docker/Dockerfile`: breakage surfaces only on release day (7 breaks).
 - `pnpm@latest` (:12) is downloaded on every build. It is inert while front keeps `packageManager`;
   it becomes live if that field is removed, and the extra download is one more thing that can fail.
   CANDIDATE fix: drop `corepack prepare pnpm@latest --activate` (corepack reads `packageManager`) and add

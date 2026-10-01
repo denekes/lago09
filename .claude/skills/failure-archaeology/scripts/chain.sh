@@ -11,10 +11,13 @@
 #   chain.sh --list                    the curated chains (ID, title, status)
 #   chain.sh --named <ID>              replay a curated chain: each step resolved in the history clone
 #                                      (date, author, subject) plus what that step did
-#   chain.sh --verify                  resolve every step of every curated chain; exit 1 if any is missing
-#   chain.sh --for <path>              path -> chain lookup: curated chains whose steps touched <path>
-#                                      (file or directory, rename-aware; "origin:" steps ignored), then the
-#                                      last 10 commits on <path>. Run this BEFORE editing a file.
+#   chain.sh --verify                  resolve every step of every curated chain, and check the primary
+#                                      index (known chain IDs, paths present in history); exit 1 on any miss
+#   chain.sh --for <path>              path -> chain lookup: first the PRIMARY chains for <path> from the
+#                                      curated index (same table as SKILL.md "Path -> chain index"), then
+#                                      every curated chain whose steps touched <path> (file or directory,
+#                                      rename-aware; "origin:" steps ignored; primary ones marked "*"), then
+#                                      the last 10 commits on <path>. Run this BEFORE editing a file.
 # Examples (from repo root):
 #   .claude/skills/failure-archaeology/scripts/chain.sh --named A
 #   .claude/skills/failure-archaeology/scripts/chain.sh events-processor/config/kafka/consumer.go \
@@ -32,7 +35,7 @@ usage() { awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; }
 # ---- curated chains: "ID|sha|what this step did" ; "#ID|title|status" opens a chain ----------
 chains() { cat <<'EOF'
 #A|Kafka commit path (ING-15 segfault)|settled; residual skip-past semantics (OD-2)
-A|4100da0|origin: consume() commits the last record of every batch; no retry semantics
+A|4100da0|origin: consume() commits the last record of every batch; every processing failure is DLQ'd (go produceToDeadLetterQueue), no retry
 A|cec0eb2|Retryable/12 h window + findMaxCommitableRecord; stray `return` exits consume() -> partition goroutine dies, poll() blocks on its unbuffered channel (inferred)
 A|656c829|unparseable records counted as processed (committed, Sentry only, no DLQ)
 A|600e195|extract processRecordsAndCommit: `return` now only skips the commit; ALSO makes poll() loop forever after client close
@@ -140,8 +143,9 @@ X1|e07e182|Ruby 3.3.6 -> 3.4.3 to match lago-api
 X1|d0099a9|Ruby 3.4 needs libyaml-dev
 X1|9eb8c3b|packages.redis.io `redis` pkg -> Debian redis-server; docker/redis.conf orphaned
 X1|92b1af2|runner.sh must generate LAGO_ENCRYPTION_* keys
-X1|b6b98c8|base rolled to Debian trixie: postgresql-15 / software-properties-common gone (inferred)
-X1|18b26d0|v1.35.0: pnpm@latest TTY abort; prune removed, .dockerignore added
+X1|14fa1e0|Ruby 3.4.4 -> 3.4.5: ruby:3.4.5-slim is Debian trixie (no postgresql-15); v1.33.0-v1.33.2 never published
+X1|b6b98c8|trixie fix: postgresql-15 -> 17, software-properties-common dropped; v1.33.3 is the next image
+X1|18b26d0|v1.35.0: NO_TTY abort in the corepack prepare pnpm@latest / pnpm prune step (which pnpm ran: UNVERIFIED); prune removed, .dockerignore added
 X1|c6abc1e|v1.37.0 image 2 days late: self-hosted runner labels -> ubuntu-latest
 X1|fd77a74|signup seed needs roles:seed_predefined first
 X1|57508c2|Ruby 4.0.2 + Bundler 4.0.4 (latent break: --without removed)
@@ -159,7 +163,7 @@ X3|8a6ce39|installer added (bare emoji line executed as a command)
 X3|cd9f0fa|production profile: check_domain_dns called before it is defined
 X3|d54c463|local env file download removed
 X3|2453945|15.5 months later: function moved, $pid quoted, echo added (#762)
-#X4|Dev compose startup and init|settled for fixed edges; residual list-form depends_on
+#X4|Dev compose startup and init|settled; edges match N12 (known exception redpanda-console -> redpanda)
 X4|2747b04|lago_test init script mounted from a wrong path (never ran)
 X4|c80a7b5|random dev start failures: health conditions added
 X4|5477e39|next day: rpk topic create made idempotent
@@ -170,7 +174,7 @@ X5|688e4e7|raw topic env added per service (events-raw)
 X5|0ca6cdf|"Fix dev events_raw topic" sets api-worker to events_raw: services now disagree
 X5|16c8b68|env moved to one file (events-raw everywhere) [same file carried a real licence value]
 X5|84b6eef|file renamed .env.development.default
-X5|6dd7e56|licence value removed after 43 days (rotation: OD-9)
+X5|6dd7e56|licence value removed: 37 days on main via 0a67ac0 (43 if the branch was public, UNVERIFIED); rotation: OD-9
 X5|3cd78f1|LAGO_REDIS_CACHE_DB aligned (EP 0 vs API 3)
 #X6|Submodule pointers moved outside release PRs|instance reverted; CLASS RESIDUAL (15 since 2025)
 X6|f145388|pins re-aligned to the release tag
@@ -190,7 +194,7 @@ X7|5ee8e98|OIDC role-to-assume (no caller)
 #X8|Connectors image pipeline|settled; residual anonymous Docker Hub pulls
 X8|6a595fb|pin redpanda connect version
 X8|76159bd|repository_dispatch to lago-deploy
-X8|2146a18|13 min later: replaced by direct reusable-workflow call
+X8|2146a18|authored 13 min later, landed together with 76159bd: replaced by direct reusable-workflow call
 X8|986f29b|429 Too Many Requests: pull docker.io directly
 #X9|Redis custom port|root compose settled; deploy/ RESIDUAL
 X9|ed6f687|--port ${REDIS_PORT} added, healthcheck still default port
@@ -219,6 +223,71 @@ X13|bfb4d5f|LAGO_DISABLE_SIGNUP default
 X13|a791efb|missing LAGO_FROM_EMAIL
 X13|bf02b8d|NANGO_SECRET_KEY warning
 EOF
+}
+
+# ---- primary index: "path|chain IDs, most relevant first" ------------------------------------
+# Mirrors SKILL.md "Path -> chain index" (one line per path; keep both in sync). A path is a file or a
+# directory (it then covers everything under it). Big commits touch many files, so the step-based list
+# of --for over-reports; this index says which chains a reader should open first.
+primary() { cat <<'EOF'
+events-processor/config/kafka/consumer.go|A J
+events-processor/processors/events_processor/processor.go|A J E
+events-processor/processors/events_processor/enrichment_service.go|N D E G
+events-processor/processors/events_processor/event_producer_service.go|D
+events-processor/processors/main_processor.go|F G H M
+events-processor/models/subscriptions.go|B
+events-processor/models/billable_metrics.go|B C
+events-processor/models/charges.go|E C
+events-processor/models/stores.go|G F J
+events-processor/models/event.go|I
+events-processor/utils/time.go|I
+events-processor/utils/env.go|M
+events-processor/config/redis/redis.go|H
+events-processor/config/tracing|K
+events-processor/cache|C D
+extra/debezium_config.json|C D
+events-processor/Dockerfile|L
+events-processor/Dockerfile.dev|L
+events-processor/Dockerfile.staging|L
+events-processor/go.mod|L
+events-processor/mise.toml|L
+.github/workflows/events-processor-tests.yml|L
+docker/Dockerfile|X1
+docker/runner.sh|X1
+.dockerignore|X1
+.github/workflows/release-docker-image.yml|X1
+.github/workflows/docker-build-multi-arch.yaml|X7 X8
+.github/workflows/build-processors-image.yaml|X7 X8
+.github/workflows/build-connectors-image.yaml|X7 X8
+.github/workflows/release-processors-image.yml|X7 X8
+connectors/Dockerfile|X8
+deploy|X3 X9
+docker-compose.yml|X9 X13 X1
+docker-compose.dev.yml|X4 X5 X10 X12
+scripts|X4 X5 X10 X12
+.env.development.default|X5 F M
+api|X6
+front|X6
+events-processor/models/flat_filters.go|D
+events-processor/cache/flat_filters.go|D
+events-processor/models/charge_cache.go|F
+events-processor/processors/events_processor/cache_service.go|F
+.github/workflows/deploy-preview.yml|X2 X10
+docker-compose.arm64.yml|X2 X10
+EOF
+}
+
+# $1 = path (events-processor spelling); prints its primary chain IDs, index order, deduplicated.
+# Matches index rows equal to the path, rows for a directory containing it, and rows under it.
+primary_for() {
+  local t="$1" p list id out=" "
+  while IFS='|' read -r p list; do
+    [ -n "$p" ] || continue
+    if [ "$t" = "$p" ] || [[ "$t" == "$p"/* ]] || [[ "$p" == "$t"/* ]]; then
+      for id in $list; do case "$out" in *" $id "*) ;; *) out="$out$id " ;; esac; done
+    fi
+  done < <(primary)
+  printf '%s\n' "${out# }"
 }
 
 mode=path; target=""; regex=""; show=0; func=""
@@ -267,7 +336,13 @@ named)
   resolve "$target" ;;
 for)
   specs=(); while IFS= read -r s; do specs+=("$s"); done < <(fa_expand_path "$target")
-  echo "Curated chains whose steps touched ${target} (rename-aware):"
+  prim="$(primary_for "${specs[0]}")"; prim="${prim% }"
+  if [ -n "$prim" ]; then
+    echo "Primary chains for ${target} (curated index; read these first): ${prim}"
+  else
+    echo "Primary chains for ${target}: none in the curated index; judge the list below by its steps"
+  fi
+  echo "Curated chains whose steps touched ${target} (rename-aware; * = primary):"
   hits=0
   while IFS='|' read -r cid sha role; do
     if [ "${cid:0:1}" = "#" ]; then title["${cid:1}"]="$sha | $role"; continue; fi
@@ -281,7 +356,9 @@ for)
   done < <(chains)
   if [ "$hits" = 0 ]; then echo "  (none) -- no curated chain; still read the commits below"; fi
   for id in $(chains | awk -F'|' '/^#/ { print substr($1, 2) }'); do
-    [ -n "${steps[$id]:-}" ] && printf '  %-4s %s\n       steps:%s\n' "$id" "${title[$id]}" "${steps[$id]}"
+    [ -n "${steps[$id]:-}" ] || continue
+    case " $prim " in *" $id "*) mark='*' ;; *) mark=' ' ;; esac
+    printf ' %s %-4s %s\n       steps:%s\n' "$mark" "$id" "${title[$id]}" "${steps[$id]}"
   done
   echo "Last 10 commits on ${target}:"
   G log --no-color -n 10 --date=short --format='  %h %ad %an | %s' -- "${specs[@]}" ;;
@@ -292,6 +369,17 @@ verify)
     if resolve "$id" >/dev/null; then echo "OK   $id ($n steps)"; else echo "FAIL $id"; rc=1; fi
     total=$((total + n))
   done
+  # primary index: every chain ID must exist; every path must appear in history (deleted paths too)
+  known=" $(chains | awk -F'|' '/^#/ { printf "%s ", substr($1, 2) }')"
+  npaths=0; bad=""
+  while IFS='|' read -r p list; do
+    [ -n "$p" ] || continue
+    npaths=$((npaths + 1))
+    for id in $list; do case "$known" in *" $id "*) ;; *) bad="$bad unknown-ID:$id($p)" ;; esac; done
+    pspecs=(); while IFS= read -r s; do pspecs+=("$s"); done < <(fa_expand_path "$p")
+    [ -n "$(G log -1 --format=%h -- "${pspecs[@]}" 2>/dev/null)" ] || bad="$bad no-history:$p"
+  done < <(primary)
+  if [ -z "$bad" ]; then echo "OK   primary index ($npaths paths)"; else echo "FAIL primary index:$bad"; rc=1; fi
   echo "verified $total steps"; exit "$rc" ;;
 func)
   G log --no-color --reverse --date=short --format='%h %ad %an | %s' -s -L ":${func}:${target}" ;;

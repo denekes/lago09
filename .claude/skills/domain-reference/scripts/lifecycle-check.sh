@@ -116,6 +116,10 @@ while IFS= read -r c; do
   grep -qxF -- "$c" <<< "$cited" || { echo "STALE      $c (row in anchors.tsv, not cited any more)"; bad=$((bad + 1)); }
 done <<< "$rows"
 
-echo "lifecycle-check: $ok anchors OK, $bad problem(s); events-processor @ $(git -C "$repo" rev-parse --short HEAD), lago-api @ $(git -C "$API" rev-parse --short HEAD)"
+# Version label: the last commit that touched events-processor/ (HEAD may carry skills-only commits on
+# top), "+dirty" when the working tree differs from it.
+ep_ver="$(git -C "$repo" log -1 --format=%h -- events-processor)"
+[ -z "$(git --no-optional-locks -C "$repo" status --porcelain -- events-processor 2>/dev/null)" ] || ep_ver="$ep_ver+dirty"
+echo "lifecycle-check: $ok anchors OK, $bad problem(s); events-processor @ $ep_ver, lago-api @ $(git -C "$API" rev-parse --short HEAD)"
 [ "$bad" -eq 0 ] || exit 1
 exit 0

@@ -16,7 +16,8 @@
 #
 # Rules (FAIL unless noted):
 #   G1-gitlink         api/front gitlink changed outside --release (12b8101 -> 647de3e)
-#   G1-release-shape   (WARN, --release) files other than api, front, docker-compose.yml changed,
+#   G1-release-shape   (WARN, --release) files other than api, front, docker-compose.yml changed
+#                      (docker/Dockerfile ARG sync may ride along: explain it in the PR),
 #                      or the docker-compose.yml api/front image tags were not bumped together
 #   G1-gitmodules      (WARN) .gitmodules changed
 #   G2-<kind>          added line looks like a real secret: private key block, AWS key id,
@@ -26,6 +27,8 @@
 #                      (runs pin-sync-check.sh on the post-change tree)
 #   G3-latest          added "@latest" in a Dockerfile, workflow or shell script (d589940, 18b26d0)
 #   G3-latest-image    (WARN) added ":latest" image reference
+#                      (G3-latest* skip paths under .claude/: skill docs and scripts quote the
+#                      patterns as documentation or grep patterns)
 #   G3-expression-go   go.mod expression-go version changed (no expression-go/v0.2.0 tag exists)
 #   G4-file            added file that must never be committed: *:Zone.Identifier, .env,
 #                      .env.development, *.pem, *.key, *.so, *.out, event_processors (c8f4133)
@@ -142,7 +145,11 @@ fi
 if [ "$release" = 1 ]; then
   [ -z "$gitlinks" ] && report WARN G1-release-shape "release mode but api/front gitlinks did not move: the all-in-one image would bake the previous api/front (01cfbc6, v1.52.1)"
   for p in "${!status[@]}"; do
-    case "$p" in api|front|docker-compose.yml) ;; *) report WARN G1-release-shape "$p is outside the release-bump set {api, front, docker-compose.yml}" ;; esac
+    case "$p" in
+      api|front|docker-compose.yml) ;;
+      docker/Dockerfile) report WARN G1-release-shape "$p changed: syncing its Ruby/Node ARGs (:1-2) and BUNDLER_VERSION (:18) to the new pins may ride in the bump PR; explain it in the PR (anything else goes in its own PR)" ;;
+      *) report WARN G1-release-shape "$p is outside the release-bump set {api, front, docker-compose.yml}: move it to its own PR" ;;
+    esac
   done
   tagdiff="$("${G[@]}" "${DIFF[@]}" -U0 -- docker-compose.yml | grep -E '^\+[[:space:]]*image:[[:space:]]*getlago/(api|front):' || true)"
   va="$(printf '%s\n' "$tagdiff" | sed -nE 's#.*getlago/api:([^[:space:]]+).*#\1#p' | head -n1)"
@@ -214,7 +221,9 @@ fi
 g3=0
 if [ -n "$added" ]; then
   while IFS=$'\t' read -r f ln text; do
-    case "$f" in .claude/skills/change-control/scripts/*) continue ;; esac   # these scripts contain the patterns
+    # Skill docs and scripts under .claude/ quote these patterns as documentation or grep
+    # patterns; they are not tool versions.
+    case "$f" in .claude/*) continue ;; esac
     case "$f" in
       *Dockerfile*|*.yml|*.yaml|*.sh)
         if [[ "$text" =~ @latest([^A-Za-z0-9_-]|$) ]] && [[ ! "$text" =~ ^[[:space:]]*# ]]; then

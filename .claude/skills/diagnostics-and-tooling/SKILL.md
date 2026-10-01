@@ -6,8 +6,8 @@ description: How to MEASURE runtime behaviour in the Lago umbrella repo instead 
 
 This skill ships the probe harnesses for this repo and tells you how to run, read and adapt them.
 Every harness here was run; its expected output is recorded. Conclusions drawn from the outputs live
-in the owning skills. Facts verified 2026-10-01 against HEAD 5308258 unless marked (the skills
-commit on top of it changes only `.claude/`).
+in the owning skills. Facts verified 2026-10-01 unless marked. Code facts as of 5308258
+(events-processor tree 83e012866f29); the working branch may carry skills-only commits on top.
 
 ## When to use / when NOT to use
 
@@ -25,7 +25,8 @@ Do NOT use it for:
 - Go vs Rails/ClickHouse semantics and their probes (value format, time precision) -> `rails-go-parity`;
 - the fault-matrix ledger and the fixes for silent loss -> `event-accounting-campaign`;
 - baselines, acceptance thresholds, when `-race`/coverage is required -> `validation-and-qa`;
-- symptom -> cause -> fix tables, DLQ codes, log triage script -> `debugging-playbook`;
+- symptom -> cause -> fix tables, log triage script -> `debugging-playbook`; DLQ error_code ->
+  cause -> retryable -> `architecture-contract` section 9;
 - the evidence bar and hypothesis cards -> `research-methodology`;
 - building the CGO toolchain, Postgres for tests -> `build-and-env`;
 - running the dev stack or compose variants -> `run-and-operate`.
@@ -106,9 +107,10 @@ SASL/TLS, Kafka client tracer hooks and panics: `reference/kfake-technique.md` s
 `processRecordsAndCommit` (`:82`) and `findMaxCommitableRecord` (`:278`), the real `EventProcessor`,
 real producers, and the Redis flag store on miniredis.
 
-**Version trap (VERIFIED).** kfake has no tags. `go get .../kfake@latest` pulls franz-go v1.21.7 and a
-go1.26 toolchain under events-processor (which ships v1.20.5); forcing v1.20.5 back with `replace`
-fails with `vs.EachSupportedFeature undefined`. The module pins
+**Version trap (VERIFIED 2026-10-01).** kfake has no tags. `go get .../kfake@latest` pulls franz-go
+v1.21.7 and a go1.26 toolchain under events-processor (which ships v1.20.5); forcing v1.20.5 back with
+`replace` fails with `vs.EachSupportedFeature undefined`; asking for both in one `go get` is refused
+(`requires github.com/twmb/franz-go@v1.21.7, not ...@v1.20.5`). The module pins
 `github.com/twmb/franz-go/pkg/kfake v0.0.0-20251123185109-2b5c574e9ddd` (requires franz-go v1.20.4,
 so v1.20.5 stays). Never run `go get -u` in the harness; re-pin per `reference/kfake-technique.md` s.2.
 
@@ -137,6 +139,13 @@ then `kfake-run.sh --check` and `GOFLAGS=-race kfake-run.sh <name>`. The fault-m
 (per-offset enriched/DLQ/redelivered/LOST) is built by `event-accounting-campaign` on these packages;
 do not duplicate it here.
 
+**Structural dependency (DEPENDENT: `event-accounting-campaign`).** Its `scripts/go.mod` requires
+`lagoskills/kfakeharness` through `replace lagoskills/kfakeharness => ../../diagnostics-and-tooling/scripts/kfake-harness`,
+and its `accounting-probe` and `value-corpus` import `kfx`, `fixture` and `pipeline`. Renaming the module,
+moving `scripts/kfake-harness/` or changing the exported API of those packages breaks them. After any such
+change run, in the same PR, `.claude/skills/event-accounting-campaign/scripts/run.sh --check` (expect
+`run.sh: check OK`).
+
 ## 5. Binary smoke: the real binary, end to end, no Docker
 
 `smoke-binary.sh` builds `events-processor` into a mktemp dir (with `ep-env.sh`), creates a scratch
@@ -148,7 +157,12 @@ with `fixtures/smoke-expected-<mode>.txt`.
 ```bash
 $S/smoke-binary.sh all            # exit 0: all modes MATCH; 3: a mode DIFFERS (diff printed); 2: setup error
 $S/smoke-binary.sh db --keep      # keep binary + logs in the printed temp dir (for jq triage)
+$S/smoke-binary.sh db --env LAGO_USE_MEMORY_CACHE=1                       # MATCH db: only "true" enables cache mode
+$S/smoke-binary.sh db --no-expected --env LAGO_KAFKA_ENRICHED_EVENTS_TOPIC=  # exit_before_sigterm=exit status 2, panic_lines=1
 ```
+`--env K=V` (repeatable) adds or overrides one variable in the binary's otherwise fixed environment
+(`K=` sets it empty): the no-daemon end-to-end check that a new or changed events-processor variable is
+wired (and that a bad value panics at startup). Add `--no-expected` when the variable changes the result.
 
 Observed 2026-10-01 (identical on 3 runs):
 
@@ -206,7 +220,10 @@ $S/ch-local.sh "SELECT toDecimal128OrZero('1e+06', 26)"    # 1000000   (CH 26.2.
 $S/ch-local.sh "SELECT toDecimal128OrZero('1000000000000', 26), toDecimal128OrZero('<nil>', 26)"   # 0  0
 ```
 Downloads the official static binary from GitHub release assets (sha512-checked) into
-`$LAGO_SKILLS_CACHE/clickhouse/<ver>/` once (~211 MB, 724 MB on disk). Version = `CH_VERSION`, else the
+`$LAGO_SKILLS_CACHE/clickhouse/<ver>/clickhouse` once (~211 MB, 724 MB on disk). That is the ONE shared
+layout: sibling skills get the binary with `ch-local.sh --path`, never a hardcoded versioned path. The
+script runs `clickhouse local --query` with stdin from `/dev/null` (an inherited open stdin pipe is a
+known hang risk); for many statements use `ch-local.sh -` (SQL on stdin). Version = `CH_VERSION`, else the
 newest cached patch of the minor in `docker-compose.dev.yml:460` (`26.2-alpine`), else (or with
 `--refresh`) the newest `v26.2.*-stable` tag on GitHub (26.2.19.43 on 2026-10-01). Production's version is
 unknown; any schema change is OPEN DECISION OD-3 (owner). `packages.clickhouse.com` was blocked by the
@@ -225,7 +242,7 @@ All compose files and bring-up: `run-and-operate`.
 | Goal | Command | Observed 2026-10-01 |
 |---|---|---|
 | Race on the unit suite | `.claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 ./...` | 6 packages ok, ~8-11 s |
-| Race on the REAL consumer path (the unit suite never runs it) | `GOFLAGS=-race $S/kfake-run.sh happy-path -n 5000 -partitions 4` | PASS, 0 races (x3; DB mode too) |
+| Race on the REAL consumer path (the unit suite never runs it; change-control C4 requires one such run) | `GOFLAGS=-race $S/kfake-run.sh happy-path -n 5000 -partitions 4` | PASS, 0 races (x3; DB mode too) |
 | Order dependence | `.claude/skills/build-and-env/scripts/ep-test.sh -count=1 -shuffle=on -v ./utils/`; replay with `-shuffle=<seed>` | prints `-test.shuffle <seed>` |
 | CPU through the pipeline | `T=$(mktemp -d); $S/kfake-run.sh happy-path -n 50000 -partitions 4 -cpuprofile $T/cpu.out; go tool pprof -top $T/cpu.out` | 8 batches, elapsed 3.0-3.5 s; relative use only |
 | CPU of a unit test | `go test -run X -cpuprofile $T/cpu.out -o $T/x.test ./pkg/` (CGO env; full command: `reference/harness-catalogue.md` H9) | always pass `-o` (Traps) |
@@ -234,15 +251,16 @@ All compose files and bring-up: `run-and-operate`.
 
 | If you see / do | It is | Do |
 |---|---|---|
-| `vs.EachSupportedFeature undefined` | latest kfake vs franz-go v1.20.5 | use the pinned kfake (section 4) |
+| `vs.EachSupportedFeature undefined` | latest kfake vs franz-go forced back to v1.20.5 (`replace`) | use the pinned kfake (section 4) |
 | `go: upgraded github.com/twmb/franz-go v1.20.5 => v1.21.7` after `go get` | MVS moved franz-go under your probe | revert go.mod; never `go get -u` in a probe module |
+| `kfake@latest (...) requires github.com/twmb/franz-go@v1.21.7, not github.com/twmb/franz-go@v1.20.5` | `go get` asked for kfake@latest and franz-go@v1.20.5 together | same: use the pinned kfake |
 | `-race` reports `events-processor/config/tracing/tracer.go:76` `GetTracer` | your harness did not call `tracing.InitTracer` like `events-processor/main.go:45-50` | `pipeline.New` does it; copy that line in custom wiring |
 | `events_processor.test` / `events-processor` binary / `*.out` lying in `events-processor/`, invisible in `git status` | ignored by `events-processor/.gitignore:12,15,24` | `go build -o $T/...`, `go test -o $T/...`; check `git status --porcelain --ignored -- events-processor` |
 | `cannot find -lexpression_go` / `libexpression_go.so: cannot open` | CGO env missing | `source .claude/skills/build-and-env/scripts/ep-env.sh` (details: `build-and-env`) |
 | Probe sleeps then reads: flaky counts | race between your read and the commit | `kfx.WaitCommitted` / `ReadAll` to high watermark |
 | `go test` result `(cached)` | cache hit, nothing re-ran | `-count=1` |
 | overlay change not visible to a test reading a file | overlays are compile-time only | scratch copy (`reference/harness-catalogue.md` H11) |
-| CDC consumer silently receives nothing | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS` (`events-processor/cache/consumer.go:28-31`) | measure with `cdc-brokers`; owner: `architecture-contract` |
+| CDC consumer silently receives nothing | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS` (`events-processor/cache/consumer.go:28-31`) | measure with `cdc-brokers`; meaning: `architecture-contract` WP10; fix owner: none (OPEN DECISION OD-20) |
 | scratch DB left behind after a crash | the trap did not run | `scratch-pg.sh list`, then `drop` each |
 
 ## Scripts
@@ -251,7 +269,7 @@ All compose files and bring-up: `run-and-operate`.
 |---|---|---|---|
 | `scripts/kfake-run.sh` | build (to `$LAGO_SKILLS_CACHE/kfake-harness-bin/`) and run a kfake scenario with the CGO env, passing its exit code through; `--check` = vet + gofmt + franz-go pin | `kfake-run.sh happy-path` | `RESULT: PASS ...`, exit 0; `--check` -> `kfake-run: check OK` |
 | `scripts/kfake-harness/` (Go module) | `kfx`, `fixture`, `pipeline` packages; `cmd/happy-path`, `cmd/cdc-brokers`, `cmd/smoke` | see section 4 | see `reference/kfake-technique.md` |
-| `scripts/smoke-binary.sh` | build the binary to a temp dir, smoke it in db/cache/cache-cdc | `smoke-binary.sh all` | 3 x `EXPECTED-TODAY: MATCH`, exit 0 |
+| `scripts/smoke-binary.sh` | build the binary to a temp dir, smoke it in db/cache/cache-cdc; `--env K=V` adds/overrides a variable | `smoke-binary.sh all` | 3 x `EXPECTED-TODAY: MATCH`, exit 0 |
 | `scripts/overlay-run.sh` | `go test -overlay` from `target=source` pairs | section 6 | `--- PASS: TestOverlayDemo_CommitPrefixTable` |
 | `scripts/scratch-pg.sh` | create/drop/list/url tagged scratch DBs; `--lenient` for the real schema | section 7 | URL on stdout; `dropped <name>` |
 | `scripts/ch-local.sh` | `clickhouse local` from a cached official binary | section 8 | `1000000` |
@@ -286,3 +304,11 @@ outputs and cited lines checked).
   `StartProcessingEvents`, `NewConsumerGroup`, `processRecordsAndCommit`, `ProcessEvents`, the env
   vars the binary reads, or the models' SQL columns; a lago-api pin bump (real schema); a change of
   the dev ClickHouse image; any `EXPECTED-TODAY: DIFFERS` from `smoke-binary.sh`.
+- DEPENDENT: `event-accounting-campaign/scripts/go.mod` requires `lagoskills/kfakeharness` through
+  `replace => ../../diagnostics-and-tooling/scripts/kfake-harness`. Renaming the module, moving
+  `scripts/kfake-harness/` or changing the exported API of `kfx`/`fixture`/`pipeline` breaks its
+  `accounting-probe` and `value-corpus`: run `.claude/skills/event-accounting-campaign/scripts/run.sh --check`
+  (and its `scoreboard.sh`) in the same PR (`reference/kfake-technique.md` s.7).
+- Shared ClickHouse binary layout `$LAGO_SKILLS_CACHE/clickhouse/<ver>/clickhouse` is owned here
+  (`ch-local.sh --path`); sibling probes (`rails-go-parity`, `event-accounting-campaign`) read it, so
+  change it only together with them.

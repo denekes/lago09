@@ -7,7 +7,7 @@ and you want to know whether it was a fix, a regression, or a removal. The narra
 Scope: all 79 non-dependabot commits under `events-processor/` and its pre-rename name
 `events_processor/` (renamed in `d5bce86`, 2025-03-21). Re-list them with
 `.claude/skills/failure-archaeology/scripts/hist.sh --ep --humans --reverse` (expect 79 lines; 96 with
-dependabot). Facts verified 2026-10-01 against the history clone; "inferred" marks a root cause read
+dependabot). Facts verified 2026-10-01 against the history clone (code facts as of `5308258`); "inferred" marks a root cause read
 from code shape or a subject line when the commit has no body.
 
 Kinds: FIX, HOTFIX, REGRESSION (a commit that introduced a defect fixed later), REMOVAL, FEAT,
@@ -81,7 +81,7 @@ Chain letters refer to `chains.md`.
 | 2026-03-27 | `42615c9` | #720 | FIX | refresh ran before data landed (inferred from `CLICKHOUSE_MERGE_DELAY`) | `SADD` set drained immediately | `ZADD subscription_refreshed_v2`, 15 s bucket; cache `EXPIRE 15s` | settled (tuned `fb6401d`) | F G |
 | 2026-04-09 | `50015b0` | #725 | CHORE | go.mod already said `go 1.25.0` | dependabot `932c06c` (#724) raised it 50 min earlier | CI + Dockerfiles to Go 1.25 | settled | L |
 | 2026-04-20 | `fb6401d` | #729 | CHORE | refresh latency | 15 s too long | 10 s bucket and expiry (`SUBSCRIPTION_BUCKET_DURATION`) | settled (Rails = 10) | F G |
-| 2026-04-27 | `fff5858` | #639 | REGRESSION | DB load from per-event lookups | n/a | Badger cache + Debezium CDC behind `LAGO_USE_MEMORY_CACHE`; `gorm.DeletedAt`→`utils.NullTime` (soft-delete scope lost); 101 BM test lines deleted; moved api/front pins | flag-gated, OD-1; soft-delete fixed `8ceca4b` | C X6 |
+| 2026-04-27 | `fff5858` | #639 | REGRESSION | DB load from per-event lookups | n/a | Badger cache + Debezium CDC behind `LAGO_USE_MEMORY_CACHE`; `gorm.DeletedAt`→`utils.NullTime` (soft-delete scope lost); 101 BM test lines deleted; moved api/front pins | flag-gated, OD-1 (CDC hardening unowned: OD-20); soft-delete fixed `8ceca4b` | C X6 |
 | 2026-04-27 | `2d2ba86` | #691 | CHORE | old base image | n/a | `debian:13-slim` | settled | – |
 | 2026-04-27 | `731e18f` | #733 | FIX | produce failures (title: "producer keys limits") | expanded-topic key embedded the grouped_by string (inferred) | every key = `<org>-<transaction_id>` | settled; per-subscription ordering no longer guaranteed (impact UNVERIFIED) | D |
 | 2026-05-06 | `9acd83e` | #735 | FIX | pod segfault inside franz-go; SQLSTATE 0A000 after Rails migrations | nil record passed to `CommitRecords`; `SELECT *` plan invalidated by DDL | `(record, ok)`; explicit subscription columns | settled (ING-15) | A B |

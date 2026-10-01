@@ -9,8 +9,9 @@
 //	go run ./time-precision-probe -scan 20           # also scan 20 more base seconds
 //	go run ./time-precision-probe -fail-on-mismatch  # exit 1 if ToTime(string) mismatches > 0
 //
-// Input corpus: "<base>.<ms>" for ms in 0..999. That is the shape of
-//   - Rails KafkaProducerService: timestamp.to_f.to_s      (ms-precision events)
+// Input corpus: "<base>.<ms>" for ms in 0..999. That is the ms-exact shape Rails intends for
+//   - Rails KafkaProducerService: timestamp.to_f.to_s      (ms-precision events; Ruby's
+//     to_f.to_s may print e.g. 1727787600.1230001, see domain-reference MC17)
 //   - Rails ReEnrichSubscriptionEventsService: strftime("%s.%3N")
 //
 // The expected instant is time.Unix(base, ms*1e6) in UTC: what Rails (BigDecimal) and

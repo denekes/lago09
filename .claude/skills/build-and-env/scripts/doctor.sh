@@ -96,7 +96,17 @@ fi
 command -v golangci-lint >/dev/null 2>&1 && ok "golangci-lint: $(golangci-lint version 2>/dev/null | head -n1)" || info "golangci-lint not installed"
 
 [ -d "$cache/lago-history.git" ] && ok "history clone: $cache/lago-history.git ($(git -C "$cache/lago-history.git" rev-list --count HEAD 2>/dev/null) commits)" || info "no history clone yet (research-methodology/scripts/history-setup.sh)"
-for d in "$cache"/lago-api@* "$cache"/lago-front@*; do [ -d "$d" ] && info "pinned checkout: $d"; done
+# Pinned checkouts: list only the ones for the CURRENT gitlinks; count the rest (other SHAs
+# accumulate in a long-lived cache, and one line each would bury the summary).
+others=0
+for sm in api front; do
+  pin="$(git -C "$repo" ls-tree HEAD "$sm" | awk '{print $3}')"
+  cur="$cache/lago-$sm@${pin:0:12}"
+  if [ -n "$pin" ] && [ -d "$cur" ]; then info "pinned checkout: $cur"
+  else info "no pinned checkout for $sm@${pin:0:12} yet (research-methodology/scripts/pinned-checkout.sh $sm)"; fi
+  for d in "$cache/lago-$sm@"*; do [ -d "$d" ] && [ "$d" != "$cur" ] && others=$((others+1)); done
+done
+[ "$others" -gt 0 ] && info "$others more cached checkout(s) of other lago-api/lago-front SHAs in $cache (not the current pins; deletable, pinned-checkout.sh re-creates on demand)"
 
 echo "doctor: $fails FAIL(s)"
 exit "$fails"

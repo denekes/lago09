@@ -13,9 +13,10 @@
 set -euo pipefail
 
 REPO=""; MANIFEST=0
+need() { [ -n "$2" ] || { echo "$1" >&2; exit 2; }; }   # missing option value = usage (exit 2), never exit 1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo) REPO="${2:?}"; shift 2 ;;
+    --repo) need "--repo needs a directory" "${2:-}"; REPO="$2"; shift 2 ;;
     --manifest) MANIFEST=1; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;

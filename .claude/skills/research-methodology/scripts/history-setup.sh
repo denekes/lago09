@@ -8,8 +8,9 @@
 #   .../history-setup.sh --remote https://github.com/getlago/lago                # pick the source
 #   git -C "$H" log --oneline -- events-processor events_processor
 #
-# Default remote: `git remote get-url origin` of the current checkout (or, outside any
-# checkout, of the repo this script lives in), else getlago/lago.
+# Default remote: `git remote get-url origin` of the repo this script lives in (so a call
+# from another repository's checkout never clones that repository); if the script is not
+# inside a git repo, of the current checkout; else getlago/lago.
 # --remote only applies when the clone is CREATED; an existing clone keeps its origin
 # (a warning is printed on mismatch; use another LAGO_SKILLS_CACHE for a second source).
 # Blobs are fetched lazily, so `git -C "$H" show <sha>` needs network the first time.
@@ -23,13 +24,13 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --remote)  remote="${2:?--remote needs a URL}"; explicit_remote=1; shift 2;;
     --refresh) refresh=1; shift;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0;;
     *) echo "history-setup: unknown argument: $1" >&2; exit 2;;
   esac
 done
 if [ -z "$remote" ]; then
-  remote="$(git remote get-url origin 2>/dev/null \
-            || git -C "$(dirname "$0")" remote get-url origin 2>/dev/null \
+  remote="$(git -C "$(dirname "$0")" remote get-url origin 2>/dev/null \
+            || git remote get-url origin 2>/dev/null \
             || echo https://github.com/getlago/lago)"
 fi
 dest="$cache/lago-history.git"

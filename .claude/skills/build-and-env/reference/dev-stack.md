@@ -8,8 +8,10 @@ Variable meanings are the `config-and-flags` skill.
 
 Legend: **[here]** = run in the daemon-less agent sandbox on 2026-10-01 with the output shown;
 **[daemon]** = not runnable in a daemon-less sandbox, verified by reading the cited file:line.
-Changing compose/dev config is change class C6 (change-control); one env source of truth and
-`service_healthy` edges are change-control N12.
+Changing compose/dev config is change class C6 (change-control); one env source of truth and the
+`depends_on` conditions (infra `service_healthy`, one-shot jobs `service_completed_successfully`,
+app -> api `service_started`) are change-control N12. This file covers PREREQUISITES; bring-up order,
+checks and teardown are `run-and-operate` R1 (its `dev-preflight.sh` checks sections 0-5).
 
 ## 0. Prerequisites
 
@@ -115,10 +117,14 @@ docker volume create lago_front_pnpm_store                          # NOT in the
   (contrary to `:158`)
   (`dc.sh config events-processor` shows `DATABASE_URL: postgresql://lago:changeme@db:5432/lago` from
   `.env.development.default:24`, which is `postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}`),
-  and `LAGO_CLICKHOUSE_ENABLED=false` (`:154`) does not disable ClickHouse
-  (details: `config-and-flags`; stale-claim register: `docs-and-writing`).
+  and `LAGO_CLICKHOUSE_ENABLED=false` (`:154`) is MIXED: most lago-api sites (`.present?`) stay ON,
+  while org creation (`Boolean.cast`) turns the ClickHouse store OFF for new orgs (details:
+  `config-and-flags`; stale-claim register: `docs-and-writing`).
 
-## 6. Start the stack **[daemon]**
+## 6. Docs commands, alias-free **[daemon]**
+
+Start order, `--wait` targets, the event pipeline and teardown: `run-and-operate` R1. This table only
+translates each `lago …` line of the docs (section 2).
 
 | Docs (`docs/dev_environment.md`) | Alias-free |
 |---|---|
@@ -142,12 +148,11 @@ plain `go test` works there. The container runs `air` with a 10 s kill delay (`e
 Profiles (`dc.sh --profile '*' config --profiles` **[here]**): `mailpit`, `redis-sentinel`. Default
 services: 25; with all profiles: 30 (adds mailpit, redis-replica, redis-sentinel-1..3).
 
-## 7. What to verify after bring-up **[daemon]**
+## 7. Environment checks after bring-up **[daemon]**
 
-| Check | Expect |
-|---|---|
-| `dc.sh ps` | `healthy` for the services that define a healthcheck: db, redis, redpanda, clickhouse, api; plain `Up` for traefik, webhook, front, api-worker, api-clock, events-processor (no healthcheck in `docker-compose.dev.yml`; checked with `dc.sh config --format json` **[here]**) |
-| `https://app.lago.dev` | front loads with the mkcert certificate (no browser warning after `mkcert -install`) |
-| `dc.sh exec -T events-processor go test ./...` | same 6 `ok` packages as `ep-test.sh` |
-
-Service-level verification and runtime outputs: `run-and-operate`.
+Service-level verification and runtime outputs: `run-and-operate` R1. Environment-level facts only:
+- `dc.sh ps` shows `healthy` only for services that define a healthcheck (db, redis, redpanda,
+  clickhouse, api, pghero); traefik, webhook, front, api-worker, api-clock and events-processor stay
+  plain `Up` (`dc.sh config --format json` **[here]**).
+- `https://app.lago.dev` loads without a browser warning only after `mkcert -install` (section 3).
+- `dc.sh exec -T events-processor go test ./...` → the same 6 `ok` packages as `ep-test.sh`.

@@ -1,6 +1,9 @@
 // kfake-harness: in-process Kafka (kfake) driving the REAL events-processor
 // consumer group and processor. Not part of the events-processor build.
 // See ../../reference/kfake-technique.md before changing any pin below.
+// DEPENDENT: .claude/skills/event-accounting-campaign/scripts/go.mod requires this
+// module via a relative replace; renaming it, moving this dir or changing the
+// exported API of kfx/fixture/pipeline breaks it (run its run.sh --check).
 module lagoskills/kfakeharness
 
 go 1.25.0

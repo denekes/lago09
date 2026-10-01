@@ -8,8 +8,9 @@ This is how claims about this repo family get established, checked and recorded.
 good as its evidence. Predict the number before you run anything. Every claim carries a `path:line`, a
 sha, or a command with its output.
 
-Facts verified 2026-10-01 against HEAD `5308258` (fork `denekes/lago09`; a skills-only commit `08065ef`
-now sits on top), unless marked.
+Facts verified 2026-10-01 unless marked. Code facts as of `5308258` (events-processor tree
+`83e012866f29`); the working branch may carry skills-only commits on top. `5308258` is the head of the
+fork `denekes/lago09`; upstream `getlago/lago` main is `a0de065` (2026-09-29, same gitlinks).
 
 ## When to use / when NOT to use
 
@@ -133,16 +134,24 @@ Both refutations came from the **control** and the **boundary cases**, not from 
 |---|---|---|
 | What code does (static) | Code read at a stated sha, cited `path:line` (repo) or `$API/path:line` + pin | Code comments, function names, docs. The Rails comment "event timestamp as score" (`$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb:11`) is wrong: Go uses `time.Now()` (`events-processor/models/stores.go:55`). |
 | What code does at runtime (delivery, ordering, parsing, concurrency) | Probe or test output with exit status and a control; the command published | A code read alone ("should"). The comment "It will be consumed again" (`events-processor/processors/events_processor/processor.go:76`) is refuted by Example A. |
-| A baseline number (PASS count, coverage, lint count) | Command + output + **exit status** + denominator | "47.4%" from `go test -coverprofile ./...`, which exits 1 (`reference/conflict-cases.md` X6) |
+| A baseline number (PASS count, coverage, lint count) | Command + output + **exit status** + denominator | "47.4%" from `go test -coverprofile ./...`, which exits 1 (`reference/conflict-cases.md` CC6) |
 | History (introduced, removed, reverted, by whom) | Sha(s) from `H`, with a rename-aware pathspec or `-S`/`-G` | The shallow clone: `git blame` there attributes all 308 lines of `consumer.go` to `^8ceca4b`. A subject line alone: `449bf5b` "Bump version to 7" is a Redis 6 to 7 change. |
-| Counts over history | The command over `H` + an exact definition of what is counted | Subject-regex classification. Of the 77 pin moves since 2025 (`git -C "$H" log --since=2025-01-01 --format=%h -- api front \| wc -l`), regexes call 18 or 20 "non-release"; by data it is 15 (worked-examples Example D). |
+| Counts over history | The command over `H` + an exact definition of what is counted | Subject-regex classification. Of the 77 pin moves since 2025 (command (1) below), regexes call 18 or 20 "non-release"; by data it is 15 (worked-examples Example D). |
 | A cross-repo contract (Go vs Rails vs ClickHouse) | `path:line` on BOTH sides at stated pins; a probe if semantics matter | One side only; a commit body in the other repo (lago-api `6341824` body about this repo was already stale) |
 | A version or pin | Every pin location `path:line`; the gitlink via `git ls-tree HEAD api front` | A comment that lists fewer locations (`events-processor/Dockerfile.staging:20-22` says two; there are four) |
 | An artifact exists or was published | A registry API response (HTTP status, `last_updated`/digest), dated | A workflow file existing (`.github/workflows/release-docker-image.yml:11` builds `getlago/lago`); a release note. Yet `curl -s -o /dev/null -w '%{http_code}' https://hub.docker.com/v2/repositories/getlago/lago/tags/v1.48.0` gives 404. |
 | External tool semantics (ClickHouse, franz-go, Go stdlib) | A run on a NAMED version, plus a version caveat (`clickhouse local` 25.8.2.29 in Example B) | Tool docs, or a run on another version presented without its version; dev runs 26.2 (`docker-compose.dev.yml:460`) |
 | Production state (flags, mode, versions, topology) | An owner statement (written, dated) or telemetry the reader can open | Dev defaults (`grep -c LAGO_USE_MEMORY_CACHE .env.development.default` gives 0, which is dev, not prod: OPEN DECISION OD-1), compose files, the public Helm chart (a proxy for self-hosters only) |
-| Owner intent or policy | An owner statement recorded in change-control's register, an ADR or a PR | Precedent: `misc` is the subject type of 283 commits (`git -C "$H" log --format=%s \| grep -cE '^misc(\(\|:\|!)'`), which is de-facto, not policy (OPEN DECISION OD-7); an agent's relay of "approval" |
+| Owner intent or policy | An owner statement recorded in change-control's register, an ADR or a PR | Precedent: `misc` is the subject type of 279 commits by the strict regex, 283 by a looser one (commands (2) below), which is de-facto, not policy (OPEN DECISION OD-7); an agent's relay of "approval" |
 | "This doc is stale" | Doc `path:line` + contradicting evidence from a row above, e.g. `events-processor/CLAUDE.md:10` ("Direct `go test` won't work") vs a green `.claude/skills/build-and-env/scripts/ep-test.sh` run | Another doc |
+
+Commands with a shell pipe stay out of table cells (a table needs `\|`, which the shell does not undo):
+
+```bash
+git -C "$H" log --since=2025-01-01 --format=%h -- api front | wc -l     # (1) 77 pin moves since 2025
+git -C "$H" log --format=%s | grep -cE '^misc(\([^)]*\))?: '          # (2) 279, strict misc(scope): / misc:
+git -C "$H" log --format=%s | grep -cE '^misc(\(|:|!)'                 # (2) 283, loose; quote a count with its regex
+```
 
 Never evidence, anywhere: earlier analyses and summaries; LLM output (this skill included, until its re-verify
 line passes); a ticket id or PR number with no content; "everyone knows"; a number with no command.
@@ -154,22 +163,30 @@ unlabelled, unverified claim is a defect.
 
 | If you see | Do | Verified case |
 |---|---|---|
-| Two counts that differ | Pin the scope first (paths, dates, remote). Both may be right. | 88 vs 96 events-processor commits: `git -C "$H" log --format=%h -- events-processor \| wc -l` vs the same with `events_processor` added (X4) |
-| A doc vs a run or code read | The run or code read wins. Log the doc in `docs-and-writing`. | `docs/dev_environment.md:154` "`LAGO_CLICKHOUSE_ENABLED=false`" vs `.present?` at `$API/app/services/events/stores/store_factory.rb:10` (D2) |
+| Two counts that differ | Pin the scope first (paths, dates, remote). Both may be right. | 88 vs 96 events-processor commits: the path `events-processor` alone vs with `events_processor` added (commands below the table; CC4) |
+| A doc vs a run or code read | The run or code read wins. Log the doc in `docs-and-writing`. | `docs/dev_environment.md:154` says `LAGO_CLICKHOUSE_ENABLED=false` disables ClickHouse; `.present?` at `$API/app/services/events/stores/store_factory.rb:10` keeps the store on (MIXED overall: see `config-and-flags`) (CD2) |
 | A comment vs the code | The code wins | Example C in `reference/worked-examples.md` |
-| A speculation vs a probe | The probe wins, with its version scope | `clickhouse local` 25.8.2.29 parses `'1e+06'` as 1000000 (Example B, X2) |
-| A classifier (subject regex) vs data | Data wins | 15 non-release pin moves by data; subject filters give 20, 18 or 16, and the one that drops `version` throws out the non-release `7251947` (X5) |
+| A speculation vs a probe | The probe wins, with its version scope | `clickhouse local` 25.8.2.29 parses `'1e+06'` as 1000000 (Example B, CC2) |
+| A classifier (subject regex) vs data | Data wins | 15 non-release pin moves by data; subject filters give 20, 18 or 16, and the one that drops `version` throws out the non-release `7251947` (CC5) |
 | The same claim at different pins | Both true: "at `591ae90`" vs "upstream since `6341824`" | lago-api dropped `events_enriched_expanded` after the pin (Example E) |
-| A number without exit status | Re-run and record the exit status | `go test -coverprofile=… ./...` prints 47.4% but exits 1 (`go: no such tool "covdata"`) (X6) |
-| Cited line numbers differ | `grep -n` at HEAD; cite anchor + line | `events-processor/go.mod:10` is expression-go; `:9` is badger (X8) |
+| A number without exit status | Re-run and record the exit status | `go test -coverprofile=… ./...` prints 47.4% but exits 1 (`go: no such tool "covdata"`); the gated figure is the tested-packages form (`validation-and-qa`) (CC6) |
+| Cited line numbers differ | `grep -n` at HEAD; cite anchor + line | `events-processor/go.mod:10` is expression-go; `:9` is badger (CC8) |
 | Still unresolved | Label both UNVERIFIED, write the card for the deciding probe, or route to the owner (OPEN DECISION OD-n) | OPEN DECISION OD-1, OD-8 |
+
+```bash
+git -C "$H" log --format=%h -- events-processor | wc -l                    # 88
+git -C "$H" log --format=%h -- events-processor events_processor | wc -l   # 96 (CC4)
+```
 
 ## 5. Mining history (recipes: `reference/history-mining.md`)
 
-1. Check for the shallow trap: `git rev-parse --is-shallow-repository` gives `true`; `git rev-list --count HEAD` gives 58 (57 before `08065ef`).
+This section and `reference/history-mining.md` own the generic history recipes; `failure-archaeology`
+keeps only its chain-specific gotchas.
+
+1. Check for the shallow trap: `git rev-parse --is-shallow-repository` gives `true`; `git rev-list --count 5308258` gives 57 (count the code commit: HEAD's count grows with every skills-only commit on the working branch).
 2. Get full history: `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`, then `git -C "$H" rev-list --count HEAD` gives 776 (2022-02-28 `5e9b9bb` to `5308258`).
-3. Use the rename-aware pathspec: `git -C "$H" log -- events-processor events_processor`. `--follow` works for single files only.
-4. Use the pickaxe: `-S'<literal>'` when a literal's count changed (`-S'201661579678'` gives `2146a18`, `4955f79`). Use `-G'<regex>'` for any diff line (`-G'^LAGO_LICENSE=.'`; count, never print values: change-control N11).
+3. Use the rename-aware pathspec: `git -C "$H" log -- events-processor events_processor`. `--follow` works for single files only, and not with `--reverse`. Before `d5bce86`, `git show <sha>:<path>` needs the old path `events_processor/`.
+4. Use the pickaxe: `-S'<literal>'` when a literal's count changed (`git -C "$H" log -S'subscription_refreshed_v2' --format=%h` gives `42615c9`, #720). Use `-G'<regex>'` for any diff line (`-G'^LAGO_LICENSE=.'`; count, never print values: change-control N11).
 5. Trace functions: `git -C "$H" log -L ':processRecordsAndCommit:events-processor/config/kafka/consumer.go' -s` gives `9acd83e`, `475761d`, `b6d3616`, `600e195`. Widen with `-G` for the chain's start (`cec0eb2`, `4100da0`).
 6. Map tags: the default `H` has **0 tags** (it is cloned from the fork). Run `.claude/skills/research-methodology/scripts/tag-map.sh [--gitlinks]`.
 7. Read PR numbers from `(#NNN)` subject suffixes: 216 of 293 non-merge commits since 2025 (`git -C "$H" log --since=2025-01-01 --no-merges --format=%s | grep -cE '\(#[0-9]+\)$'`). PR pages return 403 from this session (`curl -s -o /dev/null -w '%{http_code}' https://api.github.com/repos/getlago/lago/pulls/797`). For squash merges, the commit body is the PR description (`git -C "$H" show -s d9c32b6`).
@@ -182,7 +199,7 @@ Traps in `H`:
 
 ## 6. Reading cross-repo code at the pinned SHA
 
-1. Run `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)` (likewise `front`). This reads the gitlink, not the empty `api/` dir. Never populate the submodules in the working repo: a checked-out submodule at another commit is a gitlink change that `git commit -a` or `git add -A` stages. `12b8101` (a Traefik fix) moved both pins by mistake and `647de3e` (#620) reverted them (change-control N1); how they got staged is UNVERIFIED.
+1. Run `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)` (likewise `front`). This reads the gitlink, not the empty `api/` dir. Never populate the submodules in the working repo: a checked-out submodule at another commit is a gitlink change that `git commit -a` or `git add -A` stages. `12b8101` (a Traefik fix) moved both pins by mistake and `647de3e` (#620) reverted them (change-control N1); how they got staged is UNVERIFIED. Before a commit, run `.claude/skills/change-control/scripts/precommit-guard.sh` (expect `0 FAIL`).
 2. **State the pin and its date** with every cross-repo claim: "`$API` = lago-api `591ae90` (2026-09-08, tag v1.53.0)" (`git -C "$API" log -1 --format='%h %cs'`).
 3. Remember that **events-processor HEAD is newer than the pin.** The last events-processor commit is `5308258` (2026-09-18), 10 days after the pinned lago-api. Rails code at the pin may still expect Go behaviour that has since been removed, e.g. the expanded topic, removed in `d9c32b6`.
 4. **Check upstream before you say "Rails still does X".** lago-api main is `b5500bc` (2026-10-01), 178 commits past the pin. A scratch `--shallow-since` clone shows what changed in a cited file. Example: `6341824` (#6475) dropped `events_enriched_expanded`, so a drift finding is "true at the pin, fixed upstream" (`reference/worked-examples.md` Example E).
@@ -200,12 +217,16 @@ Traps in `H`:
 
 | Question | Command (as of 2026-10-01) | Result |
 |---|---|---|
-| Does an image tag exist? | `curl -s -o /dev/null -w '%{http_code}' https://hub.docker.com/v2/repositories/getlago/lago/tags/v1.48.0` | `404` (also v1.49.0, v1.50.0; `getlago/lago-events-processor` has all three) |
+| Does an image tag exist? | `curl -s -o /dev/null -w '%{http_code}' https://hub.docker.com/v2/repositories/getlago/lago/tags/v1.48.0` | `404` (also v1.49.0, v1.50.0; `getlago/lago-events-processor` has all three; the full never-published list is in `release-and-images`) |
 | When was it pushed, for which archs? | `curl -s https://hub.docker.com/v2/repositories/getlago/lago/tags/v1.53.0` (fields `last_updated`, `images[].architecture`) | `2026-09-08T15:26:52Z`, amd64 + arm64 |
 | GHCR tags | `curl -s "https://ghcr.io/token?scope=repository:getlago/api:pull"`, then `GET https://ghcr.io/v2/getlago/api/tags/list` with a Bearer token | 38 tags, `v1.44.0`…`v1.53.0`, `sha-591ae90` |
 | Go module versions | `curl -s https://proxy.golang.org/github.com/getlago/lago-expression/expression-go/@v/list` | `v0.1.4`, `v0.1.0` (no v0.2.0; change-control N3) |
-| Go toolchains | `curl -s https://proxy.golang.org/golang.org/toolchain/@v/list \| grep -E 'go1\.27\.[0-9]+\.linux-amd64$'` | `go1.27.0`, `go1.27.1` |
+| Go toolchains | toolchain list (command below the table) | `go1.27.0`, `go1.27.1` |
 | Does a repo exist or is it public? | `GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/getlago/<repo> HEAD` | lago-deploy, lago-sidekiqs, lago-license: auth wall (private OR absent) |
+
+```bash
+curl -s https://proxy.golang.org/golang.org/toolchain/@v/list | grep -E 'go1\.27\.[0-9]+\.linux-amd64$'
+```
 
 Registries are mutable. Record the date, digest and `last_updated`, and re-probe before you cite.
 
@@ -268,18 +289,18 @@ All are read-only on the repo. They write only under `${LAGO_SKILLS_CACHE:-$HOME
 Changes on 2026-10-01 (bug fixes; the interfaces are unchanged):
 - `pinned-checkout.sh`: a failed fetch used to leave an empty cache dir that later calls returned with exit 0, and an empty sha argument silently fell back to the pin. Now it validates the cache, rejects short or empty shas, and moves into place atomically.
 - `history-setup.sh`: it warns when `--remote` is ignored, and disables auto-maintenance in `H` (the "Auto packing…" noise on every lazy fetch).
-- Both: they work from any cwd (outside a checkout they use the repo the script lives in; before, `pinned-checkout.sh` exited 128 and `history-setup.sh` silently cloned upstream instead of the fork), and they set `GIT_TERMINAL_PROMPT=0` unless you set it, so a private or missing remote fails instead of hanging on a prompt.
+- Both: they read the repo the script lives in, whatever the cwd (the cwd's checkout only when the script is not inside a git repo). Before, a call from outside a checkout made `pinned-checkout.sh` exit 128 and `history-setup.sh` clone upstream instead of the fork, and a call from another repository's checkout made `history-setup.sh` clone that repository into the cache. They set `GIT_TERMINAL_PROMPT=0` unless you set it, so a private or missing remote fails instead of hanging on a prompt.
 
 ## Provenance and maintenance
 
 Sources:
 - `events-processor/config/kafka/consumer.go`, `events-processor/processors/events_processor/{processor,enrichment_service}.go`, `events-processor/models/stores.go`
 - `$API` files cited above at `591ae90`
-- commits `9acd83e`, `d9c32b6`, `08065ef`, `6dcdb62`, `a0de065`, lago-api `6341824`, `908fb37`
+- commits `9acd83e`, `d9c32b6`, `42615c9`, `6dcdb62`, `a0de065`, lago-api `6341824`, `908fb37`
 - registry responses from the `curl` commands in section 7 (Docker Hub, GHCR, proxy.golang.org), run 2026-10-01
 
 Volatile facts and one-line re-verification (from the repo root; `H`/`API` as above):
-- `git rev-parse --is-shallow-repository` gives `true`, and `git rev-list --count HEAD` gives 58.
+- `git rev-parse --is-shallow-repository` gives `true`, and `git rev-list --count 5308258` gives 57.
 - `git -C "$H" rev-list --count HEAD; git -C "$H" tag | wc -l` gives `776` and `0` (fork remote; `--refresh` first if the fork moved).
 - `git ls-tree HEAD api front` gives `591ae90…` and `0c5e539…`. `git -C "$API" log -1 --format='%h %cs'` gives `591ae90 2026-09-08`.
 - `git ls-remote https://github.com/getlago/lago refs/heads/main` gives `a0de065…` (fork HEAD `5308258`).

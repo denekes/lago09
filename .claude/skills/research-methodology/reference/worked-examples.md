@@ -1,8 +1,9 @@
 # Worked examples: hunch -> card -> probe -> verdict -> record
 
 Read this when you are about to run your first probe here, or when you need a model of a complete
-hypothesis card. Every command below was run on 2026-10-01 against HEAD `5308258` (fork
-`denekes/lago09`), history clone `H` (776 commits), and pinned lago-api `591ae90` (2026-09-08).
+hypothesis card. Every command below was run on 2026-10-01. Code facts as of `5308258`
+(events-processor tree `83e012866f29`); the working branch may carry skills-only commits on top.
+History clone `H` (776 commits); pinned lago-api `591ae90` (2026-09-08).
 
 Conventions: run from the repo root; `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`;
 `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)`. Scratch work goes in
@@ -55,8 +56,10 @@ The module needs Go >= 1.25 (the `events-processor/go.mod` `go` line); with an o
 the default `GOTOOLCHAIN=auto` downloads a newer toolchain on the first `go get` (see `build-and-env`).
 The kfake pseudo-version `2b5c574e9ddd` is the one that works with the
 pinned franz-go v1.20.5. On 2026-10-01 `go get github.com/twmb/franz-go/pkg/kfake@latest` resolved to
-`v0.0.0-20260927204940-b5a45ccfdf7e`, which "requires github.com/twmb/franz-go@v1.21.7, not … v1.20.5"
-and is refused. The reusable kfake harness lives in the
+`v0.0.0-20260927204940-b5a45ccfdf7e`, which requires franz-go v1.21.7 and go >= 1.26.0. Requested
+together with `franz-go@v1.20.5` (as above), `go get` refuses it ("requires github.com/twmb/franz-go@v1.21.7,
+not … v1.20.5"). Requested alone, it silently upgrades franz-go (v1.21.7), kmsg (v1.14.0) and the
+module's `go` line (1.26.0). The reusable kfake harness lives in the
 `diagnostics-and-tooling` skill; this listing only shows how a treatment/control pair is built.
 
 ```go
@@ -170,7 +173,7 @@ control    consumer #2 (restart, same group): deliveries map[retryable-fail:2]
 | Hypothesis | `toDecimal128OrZero('1e+06', 26)` returns 0. |
 | Prediction | `'1e+06'` -> **0**, `'1.2345678e+07'` -> **0**. Controls: `'1000000'` -> 1000000. |
 | Discriminating probe | Run the real ClickHouse function on a corpus that includes the suspect strings and boundary controls (12 integer digits is the limit of `Decimal(38,26)`). |
-| Cost | Seconds once a `clickhouse local` binary exists. Fetching it is tooling (`diagnostics-and-tooling` skill). The 25.8.2.29 static tarball is on the GitHub releases page; `curl -sIL` resolved it to 185517402 bytes on 2026-10-01. |
+| Cost | Seconds once a `clickhouse local` binary exists. Fetching it is tooling: `.claude/skills/diagnostics-and-tooling/scripts/ch-local.sh --path` downloads it once into the shared cache and prints its path. Record the version you ran. |
 
 <!-- evidence-check: on -->
 
@@ -202,11 +205,15 @@ Output: `a => "999999"`, `b => "1e+06"`, `c => "1.2345678e+07"`, `d => "9.999999
 ### Step 2: the discriminating part, ClickHouse
 
 ```bash
-clickhouse local --query "SELECT v, toDecimal128OrZero(v, 26) FROM (SELECT arrayJoin(['1e+06','1000000',
-  '9.99999999999e+11','999999999999','1e+12','1000000000000','<nil>','1.2345678e+07']) AS v) FORMAT TSV"
+CH=$(.claude/skills/diagnostics-and-tooling/scripts/ch-local.sh --path)   # shared cached binary
+"$CH" local --query "SELECT version()" </dev/null                          # record it with the result
+"$CH" local --query "SELECT v, toDecimal128OrZero(v, 26) FROM (SELECT arrayJoin(['1e+06','1000000',
+  '9.99999999999e+11','999999999999','1e+12','1000000000000','<nil>','1.2345678e+07']) AS v) FORMAT TSV" </dev/null
 ```
 
-Observed (`clickhouse local` 25.8.2.29; identical on 26.2.9.9, a release of the 26.2 line the dev image tracks, re-run 2026-10-01):
+Always give `clickhouse local` `</dev/null` (or `--queries-file`), the shared convention with `diagnostics-and-tooling`. A hang on an inherited open stdin was reported earlier; it is UNVERIFIED here (`(sleep 8) | clickhouse local --query 'SELECT 1'` returned at once on 26.2.19.43).
+
+Observed (`clickhouse local` 25.8.2.29; identical on 26.2.9.9 and 26.2.19.43, releases of the 26.2 line the dev image tracks, re-run 2026-10-01):
 
 <!-- evidence-check: off (output of the query above) -->
 | `value` string | `decimal_value` |
@@ -224,7 +231,7 @@ Observed (`clickhouse local` 25.8.2.29; identical on 26.2.9.9, a release of the 
 
 - Prediction "0 for `1e+06`" vs observed 1000000: **REFUTED**.
 - The boundary controls produced the real finding (ACCEPTED, version-scoped): exponent strings parse. Values >= 1e12 overflow `Decimal(38,26)` to **0**, and so does `"<nil>"`.
-- **Scope:** verified on 25.8.2.29 and 26.2.9.9. The dev stack runs `clickhouse/clickhouse-server:26.2-alpine` (`docker-compose.dev.yml:460`); the production ClickHouse version is UNVERIFIED. Re-run on the version you care about before you cite it for production.
+- **Scope:** verified on 25.8.2.29, 26.2.9.9 and 26.2.19.43. The dev stack runs `clickhouse/clickhouse-server:26.2-alpine` (`docker-compose.dev.yml:460`); the production ClickHouse version is UNVERIFIED. Re-run on the version you care about before you cite it for production.
 - **Lesson:** put boundary controls in every corpus. A refuted hypothesis still leaves the question "what DOES lose data?"
 - **Where it was recorded:**
   - the value contract: the `rails-go-parity` skill;

@@ -4,13 +4,17 @@
 # and a throwaway Postgres DB; report where each of 9 test events (A..I) landed.
 #
 # Usage:
-#   smoke-binary.sh [db|cache|cache-cdc|all] [--keep] [--no-expected]
+#   smoke-binary.sh [db|cache|cache-cdc|all] [--keep] [--no-expected] [--env K=V ...]
 #     db         DB mode (default; the dev default)
 #     cache      LAGO_USE_MEMORY_CACHE=true (snapshot from the scratch DB, no CDC traffic)
 #     cache-cdc  cache + one hand-shaped Debezium `charges` row before start (OD-1 territory)
 #     all        the three modes in sequence
 #     --keep         keep the temp dir (binary + logs) and print its path
 #     --no-expected  do not compare with fixtures/smoke-expected-<mode>.txt
+#     --env K=V      add (or override; K= sets it empty) one variable in the binary's
+#                    otherwise fixed environment; repeatable. Use it to prove a new
+#                    events-processor variable is wired end to end. A startup panic
+#                    shows as `exit_before_sigterm=exit status 2` in the result block.
 #
 # Needs: go, cargo (first run, via ep-env.sh), psql + a reachable Postgres
 # ($DATABASE_URL admin connection, see scratch-pg.sh). No Docker.
@@ -25,16 +29,22 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(git -C "$here" rev-parse --show-toplevel)"
 
-modes=() keep=0 compare=1
-for a in "$@"; do
-  case "$a" in
-    db|cache|cache-cdc) modes+=("$a") ;;
+modes=() keep=0 compare=1 extra=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    db|cache|cache-cdc) modes+=("$1") ;;
     all) modes+=(db cache cache-cdc) ;;
     --keep) keep=1 ;;
     --no-expected) compare=0 ;;
+    --env)
+      case "${2:-}" in
+        [A-Za-z_]*=*) extra+=(-env "$2"); shift ;;
+        *) echo "smoke-binary: --env needs K=V, got '${2:-}'" >&2; exit 2 ;;
+      esac ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
-    *) echo "smoke-binary: unknown argument '$a'" >&2; exit 2 ;;
+    *) echo "smoke-binary: unknown argument '$1'" >&2; exit 2 ;;
   esac
+  shift
 done
 [ ${#modes[@]} -eq 0 ] && modes=(db)
 
@@ -60,7 +70,7 @@ url="$("$here/scratch-pg.sh" create "$db" "$here/fixtures/smoke-schema.sql")" ||
 
 rc=0
 for m in "${modes[@]}"; do
-  args=(-bin "$tmp/events-processor" -mode "$m" -db-url "$url" -log "$tmp/smoke-$m.log")
+  args=(-bin "$tmp/events-processor" -mode "$m" -db-url "$url" -log "$tmp/smoke-$m.log" ${extra[@]+"${extra[@]}"})
   exp="$here/fixtures/smoke-expected-$m.txt"
   if [ "$compare" = 1 ] && [ -f "$exp" ]; then args+=(-expected "$exp"); fi
   set +e

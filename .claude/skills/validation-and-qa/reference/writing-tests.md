@@ -2,7 +2,7 @@
 
 Read this before you write or review a test in `events-processor/`. Each convention cites where it
 is practised; each template in `templates/` is compiled and run against HEAD by
-`scripts/templates-check.sh` (verified 2026-10-01: all 4 files pass, also with `-race`, and add
+`scripts/templates-check.sh` (verified 2026-10-01: all 5 files pass, also with `-race`, and add
 0 gofmt, 0 vet and 0 golangci-lint issues).
 
 Path convention: code cites are relative to `events-processor/`; bare `processor_test.go`,
@@ -27,7 +27,7 @@ Path convention: code cites are relative to `events-processor/`; bare `processor
 | 12 | shared fakes in package `tests` | `MockMessageProducer` (`tests/mocked_producer.go`: records last key/value and `ExecutionCount`, `Produce` always returns true at :20); `MockFlagStore` (`tests/mocked_flag_store.go`: configurable `ReturnedError`); `MockCacheStore` (dead since `2fd8e8b`) | the fakes have no mutex; safe today because each is used by one goroutine per `processEvent`. Add a mutex before sharing one across goroutines |
 | 13 | `utils.Result` assertions | `ErrorCode()` / `ErrorMessage()` / `ErrorMsg()` (`enrichment_service_test.go:77-84`); `IsRetryable()` / `IsCapturable()` (`models/billable_metrics_test.go:111-112,137-138`) | assert all three error fields and both flags for every failure case: they decide DLQ vs retry (`processor.go:70-82`) |
 | 14 | error classification | `utils.FailedResult` defaults to Retryable + Capturable (`utils/result.go:113-120`); not-found is turned NonRetryable + NonCapturable (`models/billable_metrics.go:75-83`, `models/subscriptions.go:79-87`) | a new store function must follow the same split and test it |
-| 15 | sort or use sets before asserting on unordered results | `45b216d` (#603) fixed a flaky test that depended on charge order with `sort.Slice`; `cache/cache_test.go:437-443` uses a set for `searchJSON` results (badger key order) | `assert.ElementsMatch` or sort first |
+| 15 | sort or use sets before asserting on unordered results | `45b216d` (#603, 2025-10-14, before badger `fff5858`) fixed a flaky DB-mode flat-filters test (`TestEnrichEvent/..._with_multiple_flat_filters`) whose charge order came from Go map iteration, with `sort.Slice`; `cache/cache_test.go:437-443` uses a set for `searchJSON` results (badger key order) | `assert.ElementsMatch` or sort first |
 | 16 | never used: `t.Parallel`, benchmarks, fuzz, examples, `TestMain`, `t.Skip`, build tags, `testdata/` | `grep -rn 't.Parallel\|func Benchmark\|func Fuzz\|TestMain\|t.Skip\|//go:build' --include='*_test.go' events-processor` prints nothing | adding one is fine but say so in the PR: `t.Parallel` with the unsynchronised fakes of row 12 will race |
 | 17 | noise in green runs | `ERROR Failed to cache item ... "DB Closed"`, `ERROR database connection failed ... query="SELECT * FROM \"billable_metrics\" ..."` | these are negative-path tests logging through slog, not failures |
 
@@ -40,7 +40,8 @@ Path convention: code cites are relative to `events-processor/`; bare `processor
 | a SQL query in `models/*.go` | `templates/model_query_template_test.go.tmpl` | `models/` | exact SQL anchored `^...$`; `WithArgs`; `ExpectationsWereMet` |
 | cache lookups, keys, tie-breaks, CDC record handling | `templates/cache_template_test.go.tmpl` | `cache/` | fresh badger per case; order-insensitive asserts; no ties |
 | the Redis flag store (`subscription_refreshed_v2`) | `templates/redis_store_template_test.go.tmpl` | `models/` | clock-safe buckets; `SetError`; canceled context |
-| Kafka commit, retry, DLQ semantics | not here: kfake harness (`diagnostics-and-tooling`), campaign design (`event-accounting-campaign`) | `config/kafka/`, `processors/events_processor/` | change-control N7 |
+| a Kafka client option or producer config (`ServerConfig`, `ProducerConfig`, the `[]kgo.Opt` passed to `NewKafkaClient`) | `templates/producer_option_template_test.go.tmpl` | `config/kafka/` | no broker, no kfake: `kgo.NewClient` validates options and returns without connecting; assert `client.OptValue(kgo.<Option>)` for default / explicit / zero / out-of-range (the last must return an error) |
+| Kafka commit, retry, DLQ semantics (delivery) | not here: kfake harness (`diagnostics-and-tooling`), campaign design (`event-accounting-campaign`); kfake is not in `events-processor/go.mod` (adding it is C5) | `config/kafka/`, `processors/events_processor/` | change-control N7 |
 
 How to use a template:
 
@@ -56,7 +57,7 @@ other natural targets do exist (`cache/subscriptions_test.go`, `cache/charges_te
 over them (an overwritten file loses tests; `baseline.sh` would report a `pass.<pkg>` FAIL).
 
 To try a template without copying it into the repo, run `scripts/templates-check.sh -v`; it
-overlays all four into their packages.
+overlays all five into their packages.
 
 ## 3. sqlmock: semantics you must know
 
@@ -85,7 +86,7 @@ Verified in `github.com/DATA-DOG/go-sqlmock@v1.5.2` (`query.go`), the version in
 ## 4. Dual-mode tests: rules
 
 1. Loop over `{"WithCache", true}, {"WithoutCache", false}` and put EVERY scenario inside
-   `t.Run(mode.name, ...)`. `TestProcessEvent` gets this wrong (see `harness-defects.md`).
+   `t.Run(mode.name, ...)`. `TestProcessEvent` gets this wrong (`harness-defects.md` HD2).
 2. Never hard-code `setupProcessorTestEnv(t, true)` inside a mode loop (`processor_test.go:424`
    does, so that scenario never runs in DB mode).
 3. When the two modes legitimately differ, branch on `mode.useCache` and say why in a comment
@@ -111,6 +112,7 @@ Verified in `github.com/DATA-DOG/go-sqlmock@v1.5.2` (`query.go`), the version in
 | `assert.Equal(t, actual, expected)` | `assert.Equal(t, expected, actual)`: the failure diff labels them | `utils/result_test.go:38` and others |
 | pinning stdlib error text when the code returns the wrong error | assert the error code and flags; pin text only for our own messages | `processor_test.go:288` pins `strconv.ParseFloat ...` because `ToTime` returns the ParseFloat error (`utils/time.go:20-29`) |
 | a fake that always succeeds | add a failure switch to the fake (as `MockFlagStore.ReturnedError`) | `tests/mocked_producer.go:20` |
+| `assert` on a precondition, then dereferencing the value | `require` for preconditions: a nil dereference panics and hides every later test in the package | `config/database/database_test.go:22-24` (HD5) |
 
 ## 6. lago-api specs (only for cross-repo changes)
 

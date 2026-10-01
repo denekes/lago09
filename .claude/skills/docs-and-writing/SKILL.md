@@ -8,8 +8,9 @@ This skill keeps the repo's written record honest. It answers four questions: wh
 which claims are known wrong and what the corrected text is; how to write commits, PRs, ADRs and
 incident notes that the next engineer can act on; and which docs to re-check when code changes.
 
-Facts verified 2026-10-01 against HEAD `5308258` (+ the skills-only commit `08065ef`), lago-api at
-the pinned `591ae90` (v1.53.0) and the full-history clone (776 commits), unless marked.
+Facts verified 2026-10-01 unless marked. Code facts as of `5308258` (events-processor tree
+`83e012866f29`); the working branch may carry skills-only commits on top. lago-api at the pin
+`591ae90` (v1.53.0, 2026-09-08); full-history clone `$H` (776 commits as of 2026-10-01).
 
 ## When to use / when NOT to use
 
@@ -70,13 +71,13 @@ Read it before you cite a doc.
 | `events-processor/CLAUDE.md` (the only agent file in the repo) | 2026-03-05 `c340ddf` | T3 | SC-01 |
 | `events-processor/README.md` | 2026-09-18 `d9c32b6` | T3 | SC-02 to SC-10 |
 | `docs/architecture.md` + `docs/arch_diagram.png` | 2026-09-01 `4230f1f` | T3 semantics, T2 tables | SC-18 to SC-26 |
-| `docs/dev_environment.md` | 2026-09-03 `8f8334e` | T2 | SC-12 to SC-17 |
-| `docs/database_partitioning.md` | 2026-02-12 `4cba248` | design T1, retroactive steps T3 | SC-27, SC-28 |
+| `docs/dev_environment.md` | 2026-09-03 `8f8334e` | T2 | SC-12 to SC-17, SC-39 |
+| `docs/database_partitioning.md` | 2026-02-12 `4cba248` | design T1, retroactive steps T3 | SC-27, SC-28, SC-42 |
 | `docs/monitoring.md` | 2026-01-12 `206646b` | T3 | SC-23, SC-29 |
 | `deploy/README.md` | 2026-01-12 `206646b` | T3 | SC-30 (`deploy/deploy.sh`: SC-31) |
 | `docker/README.md` | 2025-05-22 `dc7b513` | T2 | SC-32 |
-| `connectors/README.md` | 2026-04-27 `a12752f` | T3 | SC-33 |
-| `README.md` | 2026-09-17 `eb58675` | MKT; quickstart T1 (run by `.github/workflows/docker-ci.yml:16-32`) | SC-34 |
+| `connectors/README.md` | 2026-04-27 `a12752f` | T3 | SC-33, SC-40 |
+| `README.md` | 2026-09-17 `eb58675` | MKT; quickstart T1 (run by `.github/workflows/docker-ci.yml:16-32`) | SC-34, SC-41 |
 | `CONTRIBUTING.md`, `PULL_REQUEST_TEMPLATE.md` | 2025-09-16 | T3 | SC-35, SC-36 (OD-7) |
 | `$API/AGENTS.md`, `$API/CLAUDE.md` (lago-api, read-only) | pinned v1.53.0 | T1 for lago-api conventions | SC-17, SC-36 |
 
@@ -85,22 +86,23 @@ had made its `LAGO_REDIS_CACHE_*` rows dead, and left those rows in (SC-05).
 
 ## 2. The stale-claim register
 
-`reference/stale-claims.md` holds 38 entries. Each has the claim, the truth with evidence, corrected
-text ready to paste, and the owning change class. `scripts/doc-drift-check.sh` re-asserts every
-entry. Today it prints `STALE=36 OPEN=1 KNOWN=1` (section "Scripts").
+`reference/stale-claims.md` holds 42 entries (SC-01 to SC-42). Each has the claim, the truth with
+evidence, corrected text ready to paste, and the owning change class. `scripts/doc-drift-check.sh`
+re-asserts every entry. Today it prints `STALE=40 OPEN=1 KNOWN=1` (section "Scripts").
 
 The ones that cost the most time if believed:
 
 | ID | Doc says | Truth (evidence in the register) |
 |---|---|---|
 | SC-01 | `events-processor/CLAUDE.md:10`: direct `go test` "won't work locally"; always `lago exec` | It works with `CGO_LDFLAGS` + `LD_LIBRARY_PATH` (`ep-test.sh`: 6 packages ok). CI runs it on the host. Policy: OPEN DECISION OD-5 (owner) |
-| SC-12 | `docs/dev_environment.md:154`: `LAGO_CLICKHOUSE_ENABLED=false` disables ClickHouse | `.present?` (`$API/app/services/events/stores/store_factory.rb:10`): `false` enables it. Set it empty |
+| SC-12 | `docs/dev_environment.md:154`: `LAGO_CLICKHOUSE_ENABLED=false` disables ClickHouse | MIXED (semantics: `config-and-flags`). The `.present?` sites (`$API/app/services/events/stores/store_factory.rb:10`) stay ON; org creation (`$API/app/services/organizations/create_service.rb:17`, boolean cast) turns OFF. Set it empty |
 | SC-13 | `docs/dev_environment.md:158`: env files "are not interpolated" | They are: `docker compose -f docker-compose.dev.yml config api` renders `DATABASE_URL` from `${POSTGRES_USER}`… |
 | SC-30 | `deploy/README.md:21` (14 commands): `docker compose up --profile all` | `unknown flag: --profile`. It is a global flag: `docker compose --profile all up` |
 | SC-27 | `docs/database_partitioning.md:58-102`: 15-column DDL, then `INSERT … SELECT *` | The schema has 18 columns. Step 5 fails with "INSERT has more expressions than target columns" (reproduced) |
 | SC-33 | `connectors/README.md:20`: numeric `precise_total_amount_cents` | A number passes through `connectors/http.yml:32-36`, and the events-processor (`string` field) drops the event without a DLQ |
-| SC-16 | `docs/dev_environment.md:266-278`: commit the gitlink, `git push origin main` | Gitlinks move only in a release bump PR (change-control N1); never push to main (change-control N2) |
+| SC-16 | `docs/dev_environment.md:266-278`: commit the gitlink, `git push origin main` | Gitlinks move only in a release bump PR (change-control N1); changes land through a PR, never a direct push to main (change-control section 1) |
 | SC-17 | `lago exec …` in 4 docs (alias at `docs/dev_environment.md:53`) | `lago` is also the getlago/lago-cli binary (no `exec`/`up`). Aliases are not expanded in agent shells (exit 127) |
+| SC-39 | `docs/dev_environment.md:288-302`: Mailpit catches dev mail | lago-api sends to SMTP host `mailhog:1025` (`$API/config/environments/development.rb:70-73`); the service is `mailpit` with no alias, so sends fail even while it runs |
 
 Rules for the register:
 
@@ -109,8 +111,9 @@ Rules for the register:
   regression.
 - **Code-vs-code and config entries** (SC-31 `deploy/deploy.sh`, SC-34 `.env.development.default`)
   are registered so nobody re-documents them as working. Their fixes are C6, not C0.
-- **Cross-repo entry** SC-37 lives in lago-api. Fix it there in a lago-api PR. **SC-38** is a commit
-  message: immutable, never quote it.
+- **Cross-repo entry** SC-37 lives in lago-api. Fix it there in a lago-api PR. SC-39's real fix is
+  a compose alias (C6) or a lago-api PR; its doc note is a stopgap. **SC-38** is a commit message:
+  immutable, never quote it.
 - **OPEN entry** SC-36 waits on OPEN DECISION OD-7 (owner). Do not "fix" it by picking a side.
 <!-- evidence-check: on -->
 
@@ -180,7 +183,7 @@ High-traffic mappings (all 18 rows are in the map):
 
 | You changed | Re-check |
 |---|---|
-| EP env reads (`main.go`, `processors/main_processor.go`, `config/tracing/*`) | `events-processor/README.md` Configuration; `config-and-flags` |
+| EP env reads and Kafka client config (`main.go`, `processors/main_processor.go`, `config/tracing/*`, `config/kafka/{kafka,consumer,producer}.go`) | `events-processor/README.md` Configuration; `config-and-flags` |
 | `events-processor/Dockerfile*`, `go.mod`, `events-processor-tests.yml` | `events-processor/CLAUDE.md`, README build section, the `Dockerfile.staging:20-22` comment |
 | `docker-compose.dev.yml`, `traefik/*` | `docs/dev_environment.md` (hosts, volumes, services, profiles) |
 | `.env.development.default` | `docs/dev_environment.md:150-158`, EP README topic examples |
@@ -195,12 +198,14 @@ High-traffic mappings (all 18 rows are in the map):
    `.claude/skills/docs-and-writing/scripts/doc-drift-check.sh --only SC-12`
    Expect: `STALE    SC-12  docs/dev_environment.md:154 … LAGO_CLICKHOUSE_ENABLED=false disables ClickHouse …`
 2. Re-read the truth at its source, e.g.
-   `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api); grep -n 'present?' "$API/app/services/events/stores/store_factory.rb"`
-   Expect: `10:          ENV["LAGO_CLICKHOUSE_ENABLED"].present?`.
+   `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api); grep -n 'LAGO_CLICKHOUSE_ENABLED' "$API/app/services/events/stores/store_factory.rb" "$API/app/services/organizations/create_service.rb"`
+   Expect: `…store_factory.rb:10:          ENV["LAGO_CLICKHOUSE_ENABLED"].present?` and
+   `…create_service.rb:17:      if ActiveModel::Type::Boolean.new.cast(ENV["LAGO_CLICKHOUSE_ENABLED"]) …`.
 3. Paste the entry's "Corrected text" into the doc. Keep the surrounding style.
 4. Re-run step 1. Expect `PASS     SC-12 … -> claim gone: re-read the doc, then mark SC-12 FIXED`.
-5. Check the diff: `git status --porcelain` lists only the doc. `git diff --cached --submodule`
-   shows no `api`/`front` change (change-control N1).
+5. Check the diff: `git status --porcelain` lists only the doc, and
+   `.claude/skills/change-control/scripts/precommit-guard.sh` prints `0 FAIL` (it runs
+   `git diff --cached --submodule=short --ignore-submodules=none -- api front`, change-control N1).
 6. Commit with `docs(<scope>): <summary>` and body shape B ("Fixes SC-12 of the docs-and-writing
    register"). Open the PR with the template in `reference/templates.md` §2.
 7. After the merge, mark the entry `FIXED <date> <sha>` in `reference/stale-claims.md`, and update
@@ -225,8 +230,8 @@ Both are read-only. Run them from anywhere inside the repo. `-h` prints usage.
 
 | Script | Purpose | Example | Expected output (2026-10-01) |
 |---|---|---|---|
-| `scripts/doc-drift-check.sh` | one status line per register entry (STALE/PASS/RECHECK/OPEN/KNOWN/SKIP), then a summary. Exit = STALE + RECHECK (cap 255); 2 = usage (stderr message, no SUMMARY line; a run with exactly 2 STALE+RECHECK also exits 2, so read the SUMMARY line, not only the exit code). Options `--only SC-a,SC-b`, `-q`, `--list`, `--offline`, `--no-docker` | `.claude/skills/docs-and-writing/scripts/doc-drift-check.sh -q` | `SUMMARY doc-drift-check: entries=38 STALE=36 PASS=0 RECHECK=0 OPEN=1 KNOWN=1 SKIP=0 (pinned lago-api: yes; history clone: yes; docker CLI: yes)`, exit 36, in about 0.6 s with a warm cache |
-| | without the pinned checkout or the history clone | `LAGO_SKILLS_CACHE=$(mktemp -d) .claude/skills/docs-and-writing/scripts/doc-drift-check.sh --offline -q` | `entries=38 STALE=35 PASS=0 RECHECK=0 OPEN=1 KNOWN=0 SKIP=2`. 10 STALE lines carry `[anchor not re-checked: no pinned lago-api]` (or `no history clone`) |
+| `scripts/doc-drift-check.sh` | one status line per register entry (STALE/PASS/RECHECK/OPEN/KNOWN/SKIP), then a summary. Exit = STALE + RECHECK (cap 255); 2 = usage (stderr message, no SUMMARY line; a run with exactly 2 STALE+RECHECK also exits 2, so read the SUMMARY line, not only the exit code). Options `--only SC-a,SC-b`, `-q`, `--list`, `--offline`, `--no-docker` | `.claude/skills/docs-and-writing/scripts/doc-drift-check.sh -q` | `SUMMARY doc-drift-check: entries=42 STALE=40 PASS=0 RECHECK=0 OPEN=1 KNOWN=1 SKIP=0 (pinned lago-api: yes; history clone: yes; docker CLI: yes)`, exit 40, in under 1 s with a warm cache |
+| | without the pinned checkout or the history clone | `LAGO_SKILLS_CACHE=$(mktemp -d) .claude/skills/docs-and-writing/scripts/doc-drift-check.sh --offline -q` | `entries=42 STALE=39 PASS=0 RECHECK=0 OPEN=1 KNOWN=0 SKIP=2`. 13 STALE lines carry `[anchor not re-checked: no pinned lago-api]` (or `no history clone`) |
 | | `--no-docker` | `… --no-docker --only SC-13,SC-30` | 2 STALE lines with `[anchor not re-checked: no docker compose CLI]`, exit 2 |
 | `scripts/docs-to-recheck.sh` | applies `reference/maintenance.md` (the single source of the map) to a diff: `RECHECK <docs>` blocks with "look for" and SC entries, then the unmapped files. Modes: default (worktree + untracked vs HEAD), `--staged`, `--range A..B`, `-C <git dir>`, `-- <paths>`. Exit 0; 2 = usage or git error | `H=$(.claude/skills/research-methodology/scripts/history-setup.sh); .claude/skills/docs-and-writing/scripts/docs-to-recheck.sh -C "$H" --range 2fd8e8b^..2fd8e8b` | 2 RECHECK blocks (EP README Configuration with `SC-05`; connectors/architecture with `SC-20 SC-33`); `SUMMARY docs-to-recheck: changed=7 matched-rows=2 unmapped=2` |
 
@@ -235,7 +240,9 @@ the working repo for this, change-control N10):
 
 - removing "won't work locally" from `events-processor/CLAUDE.md` turned SC-01 into `PASS`;
 - adding a file that mentions `godotenv` under `events-processor/` turned SC-04 into `RECHECK`;
-- `--only SC-01,SC-04` then printed `STALE=0 PASS=1 RECHECK=1` and exited 1.
+- `--only SC-01,SC-04` then printed `STALE=0 PASS=1 RECHECK=1` and exited 1;
+- pasting the corrected texts of SC-12, SC-39, SC-40, SC-41 and SC-42 turned all five into `PASS`
+  (exit 0); a `mailhog` network alias on the `mailpit` service turned SC-39 into `RECHECK`.
 
 `docs-to-recheck.sh` runs git from the repo top level when `-C` is not given, so the default
 mode gives the same result from any subdirectory. `-- <paths>` expects repo-relative paths.
@@ -251,9 +258,10 @@ mode gives the same result from any subdirectory. `-- <paths>` expects repo-rela
     `0b56915` (#774), `2146a18`, `5070e24`;
   - doc histories in `$H`.
 - **Volatile facts and their re-verification commands:**
+  - Code anchor: `git rev-parse --short=12 5308258:events-processor` -> `83e012866f29`.
   - Register state:
     `.claude/skills/docs-and-writing/scripts/doc-drift-check.sh -q`
-    -> `entries=38 STALE=36 PASS=0 RECHECK=0 OPEN=1 KNOWN=1 SKIP=0` (as of 2026-10-01).
+    -> `entries=42 STALE=40 PASS=0 RECHECK=0 OPEN=1 KNOWN=1 SKIP=0` (as of 2026-10-01).
   - Doc freshness: the loop in `reference/inventory.md` "Re-measure"
     -> `events-processor/README.md 2026-09-18 d9c32b6 commits=7` (as of 2026-10-01).
   - Exemplar commits exist:
@@ -274,5 +282,6 @@ mode gives the same result from any subdirectory. `-- <paths>` expects repo-rela
   - any edit under `docs/` or to a README, `CONTRIBUTING.md`, `PULL_REQUEST_TEMPLATE.md` or
     `events-processor/CLAUDE.md`;
   - a decision on OD-5 (rewrite SC-01's policy line) or on OD-7 (SC-36, templates §1-2);
+  - a fix of the dev mail host, in the compose file or in lago-api (SC-39 turns RECHECK);
   - a new doc file (add it to the inventory) or a new top-level code dir (add a map row);
   - a sibling script renamed: `grep -rn 'docs-and-writing' .claude/skills` for inbound references.

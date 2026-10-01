@@ -1,9 +1,10 @@
 # Platform (wrapper-level) environment variables, per plane
 
-Facts verified 2026-10-01 against HEAD 5308258 and pinned lago-api `591ae90` (`$API`). Values are what the
+Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits
+on top. lago-api facts at the pin `591ae90` (2026-09-08, `$API`); verified 2026-10-01. Values are what the
 **api container** receives after `docker compose config` with a CLEAN environment (`env -i`, no project
-`.env`, `LAGO_DOMAIN` unset), so they are the shipped defaults. Consumers are `$API/<path>:<line>` at the
-pinned SHA. Secrets policy is NOT covered here (see `security-and-supply-chain`); placeholders shown are
+`.env` via `--env-file /dev/null`, `LAGO_DOMAIN` unset), so they are the shipped defaults. Consumers are
+`$API/<path>:<line>` at the pinned SHA. Secrets policy is NOT covered here (see `security-and-supply-chain`); placeholders shown are
 the literal strings committed in the repo.
 
 Regenerate the value columns (daemon-less, read-only):
@@ -11,9 +12,10 @@ Regenerate the value columns (daemon-less, read-only):
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 for f in docker-compose.dev.yml docker-compose.yml deploy/docker-compose.{local,light,production}.yml; do
-  echo "== $f"; env -i PATH="$PATH" HOME="$HOME" docker compose -f "$f" config --format json 2>/dev/null \
-    | jq -r '.services.api.environment | to_entries[] | "\(.key)=\(.value)"' | sort
-done
+  echo "== $f"; env -i PATH="$PATH" HOME="$HOME" docker compose --env-file /dev/null -f "$f" config --format json 2>/dev/null \
+    | jq -r '.services.api.environment | to_entries[]
+             | "\(.key)=\(if (.key | test("SECRET|PASSWORD|TOKEN|LICENSE|SALT|_KEY$|_KEY_|DATABASE_URL")) then "(set; value not shown)" else .value end)"' | sort
+done   # secret-bearing keys are masked (a git-ignored .env.development still feeds dev); section C cites their placeholders by file:line
 API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)   # consumers: grep -rn 'ENV\["NAME"' "$API"
 ```
 
@@ -62,7 +64,7 @@ nil: see SKILL.md section 5). Line refs: `DEF:n` = `.env.development.default`, `
 | `SECRET_KEY_BASE` | placeholder (DEF:71) | same placeholder default (root:24) | random per first boot (run:9) | `$API/app/services/utils/auth_token.rb:12,18` and 2 more | |
 | `LAGO_ENCRYPTION_PRIMARY_KEY` / `_DETERMINISTIC_KEY` / `_KEY_DERIVATION_SALT` | `your-encrpytion-…` (typo, DEF:72-74) | `your-encryption-…` (root:29-31) | random (run:12-14) | `$API/config/application.rb:35-37` | unprefixed `ENCRYPTION_*` win via `||`, and an empty-but-set unprefixed var wins too (Ruby `"" || x` is `""`) |
 | `LAGO_RSA_PRIVATE_KEY` | – (dev uses `config/keys/private.pem`) | ROOT `""` (root:27, no `:-` -> warning); deploy `""` | generated (run:10) | `$API/config/initializers/rsa_keys.rb:6-15`: file first, else `Base64.decode64(ENV)`, blank -> `abort` | single-line base64 |
-| `LAGO_LICENSE` | `""` (DEF:64) | `""` | – | `$API/lib/lago_utils/lago_utils/license.rb:11-13` | a real value was committed and later removed: OPEN DECISION OD-9 (owner); never print it |
+| `LAGO_LICENSE` | `""` (DEF:64) | `""` | – | `$API/lib/lago_utils/lago_utils/license.rb:11-13` | a real value was on main 37 days (merge `0a67ac0` 2025-01-29 -> `6dd7e56` 2025-03-07; up to 43 days if the feature branch was public from 2025-01-23, UNVERIFIED); rotation OPEN DECISION OD-9 (owner); never print it |
 | `LAGO_DATA_API_BEARER_TOKEN` | `changeme` (DEF:63) | ROOT `""`; deploy – | – | `$API/app/controllers/data_api/base_controller.rb:16` | |
 | `SEGMENT_WRITE_KEY` | `""` (DEF:68) | – | – | `$API/config/initializers/analytics_ruby.rb:20` (`ENV.fetch(…, "changeme")`) | |
 | `MISTRAL_API_KEY` / `MISTRAL_AGENT_ID` | `""` | ROOT `""`; deploy – | – | `$API/app/graphql/mutations/ai_conversations/create.rb:21` (blank -> forbidden) | ROOT-only (`3941b69` touched DEF + root only) |
@@ -73,8 +75,8 @@ nil: see SKILL.md section 5). Line refs: `DEF:n` = `.env.development.default`, `
 
 | Variable | DEV | ROOT | LOC/LIT/PRD | RUN/DEMO | Consumer + idiom |
 |---|---|---|---|---|---|
-| `LAGO_SIDEKIQ_WEB` | `true` | `true` | `true` | – | `$API/config/routes.rb:4`, `$API/config/initializers/sidekiq.rb:22` (`== "true"`) |
-| `LAGO_CLICKHOUSE_ENABLED` | `true` | – | – | – | 12 `.present?` sites incl. `$API/app/services/events/stores/store_factory.rb:10`; `== "true"` seeds; `Boolean.cast` `$API/app/services/organizations/create_service.rb:17` |
+| `LAGO_SIDEKIQ_WEB` | `true` | `true` | `true` | – | `$API/config/routes.rb:4`, `$API/config/initializers/sidekiq.rb:22` (`== "true"`); self-host default = OPEN DECISION OD-16 (owner, security) |
+| `LAGO_CLICKHOUSE_ENABLED` | `true` | – | – | – | MIXED: `=false` leaves the 12 `.present?`/`.blank?` sites ON (incl. `$API/app/services/events/stores/store_factory.rb:10`) and turns OFF org creation (`Boolean.cast`, `$API/app/services/organizations/create_service.rb:17`) and the 2 `== "true"` seeds |
 | `LAGO_CLICKHOUSE_MIGRATIONS_ENABLED` | `true` | – | – | – | `.present?` `$API/config/database.yml:56,82,111,148`; `== "true"` `$API/scripts/start.sh:10`, `$API/lib/tasks/lago.rake:12` |
 | `LAGO_DISABLE_SEGMENT` | `true` | `""` (root:52, no `:-`) | `""` | DEMO `true` | `== "true"` `$API/config/initializers/analytics_ruby.rb:3` -> telemetry ON by default in ROOT/deploy |
 | `LAGO_DISABLE_WALLET_REFRESH` | `true` | `""` | `""` | – | `== "true"` `$API/clock.rb:56` |
@@ -87,7 +89,7 @@ nil: see SKILL.md section 5). Line refs: `DEF:n` = `.env.development.default`, `
 | `LAGO_KARAFKA_WEB` / `_PROCESSING` / `_WEB_SECRET` | `""` | – | – | – | `if ENV[...]` `$API/config/routes.rb:8` (`""` mounts the route); `.present?` `$API/karafka.rb:66-70` |
 | `LAGO_WEBHOOK_ATTEMPTS` | `1` | – | – | – | `ENV.fetch(…, 3).to_i` `$API/app/services/webhooks/send_http_service.rb:58` |
 | `LAGO_PARALLEL_THREADS_COUNT` | `4` | – | – | – | `$API/app/services/invoices/preview_service.rb:205` |
-| `LAGO_MCP_SERVER_URL` | `http://mcp-server:3001/mcp` | – | – | – | `$API/app/services/ai_conversations/stream_service.rb:76`; no `mcp-server` service exists in any compose |
+| `LAGO_MCP_SERVER_URL` | `http://mcp-server:3001/mcp` | – | – | – | `$API/app/services/ai_conversations/stream_service.rb:76`; no compose file in THIS repo defines `mcp-server`; the getlago/lago-agent-toolkit overlay `mcp/docker-compose.dev.yml` does (port 3001, built from `LAGO_MCP_SERVER_PATH`): undocumented here (`docs-and-writing` SC-34) |
 | `LAGO_DATA_API_URL` | `http://data_api` | `http://data-api` | – | – | `$API/app/services/data_api/base_service.rb:29`; no such service anywhere; host names differ (`_` vs `-`) |
 
 ## E. Event pipeline variables (dev plane only in this repo)
@@ -105,10 +107,10 @@ Redpanda or ClickHouse, so none of these exist there. Production values live out
 | `LAGO_KAFKA_EVENTS_DEAD_LETTER_TOPIC` | `events_dead_letter` | EP producer; CH `20251110130723_create_events_dead_letter_queue.rb:9` |
 | `LAGO_KAFKA_ACTIVITY_LOGS_TOPIC` / `_API_LOGS_TOPIC` / `_SECURITY_LOGS_TOPIC` | `activity_logs` / `api_logs` / `security_logs` | `$API/app/services/utils/{activity_log,api_log,security_log}.rb`; CH `_queue` migrations |
 | `LAGO_KAFKA_CLICKHOUSE_CONSUMER_GROUP` | `clickhouse` | CH `_queue` migrations only (baked into DDL) |
-| `LAGO_KAFKA_CONSUMER_GROUP` | `lago_dev` | EP only |
-| `LAGO_KAFKA_SCRAM_ALGORITHM` / `_TLS` | `""` / `""` | EP only (lago-api uses other names, SKILL.md section 6) |
+| `LAGO_KAFKA_CONSUMER_GROUP` | `lago_dev` | EP only (`events-processor/processors/main_processor.go:31,172`) |
+| `LAGO_KAFKA_SCRAM_ALGORITHM` / `_TLS` | `""` / `""` | EP only (`events-processor/processors/main_processor.go:37-38`; lago-api uses other names, SKILL.md section 6) |
 | `LAGO_KAFKA_USERNAME` / `_PASSWORD` | `""` | EP and `$API/karafka.rb:21-26` (shared names) |
-| `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` | `200` | EP only |
+| `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` | `200` | EP only (`events-processor/processors/main_processor.go:29,134`) |
 | `LAGO_KAFKA_ENRICHED_EVENTS_EXPANDED_TOPIC` | removed from DEF in `d9c32b6` | still read by `$API/db/clickhouse_migrate/20250814124830_create_events_enriched_expanded_queue.rb:9`: a fresh dev ClickHouse gets that queue table with an empty topic list (effect UNVERIFIED) |
 
 ClickHouse connection settings (`LAGO_CLICKHOUSE_HOST/PORT/DATABASE/USERNAME/PASSWORD/SSL`) are read only in
@@ -119,10 +121,18 @@ ClickHouse connection settings (`LAGO_CLICKHOUSE_HOST/PORT/DATABASE/USERNAME/PAS
 
 | Variable | DEV | ROOT | LOC/LIT/PRD | Consumer |
 |---|---|---|---|---|
-| `SIDEKIQ_EVENTS/PDFS/BILLING/CLOCK/WEBHOOK/ANALYTICS/AI_AGENT` | `false` each (DEF:46-52) | commented hints only (root:67-73) | not set (PRD has dedicated worker services anyway) | `ActiveModel::Type::Boolean.new.cast` in `queue_as` blocks, e.g. `$API/app/jobs/bill_subscription_job.rb:5` |
+| `SIDEKIQ_EVENTS/PDFS/BILLING/CLOCK/WEBHOOK/ANALYTICS/AI_AGENT` | `false` each (DEF:46-52) | commented hints only (root:67-73; no ANALYTICS hint, ALERTS is :73) | not set (PRD has dedicated worker services anyway) | `ActiveModel::Type::Boolean.new.cast` in `queue_as` blocks, e.g. `$API/app/jobs/bill_subscription_job.rb:5` |
 | `SIDEKIQ_ALERTS` / `SIDEKIQ_PAYMENTS` / `SIDEKIQ_WALLETS` | – | ALERTS commented (root:73, `f2e202a`) | – | `$API/app/jobs/**` + `$API/app/services/usage_monitoring/process_organization_subscription_activities_service.rb:22` |
 | `SIDEKIQ_CONCURRENCY` | dev shim from `SIDEKIQ_CONCURRENCY_<X>` | – | PRD per worker (prd:274,325,355,383,411,441) | `$API/config/sidekiq/*.yml` (`ENV.fetch('SIDEKIQ_CONCURRENCY', 10)`; production 5 for billing/clock/alerts) |
 | `SIDEKIQ_CONCURRENCY_<X>` | `10` each (DEF:54-60) | – | – | only the dev shell shim (`docker-compose.dev.yml:225-294`); lago-api never reads these names |
+
+Routing notes (moved from SKILL.md section 4):
+- "on production, we rely on dedicated workers" (`docs/dev_environment.md:178`).
+- The flag is read at ENQUEUE time (`queue_as`, e.g. `$API/app/jobs/bill_subscription_job.rb:5`), so set it on every process that enqueues (api, workers, clock), and
+  run the worker for that queue, or jobs pile up in a queue nobody consumes.
+- Uncommenting the root hints as written breaks YAML: the list item `- SIDEKIQ_EVENTS=true` sits inside the
+  `x-backend-environment` mapping (VERIFIED 2026-10-01 in a scratch copy: `docker compose -f docker-compose.yml
+  config --quiet` -> `did not find expected key`). Write `"SIDEKIQ_EVENTS": "true"` instead.
 
 ## G. lago-front start-up contract (pinned `0c5e539`)
 
@@ -144,6 +154,8 @@ data volume. `RAILS_ENV` is forced to `production` (`run:81`). The front gets it
 
 ## I. Connectors (Redpanda Connect, `connectors/*.yml`)
 
+<!-- evidence-check: off evidence = each column header names the file (connectors/<name>.yml); cells are its line numbers -->
+
 | Variable | http.yml | sqs.yml | kinesis.yml | Default |
 |---|---|---|---|---|
 | `KAFKA_BROKERS`, `KAFKA_TOPIC`, `KAFKA_USER`, `KAFKA_PASSWORD` | :41,42,48,49 | :43,44,50,51 | :47,48,54,55 | none |
@@ -152,6 +164,8 @@ data volume. `RAILS_ENV` is forced to `production` (`run:81`). The front gets it
 | `ORGANIZATION_ID` | – (taken from the request body, :25) | :27,45 | :31 | none |
 | `SQS_ENDPOINT/REGION/KEY_ID/KEY_SECRET/DLQ_ENDPOINT` | – | :4-9,54-58 | – | none |
 | `KINESIS_STREAM`, `AWS_REGION`, `AWS_ROLE`, `AWS_ROLE_EXTERNAL_ID`, `DYNAMODB_TABLE` | – | – | :3-17 | none |
+
+<!-- evidence-check: on -->
 
 SASL mechanism is hard-coded `SCRAM-SHA-512` in all three. `connectors/README.md` omits `ORGANIZATION_ID`
 from the Kinesis table although `kinesis.yml:31` needs it, and documents `LOG_LEVEL`, which no
@@ -163,7 +177,7 @@ pipeline file references. Redpanda Connect `${VAR:default}` syntax, not compose 
 plus `PORTAINER_USER`, `PORTAINER_PASSWORD` (mapped to `ADMIN_USER`/`ADMIN_PASSWORD` on the portainer
 service). Nothing else (no `SECRET_KEY_BASE`, no encryption keys).
 
-## K. lago-api knobs no wrapper plane passes (gap G5 of env-crossref.sh)
+## K. lago-api knobs no wrapper plane passes (gap GAP5 of env-crossref.sh)
 
 48 `LAGO_*` names as of 2026-10-01, e.g. `LAGO_CLICKHOUSE_HOST`, `LAGO_KAFKA_SASL_MECHANISMS`,
 `LAGO_KAFKA_SECURITY_PROTOCOL`, `LAGO_REDIS_STORE_SSL`, `LAGO_REDIS_STORE_DISABLE_SSL_VERIFY`,

@@ -113,7 +113,8 @@ C<n> (+C7 if security-relevant). Gates applied: see change-control's class table
 
 <Paste commands and their key output. See change-control N9 and change-control N13. For example:>
 - `.claude/skills/build-and-env/scripts/ep-test.sh` -> ok x6
-- `go vet ./...` -> clean; `gofmt -l <changed files>` -> empty
+- `.claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 ./...` -> ok x6
+- `go vet ./...` -> clean; `gofmt -l <changed files>` -> empty; `golangci-lint run --new-from-rev=$BASE` -> 0 issues
 - `.claude/skills/docs-and-writing/scripts/doc-drift-check.sh --only SC-NN` -> before `STALE`, after `PASS`
 - <probe / ledger / parity output for C3-C4>
 
@@ -130,8 +131,10 @@ ADR: <link or the section below>.
 Closes #<issue>   <!-- only if an issue exists -->
 ```
 
-Then paste the pre-PR checklist from `change-control` (its "Pre-PR checklist" section). Keep the
-title conventional and <= 64 characters.
+For events-processor code, the commands and expected outputs are `change-control`'s canonical
+"Pre-PR gate for events-processor code" (change-control N9); run them from there, do not copy them
+here. Then paste the pre-PR checklist from `change-control` (its "Pre-PR checklist" section). Keep
+the title conventional and <= 64 characters.
 
 ## 3. Incident write-up
 
@@ -243,13 +246,21 @@ Checklist (the format contract every skill in this library follows):
 
 1. **Frontmatter.**
    - `name` equals the directory name (lowercase, hyphens).
-   - `description` is <= 1024 characters, third person. It says what the skill is, then "Use
-     when ..." with the literal strings people type (error messages, file names, env vars), then
-     "Not for ... (use <sibling>)".
+   - `description` is <= 600 characters (library rule; the format allows 1024), third person. It
+     says what the skill is, then "Use when ..." with the literal strings people type (error
+     messages, file names, env vars), then "Not for ... (use <sibling>)". An exact error or log
+     string goes in one description only: the skill that triages it.
    - Check the length with
      `awk '/^description:/{sub(/^description: */,""); print length}' .claude/skills/<name>/SKILL.md`.
-2. **Skeleton order.** Title + 2-4 line purpose + a "Facts verified <date> against HEAD <sha>"
-   line; "When to use / when NOT to use" (each NOT names a sibling); Terms; core sections; Scripts
+   - The frontmatter must parse as YAML. Quote the description if it contains `: ` or ` #`. Check
+     every skill with
+     `python3 -c "import yaml,re,sys;[yaml.safe_load(re.match(r'^---\n(.*?)\n---\n',open(f).read(),re.S).group(1)) for f in sys.argv[1:]]" .claude/skills/*/SKILL.md`
+     (no output, exit 0).
+2. **Skeleton order.** Title + 2-4 line purpose + a "Facts verified <date>" line that anchors code
+   facts on an upstream commit, in this form: "Code facts as of `<sha7>` (events-processor tree
+   `<tree12>`); the working branch may carry skills-only commits on top." Never anchor on a
+   skills-only commit or an undated commit count of your clone: neither survives a squash merge.
+   Then "When to use / when NOT to use" (each NOT names a sibling); Terms; core sections; Scripts
    table; "Provenance and maintenance" last. Target 180-450 lines; move long tables to
    `reference/<topic>.md` with a one-line "read when ...".
 3. **Claims.**
@@ -261,8 +272,9 @@ Checklist (the format contract every skill in this library follows):
 4. **Paths.**
    - Never hardcode a home, root or temp path. Get them from `history-setup.sh`,
      `pinned-checkout.sh` or `$LAGO_SKILLS_CACHE`.
-   - Cite another skill's script by path only for the five foundation scripts. Otherwise name the
-     skill.
+   - You may cite another skill's script by its path when the script exists and you ran it
+     (the library's consistency check verifies every such path). Otherwise name the skill.
+   - Cite another skill's IDs as "<skill> <ID>" (e.g. "change-control N1"), never a bare ID.
 5. **Scripts.**
    - Use `#!/usr/bin/env bash` + `set -euo pipefail` and a usage header that documents the exit codes.
    - Read-only on the repo. Write only to `$LAGO_SKILLS_CACHE`, `mktemp -d` or `--out`.
@@ -277,8 +289,15 @@ Checklist (the format contract every skill in this library follows):
    - Run the `research-methodology` skill's evidence-check on the SKILL.md.
    - Run `.claude/skills/docs-and-writing/scripts/doc-drift-check.sh -q`.
    - `git status --porcelain` shows only the skill directory.
-8. **Commit.** History uses `misc(skills): <summary>` (`08065ef`). It is a C0 change. Body shape B,
-   listing what was re-verified and what changed.
+   - If you added or renamed a skill, a script or an ID namespace, update the library index
+     `.claude/skills/README.md` (routing table, ID registry) when it exists, and
+     `grep -rn '<old name or ID>' .claude/skills` for inbound references.
+8. **Commit.**
+   - Subject `misc(skills): <summary>`, <= 72 characters, no WIP or fixup (check with
+     `.claude/skills/change-control/scripts/commit-msg-check.sh`; WIP fails its rule M6).
+   - Class: Markdown-only skill edits are C0; edits under `scripts/` are C1. An edit to doctrine
+     (N#, C#, OD-#) needs the owner's sign-off (change-control section 3).
+   - Body shape B, listing what was re-verified and what changed.
 
 Provenance section skeleton:
 

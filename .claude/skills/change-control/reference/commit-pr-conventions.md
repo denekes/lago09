@@ -83,7 +83,8 @@ Good commit bodies to imitate. They state symptom, root cause and fix:
 1. **Subject format.** `[ING-n] `? `type(scope)!?: description`, in the imperative, with no
    trailing period.
    - type is one of feat fix docs style refactor test chore perf ci build revert misc.
-     `misc` is sanctioned de facto.
+     `misc` is sanctioned de facto. `release` is not in the list; `commit-msg-check.sh` WARNs
+     (M4) on it instead of failing while OD-7 is open. Prefer `chore(release)`.
    - scope is the area: `events-processor`, `docker`, `ci`, `deps`, `release`, `docs`,
      `skills`, ...
 2. **Length.** <= 72 characters hard, <= 50 preferred, measured on the subject **as it lands on
@@ -115,7 +116,7 @@ Good commit bodies to imitate. They state symptom, root cause and fix:
 Open points for the owner, all under OD-7:
 
 - Adopt 72 or 50 as the hard limit?
-- Make `release` an allowed type, or standardise on `chore(release)`?
+- Make `release` an allowed type, or standardise on `chore(release)`? (Until decided, M4 WARNs.)
 - Should branch naming be enforced?
 - Should `PULL_REQUEST_TEMPLATE.md` be rewritten for the umbrella repo? That is a C0 change.
 
@@ -125,8 +126,8 @@ Open points for the owner, all under OD-7:
 H=$(.claude/skills/research-methodology/scripts/history-setup.sh)
 .claude/skills/change-control/scripts/commit-msg-check.sh -C "$H" --since 2025-01-01 --report
 # expected (as of 2026-10-01, history HEAD 5308258):
-# SUMMARY commit-msg-check: 293 subjects; >72: 29; >50: 142; non-conventional: 35; unknown type: 11; WIP/fixup: 0; FAIL subjects: 73; WARN-only subjects: 108; bot-authored included: 17
+# SUMMARY commit-msg-check: 293 subjects; >72: 29; >50: 142; non-conventional: 35; unknown type: 3; release type (WARN, OD-7): 8; WIP/fixup: 0; FAIL subjects: 65; WARN-only subjects: 116; bot-authored included: 17
 # TYPES chore=74 misc=69 fix=55 feat=43 <non-conventional>=35 release=8 docs=3 ci=2 ...
 .claude/skills/change-control/scripts/commit-msg-check.sh -C "$H" --since 2025-01-01 --report --exclude-bots
-# expected: 276 subjects; >72: 23; >50: 125
+# expected: 276 subjects; >72: 23; >50: 125; …; FAIL subjects: 59; WARN-only subjects: 105
 ```

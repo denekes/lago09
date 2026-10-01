@@ -112,6 +112,7 @@ events-processor/processors/events_processor/enrichment_service.go:104	if enrich
 $API/app/services/subscriptions/dates_service.rb:68	@from_datetime = customer_timezone_shift(compute_from_date)
 $API/app/services/subscriptions/dates_service.rb:99	datetime = customer_timezone_shift(compute_charges_from_date)
 connectors/http.yml:29	root.timestamp = this.event.timestamp
+connectors/http.yml:31	root.ingested_at = timestamp_unix()
 connectors/http.yml:32	root.precise_total_amount_cents = if this.event.precise_total_amount_cents.type() == "number" {
 $API/Gemfile:6	ruby "4.0.6"
 $API/app/services/events/billing_period_filters/matching_and_ignored_service.rb:14	result.matching_filters = target_filter.filter_values(target_filter.selected_filter)

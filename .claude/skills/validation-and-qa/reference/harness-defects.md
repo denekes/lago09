@@ -1,8 +1,12 @@
 # Known harness defects: verify, avoid copying, fix as C1
 
 Read this when a test behaves strangely, before you copy an existing test as a starting point, or
-when you plan a harness clean-up PR. Each defect was re-verified on 2026-10-01 at `5308258`. The
-suite is still green: these are defects in what the tests prove, not failures.
+when you plan a harness clean-up PR. Each defect was re-verified on 2026-10-01 (code facts as of
+5308258, events-processor tree 83e012866f29). The suite is still green when Postgres is up: these
+are defects in what the tests prove, not failures.
+
+This file is the numbering source for the IDs HD1-HD7 (SKILL.md §5 uses the same numbers). Cite
+them from other skills as "validation-and-qa HD<n>".
 
 Path convention: code cites are relative to `events-processor/`; bare `processor_test.go`,
 `enrichment_service_test.go`, `event_producer_service_test.go`, `processor.go`,
@@ -12,7 +16,7 @@ Fixing any of them is a C1 change (tests only) as long as no production `.go` fi
 existing expectation string changes. Keep each fix in its own commit; run `scripts/baseline.sh`
 and `scripts/race-shuffle.sh --isolation` before and after.
 
-## D1. sqlmock expectations are never verified
+## HD1. sqlmock expectations are never verified
 
 - **What.** `tests.SetupMockStore` returns a cleanup that only closes the mock DB
   (`events-processor/tests/mocked_store.go:38-40`). `grep -rn ExpectationsWereMet events-processor`
@@ -28,7 +32,7 @@ and `scripts/race-shuffle.sh --isolation` before and after.
   SUMMARY sqlmock-strict: 4 unmet-expectation subtests (4 known, 0 new), 0 other failures, 5 packages fully ok (go test exit 1)
   ```
 
-  `models` stays clean. All 4 are DB mode (`#01` is DB mode because of D2).
+  `models` stays clean. All 4 are DB mode (`#01` is DB mode because of HD2).
 - **Why each is unmet.**
   - Timestamp-invalid: `EnrichEvent` converts the timestamp first (`enrichment_service.go:28-31`)
     and fails before the billable-metric lookup.
@@ -43,7 +47,7 @@ and `scripts/race-shuffle.sh --isolation` before and after.
   `tests/mocked_store.go`. Afterwards `sqlmock-strict.sh --all` exits 0 and the known list in
   the script must be emptied in the same PR. Enforced sqlmock is a "beyond current best" target.
 
-## D2. `TestProcessEvent` subtests are mis-nested; one scenario never runs in DB mode
+## HD2. `TestProcessEvent` subtests are mis-nested; one scenario never runs in DB mode
 
 - **What.** Inside the mode loop (`processor_test.go:183`), only "Without Billable Metric" is
   nested under `t.Run(mode.name)` (`:184-202`). The other six scenarios (`:204-473`) are siblings
@@ -66,7 +70,7 @@ and `scripts/race-shuffle.sh --isolation` before and after.
   (`#01` disappears), the PASS count stays 50 for the package if nothing else changes; check with
   `baseline.sh`.
 
-## D3. `TestEvaluateExpression` subtests depend on run order
+## HD3. `TestEvaluateExpression` subtests depend on run order
 
 - **What.** `bm`, `event` and `result` are declared in the parent (`enrichment_service_test.go:256-258`).
   "With an expression but without required fields" sets `bm.Expression` and `bm.FieldName`
@@ -93,7 +97,7 @@ and `scripts/race-shuffle.sh --isolation` before and after.
   `subscription_refresh_service_test.go:13-16` use package-level variables that every top-level
   test re-initialises with `setup*()` first. Isolation passes for them.
 
-## D4. Redundant `time.Sleep(50ms)` in `TestProcessEvent`
+## HD4. Redundant `time.Sleep(50ms)` in `TestProcessEvent`
 
 - **What.** `processor_test.go:255,416,470` sleep "to give some time to the go routine", with
   `// TODO: Improve this by using channels` at `:415,469`. `processEvent` already waits for its
@@ -114,11 +118,27 @@ and `scripts/race-shuffle.sh --isolation` before and after.
   returns before its goroutines finish, use a channel or `assert.Eventually` with a short tick.
 - **Fix (C1).** Delete the three sleeps and the two TODOs.
 
-## D5. Smaller defects worth knowing
+## HD5. `TestNewConnection` panics when Postgres is down
+
+- **What.** `config/database/database_test.go:21-24` checks the second `NewConnection` with
+  `assert.NoError` (`:22`), which does not stop the test, then dereferences `db.Connection`
+  (`:24`) on a nil `db`. Without Postgres the test SIGSEGVs.
+- **Verify.**
+
+  ```bash
+  DATABASE_URL=postgres://lago:lago@localhost:5499/lago .claude/skills/build-and-env/scripts/ep-test.sh -count=1 ./config/database/
+  # expect: "dial tcp 127.0.0.1:5499: connect: connection refused" (printed ABOVE the stack),
+  # then "panic: runtime error: invalid memory address or nil pointer dereference"; FAIL
+  ```
+
+- **Avoid copying.** `require` for preconditions (an error you then dereference past), `assert`
+  for outcomes. Start Postgres for the suite (`build-and-env`).
+- **Fix (C1).** `require.NoError(t, err)` and `require.NotNil(t, db)` at `:22-23`.
+
+## HD6. Smaller defects worth knowing
 
 | Defect | Where | Effect | Avoid |
 |---|---|---|---|
-| `TestNewConnection` panics when Postgres is down | `config/database/database_test.go:21-24` (`assert.NoError` then `db.Connection` on nil) | SIGSEGV; the real cause (`dial tcp ... connection refused`) is printed ABOVE the stack | use `require.NoError`; start Postgres (`build-and-env`) |
 | 1.5 s real sleep for a TTL | `cache/cache_test.go:362` | ~half of the cache package time; x10 under `-count=10` | tiny TTLs |
 | wall-clock bucket race (never observed) | `models/stores_test.go:59-87` recompute `time.Now()` after the call | could flake at an x9.999 s boundary | the redis-store template's before/after pattern |
 | tautological test | `models/stores_test.go:102-120` inserts the second member by hand and counts 2 | proves nothing about bucketing | assert on code output |
@@ -128,9 +148,20 @@ and `scripts/race-shuffle.sh --isolation` before and after.
 | producer fake cannot fail | `tests/mocked_producer.go:20` | produce-failure -> DLQ branches untested | add a failure switch when you need it |
 | reversed `assert.Equal` arguments | `utils/result_test.go:38` and neighbours | confusing failure diffs | `(t, expected, actual)` |
 
-## D6. What the harness cannot show at all
+## HD7. What the harness cannot show at all
 
 Unit tests with these fakes cannot show rebalances, commit ordering, redelivery or anything that
-needs a broker. `ProcessEvents` and `processRecordsAndCommit` have 0% coverage. Those need the
+needs a broker. `ProcessEvents` and `processRecordsAndCommit` have 0% coverage, so the unit-suite
+`-race` run (6 packages ok, 0 DATA RACE) says nothing about the consumer path. Those need the
 kfake harness (`diagnostics-and-tooling`) and, for the delivery contract, the
 `event-accounting-campaign` ledger. Do not try to fake Kafka inside the existing unit tests.
+
+Race evidence for the real pipeline (verified 2026-10-01, about 5 s warm):
+
+```bash
+GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4
+# expect last line: RESULT: PASS (every record enriched + in-advance, 0 DLQ, offsets committed); exit 0 (66 = data race)
+```
+
+Kafka client OPTIONS are the exception: `kgo.NewClient` builds a client without a broker, so
+option plumbing is unit-testable with `templates/producer_option_template_test.go.tmpl`.

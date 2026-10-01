@@ -21,6 +21,7 @@
 #   M2 WARN  longer than --pref (50)
 #   M3 FAIL  not Conventional Commits: [optional "[ING-n] " / "[INF-n] "]type(scope)!: description
 #   M4 FAIL  type outside: feat fix docs style refactor test chore perf ci build revert misc
+#            (WARN for `release` while OPEN DECISION OD-7 is open; prefer chore(release))
 #   M5 WARN  description ends with "."
 #   M6 FAIL  WIP / fixup! / squash! / amend! subject (must not land on main)
 #   M7 WARN  (file mode) second line not blank
@@ -54,7 +55,7 @@ while [ $# -gt 0 ]; do
 done
 [ -z "$mode" ] && { usage >&2; exit 2; }
 
-n=0 nfail=0 nwarn=0 n_max=0 n_pref=0 n_nonconv=0 n_type=0 n_wip=0
+n=0 nfail=0 nwarn=0 n_max=0 n_pref=0 n_nonconv=0 n_type=0 n_rel=0 n_wip=0
 declare -A bytype=()
 
 # check_subject <label> <subject> [<second line>] : prints findings, updates counters
@@ -68,7 +69,9 @@ check_subject() {
   if [[ "$s" =~ $re ]]; then
     type="${BASH_REMATCH[3]}"
     bytype[$type]=$(( ${bytype[$type]:-0} + 1 ))
-    if [[ " $TYPES " != *" $type "* ]]; then out+="FAIL M4 type '$type' not in: $TYPES"$'\n'; f=1; n_type=$((n_type+1)); fi
+    if [ "$type" = release ]; then
+      out+="WARN M4 type 'release' is an OPEN DECISION OD-7 (owner) point; prefer chore(release)"$'\n'; w=1; n_rel=$((n_rel+1))
+    elif [[ " $TYPES " != *" $type "* ]]; then out+="FAIL M4 type '$type' not in: $TYPES"$'\n'; f=1; n_type=$((n_type+1)); fi
     case "$s" in *.) out+="WARN M5 description ends with '.'"$'\n'; w=1 ;; esac
   else
     out+="FAIL M3 not Conventional Commits: '[ING-n] '?type(scope)?: description"$'\n'; f=1; n_nonconv=$((n_nonconv+1))
@@ -124,7 +127,7 @@ case "$mode" in
 esac
 
 if [ "$mode" = range ] || [ "$mode" = since ] || [ "$report" = 1 ]; then
-  echo "SUMMARY commit-msg-check: $n subjects; >$max: $n_max; >$pref: $n_pref; non-conventional: $n_nonconv; unknown type: $n_type; WIP/fixup: $n_wip; FAIL subjects: $nfail; WARN-only subjects: $nwarn${nbots:+; bot-authored included: $nbots}"
+  echo "SUMMARY commit-msg-check: $n subjects; >$max: $n_max; >$pref: $n_pref; non-conventional: $n_nonconv; unknown type: $n_type; release type (WARN, OD-7): $n_rel; WIP/fixup: $n_wip; FAIL subjects: $nfail; WARN-only subjects: $nwarn${nbots:+; bot-authored included: $nbots}"
   printf 'TYPES '; for t in "${!bytype[@]}"; do printf '%s=%s\n' "$t" "${bytype[$t]}"; done | sort -t= -k2,2nr | tr '\n' ' '; echo
 else
   echo "SUMMARY commit-msg-check: $nfail FAIL, $nwarn WARN"

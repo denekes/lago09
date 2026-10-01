@@ -10,16 +10,18 @@
 #   pin-sync-check.sh -q ...          # print only FAIL/WARN lines and the summary
 #
 # Checks (each prints OK | FAIL | WARN | INFO with file:line):
-#   P1 lago-expression ref: identical in events-processor/Dockerfile, Dockerfile.dev,
+#   PS1 lago-expression ref: identical in events-processor/Dockerfile, Dockerfile.dev,
 #      Dockerfile.staging (ARG LAGO_EXPRESSION_REF) and the CI checkout `ref:`.
 #      A location that exists but carries no ref is FAIL (unpinned clone, see 07d1d4d).
-#   P2 Rust image: `FROM rust:X` identical in Dockerfile and Dockerfile.dev (5077151 -> e8bbd60).
+#   PS2 Rust image: `FROM rust:X` identical in Dockerfile and Dockerfile.dev (5077151 -> e8bbd60).
 #      CI builds with the runner's default Rust: INFO only.
-#   P3 Go: go.mod `go`, mise.toml `go`, `FROM golang:` x2, CI `go-version` share one
-#      major.minor (FAIL otherwise); patch-level differences are INFO.
-#   P4 expression-go in go.mod: v0.1.4 is expected (no expression-go/v0.2.0 tag exists;
+#   PS3 Go: go.mod `go`, mise.toml `go`, `FROM golang:` x2, CI `go-version` share one
+#      major.minor (FAIL otherwise); patch-level differences are INFO. Floating base images
+#      (golang:1.25, rust:1.85) are checked at the spelled value only: patch drift on Docker
+#      Hub is an accepted residual (change-control N3).
+#   PS4 expression-go in go.mod: v0.1.4 is expected (no expression-go/v0.2.0 tag exists;
 #      the cgo surface is identical). Any other value is WARN: confirm the tag exists.
-#   P5 `go install ...@latest` in events-processor Dockerfiles: FAIL (d589940).
+#   PS5 `go install ...@latest` in events-processor Dockerfiles: FAIL (d589940).
 # The pre-2025-03-21 directory name `events_processor/` is handled for old revisions.
 #
 # Read-only. Exit codes: 0 = no FAIL, 1 = at least one FAIL, 2 = usage or git error.
@@ -85,15 +87,15 @@ first_match() {
 src_label() { case "$mode" in worktree) echo "working tree" ;; index) echo "index (staged)" ;; rev) echo "rev $("${G[@]}" rev-parse --short "$rev")" ;; esac; }
 [ "$quiet" = 0 ] && echo "INFO  pin-sync-check on $(src_label); events-processor dir: $EP/"
 
-# ---- P1 lago-expression ref --------------------------------------------------------
+# ---- PS1 lago-expression ref --------------------------------------------------------
 declare -a p1_vals=() p1_locs=()
 p1_add() { # file grep sed
   local f="$1" r
-  if ! exists "$f"; then say INFO "P1 $f absent in this tree (skipped)"; return; fi
+  if ! exists "$f"; then say INFO "PS1 $f absent in this tree (skipped)"; return; fi
   if r="$(first_match "$f" "$2" "$3")" && [ -n "${r#*$'\t'}" ]; then
     p1_vals+=("${r#*$'\t'}"); p1_locs+=("$f:${r%%$'\t'*}")
   else
-    say FAIL "P1 $f builds lago-expression without a pinned ref (no tag found)"
+    say FAIL "PS1 $f builds lago-expression without a pinned ref (no tag found)"
   fi
 }
 p1_add "$EP/Dockerfile"         'git checkout v[0-9]' '.*git checkout (v[0-9][0-9A-Za-z.+-]*).*'
@@ -103,20 +105,20 @@ if exists "$CI"; then
   # the `ref:` that follows `repository: getlago/lago-expression`
   ciref="$(readf "$CI" | awk '/repository:[[:space:]]*getlago\/lago-expression/{f=1} f && /ref:/{sub(/.*ref:[[:space:]]*/,""); gsub(/["'\'']/,""); print NR"\t"$0; exit}')"
   if [ -n "$ciref" ]; then p1_vals+=("${ciref#*$'\t'}"); p1_locs+=("$CI:${ciref%%$'\t'*}")
-  elif readf "$CI" | grep -q 'getlago/lago-expression'; then say FAIL "P1 $CI checks out lago-expression without ref:"
+  elif readf "$CI" | grep -q 'getlago/lago-expression'; then say FAIL "PS1 $CI checks out lago-expression without ref:"
   fi
 fi
 if [ "${#p1_vals[@]}" -gt 0 ]; then
   uniq_p1="$(printf '%s\n' "${p1_vals[@]}" | sort -u)"
   detail=""; for i in "${!p1_vals[@]}"; do detail+=" ${p1_locs[$i]}=${p1_vals[$i]}"; done
   if [ "$(printf '%s\n' "$uniq_p1" | wc -l)" -eq 1 ]; then
-    say OK "P1 lago-expression ref ${p1_vals[0]} in ${#p1_vals[@]} places:$detail"
+    say OK "PS1 lago-expression ref ${p1_vals[0]} in ${#p1_vals[@]} places:$detail"
   else
-    say FAIL "P1 lago-expression refs disagree:$detail"
+    say FAIL "PS1 lago-expression refs disagree:$detail"
   fi
 fi
 
-# ---- P2 Rust image -----------------------------------------------------------------
+# ---- PS2 Rust image -----------------------------------------------------------------
 declare -a rs_vals=() rs_locs=()
 for f in "$EP/Dockerfile" "$EP/Dockerfile.dev"; do
   exists "$f" || continue
@@ -126,13 +128,13 @@ for f in "$EP/Dockerfile" "$EP/Dockerfile.dev"; do
 done
 if [ "${#rs_vals[@]}" -gt 0 ]; then
   detail=""; for i in "${!rs_vals[@]}"; do detail+=" ${rs_locs[$i]}=rust:${rs_vals[$i]}"; done
-  if [ "$(printf '%s\n' "${rs_vals[@]}" | sort -u | wc -l)" -eq 1 ]; then say OK "P2 Rust image identical:$detail"
-  else say FAIL "P2 Rust images disagree (the lago-expression pin set includes the Rust image):$detail"; fi
+  if [ "$(printf '%s\n' "${rs_vals[@]}" | sort -u | wc -l)" -eq 1 ]; then say OK "PS2 Rust image identical:$detail"
+  else say FAIL "PS2 Rust images disagree (the lago-expression pin set includes the Rust image):$detail"; fi
 fi
-exists "$CI" && readf "$CI" | grep -q 'cargo build' && say INFO "P2 $CI builds with the runner's default Rust (not pinned)"
-exists "$EP/Dockerfile.staging" && say INFO "P2/P3 $EP/Dockerfile.staging takes Rust and Go from its BUILD_IMAGE (not checked here)"
+exists "$CI" && readf "$CI" | grep -q 'cargo build' && say INFO "PS2 $CI builds with the runner's default Rust (not pinned)"
+exists "$EP/Dockerfile.staging" && say INFO "PS2/PS3 $EP/Dockerfile.staging takes Rust and Go from its BUILD_IMAGE (not checked here)"
 
-# ---- P3 Go version set -------------------------------------------------------------
+# ---- PS3 Go version set -------------------------------------------------------------
 declare -a go_vals=() go_locs=()
 go_add() { local r; exists "$1" || return 0; if r="$(first_match "$1" "$2" "$3")" && [ -n "${r#*$'\t'}" ]; then go_vals+=("${r#*$'\t'}"); go_locs+=("$1:${r%%$'\t'*}"); fi; }
 go_add "$EP/go.mod"         '^go [0-9]'                 '^go ([0-9][0-9.]*).*'
@@ -144,34 +146,34 @@ if [ "${#go_vals[@]}" -gt 0 ]; then
   detail=""; for i in "${!go_vals[@]}"; do detail+=" ${go_locs[$i]}=${go_vals[$i]}"; done
   minors="$(printf '%s\n' "${go_vals[@]}" | awk -F. '{print $1"."$2}' | sort -u)"
   if [ "$(printf '%s\n' "$minors" | wc -l)" -eq 1 ]; then
-    say OK "P3 Go $(printf '%s' "$minors") everywhere (${#go_vals[@]} places):$detail"
-    [ "$(printf '%s\n' "${go_vals[@]}" | sort -u | wc -l)" -gt 1 ] && say INFO "P3 patch-level spellings differ (informational):$detail"
+    say OK "PS3 Go $(printf '%s' "$minors") everywhere (${#go_vals[@]} places):$detail"
+    [ "$(printf '%s\n' "${go_vals[@]}" | sort -u | wc -l)" -gt 1 ] && say INFO "PS3 patch-level spellings differ (informational):$detail"
   else
-    say FAIL "P3 Go major.minor disagree:$detail"
+    say FAIL "PS3 Go major.minor disagree:$detail"
   fi
 fi
 
-# ---- P4 expression-go module ---------------------------------------------------------
+# ---- PS4 expression-go module ---------------------------------------------------------
 if r="$(first_match "$EP/go.mod" 'lago-expression/expression-go' '.*expression-go[[:space:]]+(v[^[:space:]]+).*')"; then
   v="${r#*$'\t'}"
   if [ "$v" = v0.1.4 ]; then
-    say OK "P4 $EP/go.mod:${r%%$'\t'*} expression-go $v (expected; do NOT 'fix' to the .so ref: no expression-go/v0.2.0 tag, ABI identical)"
+    say OK "PS4 $EP/go.mod:${r%%$'\t'*} expression-go $v (expected; do NOT 'fix' to the .so ref: no expression-go/v0.2.0 tag, ABI identical)"
   else
-    say WARN "P4 $EP/go.mod:${r%%$'\t'*} expression-go $v: confirm the tag expression-go/$v exists in getlago/lago-expression"
+    say WARN "PS4 $EP/go.mod:${r%%$'\t'*} expression-go $v: confirm the tag expression-go/$v exists in getlago/lago-expression"
   fi
 fi
 
-# ---- P5 floating dev tools --------------------------------------------------------
+# ---- PS5 floating dev tools --------------------------------------------------------
 p5=0
 for f in "$EP/Dockerfile" "$EP/Dockerfile.dev" "$EP/Dockerfile.staging"; do
   exists "$f" || continue
   while IFS= read -r m; do
     [ -z "$m" ] && continue
     p5=$((p5+1))
-    say FAIL "P5 $f:${m%%:*} floating tool version: $(printf '%s' "${m#*:}" | sed -E 's/^[[:space:]]+//')"
+    say FAIL "PS5 $f:${m%%:*} floating tool version: $(printf '%s' "${m#*:}" | sed -E 's/^[[:space:]]+//')"
   done < <(readf "$f" | grep -nE 'go install [^[:space:]]+@latest' || true)
 done
-[ "$p5" -eq 0 ] && say OK "P5 no 'go install ...@latest' in $EP Dockerfiles"
+[ "$p5" -eq 0 ] && say OK "PS5 no 'go install ...@latest' in $EP Dockerfiles"
 
 echo "SUMMARY pin-sync-check: $fails FAIL, $warns WARN"
 [ "$fails" -eq 0 ]

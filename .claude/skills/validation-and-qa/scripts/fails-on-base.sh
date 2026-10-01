@@ -15,7 +15,9 @@
 # Read the result:
 #   EVIDENCE OK      tests fail on REV (assertion failures)  -> paste this run + the green run
 #   WEAK EVIDENCE    tests fail on REV only because they do not COMPILE there (new API):
-#                    acceptable for new functions, but prefer a test that compiles on REV
+#                    acceptable for a new function, type, struct field or option; paste the
+#                    compile error it prints. For a change to existing API, prefer a test that
+#                    compiles on REV and fails an assertion
 #   NO EVIDENCE      tests PASS on REV: the test does not pin the change
 # Exit: 0 EVIDENCE OK or WEAK EVIDENCE; 1 NO EVIDENCE; 2 setup error; 3 no production file
 #   differs from REV (nothing to compare: a C1 test-only change, see validation-and-qa).
@@ -77,12 +79,14 @@ set +e
 go test -overlay="$tmp/overlay.json" "${args[@]}" > "$tmp/out.txt" 2>&1
 rc=$?
 set -e
-grep -E '^(ok|FAIL|---|\s+--- FAIL)|\[build failed\]|\[setup failed\]|cannot|undefined:' "$tmp/out.txt" | head -n 40 || true
+# Result lines, test failures and compile errors (file.go:line:col: ...) such as
+# "undefined: X" or "unknown field Y in struct literal".
+grep -E '^(ok|FAIL|---|\s+--- FAIL)|\[build failed\]|\[setup failed\]|cannot|undefined:|\.go:[0-9]+:[0-9]+: ' "$tmp/out.txt" | head -n 40 || true
 if [ "$rc" = 0 ]; then
   echo "NO EVIDENCE: the selected tests PASS on base $(git -C "$repo" rev-parse --short=7 "$base") - they do not pin the change"; exit 1
 fi
 if grep -qE '\[build failed\]|\[setup failed\]' "$tmp/out.txt" && ! grep -qE -- '--- FAIL' "$tmp/out.txt"; then
-  echo "WEAK EVIDENCE: the tests do not compile against base (new API); prefer a test that compiles on base and fails an assertion"; exit 0
+  echo "WEAK EVIDENCE: the tests do not compile against base (new API: function, type, field or option); paste the compile error above, or prefer a test that compiles on base and fails an assertion"; exit 0
 fi
 echo "EVIDENCE OK: tests fail on base $(git -C "$repo" rev-parse --short=7 "$base") ($n production file(s) swapped back). Paste this output and the green run on your branch."
 exit 0

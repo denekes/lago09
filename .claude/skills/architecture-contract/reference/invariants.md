@@ -1,7 +1,9 @@
 # Invariants I1-I15 (statement · enforced at · breaks if violated · guarding test)
 
-Verified 2026-10-01 at HEAD 5308258. Paths relative to `events-processor/`. "Guard" = a test that fails if the
-invariant is broken; "none" means nothing in CI would notice. Status: HOLDS / VIOLATED (where) / PARTIAL.
+Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on
+top. Verified 2026-10-01. Paths relative to `events-processor/`. "Guard" = a test that fails if the
+invariant is broken; "none" means nothing in CI would notice. Status: HOLDS / VIOLATED (where) / PARTIAL /
+CONDITIONAL (holds only under a setting outside this repo).
 `invariants-grep.sh` re-checks I1-I3, I7, I8, I9 (the `12*time.Hour` literal), I10, I11 statically; a 2026-10-01
 mutation run on a scratch copy (add `Select` to the BM query, drop `deleted_at` from the charges query, 12 h → 24 h,
 a `ctx` field in `FlagStore`, disable the `!ok` guard) turned the I2 FLAG off and raised N4-del, N5-ctx, N7-guard and
@@ -21,8 +23,10 @@ CONTRACT FLAGs as intended.
   `SelectFields` in every `models/*.go GetAll*`.
 - Violated: `models/billable_metrics.go:61` `FetchBillableMetric` uses gorm `First` (implicit `SELECT *`), and its
   test pins the `SELECT *` (`models/billable_metrics_test.go:14-15`).
-- Breaks: after a Rails column-add migration, pgx's cached plan fails with SQLSTATE 0A000 ("cached plan must not
-  change result type") on every event → retryable `fetch_billable_metric` → loss L1. The Postgres behaviour was
+- Breaks: after a Rails column-add migration, each pooled pgx connection fails once with SQLSTATE 0A000 ("cached plan
+  must not change result type"). pgx then drops that cached statement (`pgx/v5@v5.9.2/rows.go:172-180`,
+  `pgx/v5@v5.9.2/conn.go:520-529`; pin `go.mod:13`), so each connection heals after one failure. Each failure is a retryable
+  `fetch_billable_metric`, which is LOST under L1 as soon as a later record of the partition commits. The Postgres behaviour was
   reproduced 2026-10-01 in psql on a TEMP table: `PREPARE q AS SELECT * …; ALTER TABLE … ADD COLUMN …; EXECUTE q` →
   `ERROR: cached plan must not change result type`. History `9acd83e` (ING-15),
   `3ac94a2` (ING-143). Rule: change-control N4.
@@ -56,8 +60,9 @@ CONTRACT FLAGs as intended.
 - Breaks: double evaluation changes `properties[field_name]` and `value`.
 - Guard: none dedicated (the `processor_test.go:204` case has no expression).
 
-### I7 Side effects use the batch/record context, never the process context — HOLDS
-- Enforced: batch ctx `context.Background()` (`config/kafka/consumer.go:83`); stores take ctx as an argument
+### I7 Side effects use the batch context (`context.Background()`), never the process context — HOLDS
+- Enforced: `processRecordsAndCommit` creates the batch ctx `context.Background()` (`config/kafka/consumer.go:83`) and
+  passes the same ctx to every record of the batch; stores take ctx as an argument
   (`models/stores.go:50-54`, comment states the rule).
 - Breaks: every Redis write in flight during a rolling restart fails with `context canceled` (`02a4bc8`, #785).
   Rule: change-control N5.
@@ -88,7 +93,7 @@ CONTRACT FLAGs as intended.
 - Breaks: partition distribution / ordering assumptions downstream (`731e18f` changed it from `<org>-<ext_sub>-<code>`).
 - Guard: `event_producer_service_test.go:45-52` (enriched key), `:74` (in-advance key).
 
-### I12 Duplicates are safe only because downstream dedups on `transaction_id` — HOLDS (outside this repo)
+### I12 Duplicates are safe only because downstream dedups on `transaction_id` — CONDITIONAL (outside this repo)
 - Statement: the pipeline is at-least-once (commit after side effects; redelivery on restart/rebalance/commit error).
   It relies on `events_enriched` = `ReplacingMergeTree(timestamp)` ordered by (…, timestamp, transaction_id)
   (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:6-20`) and on `Events::PayInAdvanceJob`
@@ -96,7 +101,15 @@ CONTRACT FLAGs as intended.
   (`$API/app/jobs/events/pay_in_advance_job.rb:13,21`). `events_dead_letter` is a plain MergeTree: DLQ duplicates persist.
 - Breaks: never emit without `transaction_id`, never rewrite it, never change the enriched ORDER BY assumptions
   without lago-api (change-control N6).
-- Guard: none in this repo. Dedup is eventual (merge time / `FINAL`).
+- Condition: billing reads `events_enriched` with `FINAL` only when the org has `clickhouse_deduplication_enabled`
+  (`$API/app/services/billable_metrics/aggregations/base_service.rb:161-169`; default false,
+  `$API/app/models/organization.rb:348`; set at org creation only with `LAGO_CLICKHOUSE_ENABLED` +
+  `LAGO_DEFAULT_EVENT_STORE=clickhouse`, `$API/app/services/organizations/create_service.rb:17-19`; the dev seed CH org
+  leaves it false, `$API/db/seeds/01_base.rb:54`). Without it, redelivered duplicates are summed until a background
+  merge. In-advance fees are idempotent through `PayInAdvanceService#already_processed?`
+  (`$API/app/services/events/pay_in_advance_service.rb:15,55-57`); the job lock only blocks concurrent duplicates.
+  `CleanDuplicatedService` has no caller at the pin `591ae90`.
+- Guard: none in this repo.
 
 ### I13 CDC apply is monotonic per key — HOLDS
 - Enforced: `cache/consumer.go:143-156` (skip unless message `updated_at` ms is strictly newer), `:107-121` (delete only
@@ -105,11 +118,13 @@ CONTRACT FLAGs as intended.
 - Guard: `cache/consumer_test.go` (`SkipUpdate_OlderTimestamp`, `SkipUpdate_SameTimestamp`, `Delete_MatchingID`,
   `Delete_NotInCache`, `UpdateExisting_NewerTimestamp`).
 
-### I14 Startup is fail-fast: required config missing ⇒ panic before consuming — PARTIAL
+### I14 Startup is only partially fail-fast: required config missing ⇒ panic before consuming — PARTIAL
 - Enforced: `utils/error_tracker.go:30-34` (`LogAndPanic`), `processors/main_processor.go:103-179`, `main.go:72-80`.
-- Gaps (verified with `startup-contract.sh`): empty raw topic / consumer group accepted (K9), empty
+- Gaps (verified with `startup-contract.sh`): empty raw topic / consumer group accepted (SK9), empty
   `LAGO_DEBEZIUM_TOPIC_PREFIX` accepted (S6), snapshot table errors swallowed (S6), unknown SCRAM algorithm
-  SIGSEGVs without log/Sentry (S4), `LAGO_USE_MEMORY_CACHE=1` silently means DB mode (S7).
+  SIGSEGVs without log/Sentry (S4), `LAGO_USE_MEMORY_CACHE=1` silently means DB mode (S7), `brokers not found` is
+  never sent to Sentry (S1), and in cache mode Postgres is checked before the brokers (S5). Other skills cite this
+  list as "partially fail-fast (architecture-contract I14)".
 - Guard: none in CI; `startup-contract.sh` (exit 0 = documented contract still holds).
 
 ### I15 Classification: missing BM ⇒ DLQ (non-retryable, not captured); missing subscription ⇒ still enriched — HOLDS

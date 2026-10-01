@@ -6,8 +6,9 @@ package models
 //   - wall-clock buckets: read the clock BEFORE and AFTER the call and accept either bucket,
 //     so a call that straddles a 10 s boundary cannot flake;
 //   - failure injection with s.SetError, never a real network fault;
-//   - side effects take the per-record context (change-control N5): a canceled context must
-//     fail the write and leave Redis untouched.
+//   - side effects take the context they are given (change-control N5: the batch context that
+//     processRecordsAndCommit creates, never the process/signal context SIGTERM cancels);
+//     a canceled context must fail the write and leave Redis untouched.
 // The ZSET name, member format and bucket are a cross-repo contract with lago-api
 // (change-control N6): a test that changes their expected values is a C4 change.
 

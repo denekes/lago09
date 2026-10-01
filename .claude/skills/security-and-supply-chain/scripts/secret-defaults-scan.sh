@@ -20,19 +20,21 @@
 #   KEY name and a CLASS computed in awk; the value itself is discarded.
 # Read-only: no writes to the repo or the history clone (git log/show only).
 # Exit codes: 0 scan done; 1 --fail-on-findings and a SELFHOST placeholder, an ALL-interfaces
-#   SENSITIVE self-host port, or a LITERAL history row was found; 2 usage; 3 history clone unavailable.
+#   SENSITIVE self-host port, or a LITERAL history row was found; 2 usage (unknown option or
+#   missing option value); 3 history clone unavailable.
 set -euo pipefail
 
 REPO=""; HIST_MODE=""; HDIR=""; VERBOSE=0; FAIL=0
+need() { [ -n "$2" ] || { echo "$1" >&2; exit 2; }; }   # missing option value = usage (exit 2), never exit 1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo) REPO="${2:?}"; shift 2 ;;
+    --repo) need "--repo needs a directory" "${2:-}"; REPO="$2"; shift 2 ;;
     --history) HIST_MODE="env"; shift ;;
     --history-wide) HIST_MODE="wide"; shift ;;
-    --history-dir) HDIR="${2:?}"; shift 2 ;;
+    --history-dir) need "--history-dir needs a directory" "${2:-}"; HDIR="$2"; shift 2 ;;
     --verbose) VERBOSE=1; shift ;;
     --fail-on-findings) FAIL=1; shift ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -153,7 +155,9 @@ if [ -n "$HIST_MODE" ]; then
     [ -x "$HS" ] || { echo "history-setup.sh not found; pass --history-dir" >&2; exit 3; }
     HDIR=$("$HS") || { echo "history-setup.sh failed" >&2; exit 3; }
   fi
-  git -C "$HDIR" rev-parse --verify -q HEAD >/dev/null || { echo "no usable history clone at $HDIR" >&2; exit 3; }
+  # no auto-gc/maintenance in the shared blob-less history clone while git log -p lazily fetches blobs
+  HGIT=(git -c gc.auto=0 -c maintenance.auto=false -C "$HDIR")
+  "${HGIT[@]}" rev-parse --verify -q HEAD >/dev/null || { echo "no usable history clone at $HDIR" >&2; exit 3; }
   CLASSIFY='
     function ctx(f) { if (f ~ /^\.github\//) return "ci"; if (f ~ /^examples\//) return "example";
       if (f ~ /\.md$/) return "docs"; if (f ~ /(\.default|\.example|\.dist|(^|\/)\.env[^\/]*)$/) return "env-file"; return "other" }
@@ -178,13 +182,13 @@ if [ -n "$HIST_MODE" ]; then
     }'
   if [ "$HIST_MODE" = env ]; then
     echo "== 4. History: secret-ish KEY=value additions in env-style files (classes only, never values) =="
-    HIST_COMMITS=$(git -C "$HDIR" log --format=%h --no-renames HEAD -- '*.default' '*.example' '*.dist' '.env*' '**/.env*' | wc -l)
-    OUT=$(git -C "$HDIR" log --format='@@C %h' -p --no-renames --no-ext-diff HEAD -- '*.default' '*.example' '*.dist' '.env*' '**/.env*' \
+    HIST_COMMITS=$("${HGIT[@]}" log --format=%h --no-renames HEAD -- '*.default' '*.example' '*.dist' '.env*' '**/.env*' | wc -l)
+    OUT=$("${HGIT[@]}" log --format='@@C %h' -p --no-renames --no-ext-diff HEAD -- '*.default' '*.example' '*.dist' '.env*' '**/.env*' \
       | awk -v mode=env -v verbose="$VERBOSE" "$CLASSIFY" | sort | uniq)
   else
     echo "== 4. History (wide): secret-ish KEY=value / KEY: value additions, all paths (LITERAL rows; never values) =="
-    HIST_COMMITS=$(git -C "$HDIR" log --format=%h -E -G'(SECRET|PASSWORD|TOKEN|LICENSE|_KEY)[A-Z_]*"?[[:space:]]*[=:]' HEAD -- . ':!*.jar' ':!*go.sum' | wc -l)
-    OUT=$(git -C "$HDIR" log --format='@@C %h' -p --no-renames --no-ext-diff -E -G'(SECRET|PASSWORD|TOKEN|LICENSE|_KEY)[A-Z_]*"?[[:space:]]*[=:]' HEAD -- . ':!*.jar' ':!*go.sum' \
+    HIST_COMMITS=$("${HGIT[@]}" log --format=%h -E -G'(SECRET|PASSWORD|TOKEN|LICENSE|_KEY)[A-Z_]*"?[[:space:]]*[=:]' HEAD -- . ':!*.jar' ':!*go.sum' | wc -l)
+    OUT=$("${HGIT[@]}" log --format='@@C %h' -p --no-renames --no-ext-diff -E -G'(SECRET|PASSWORD|TOKEN|LICENSE|_KEY)[A-Z_]*"?[[:space:]]*[=:]' HEAD -- . ':!*.jar' ':!*go.sum' \
       | awk -v mode=wide -v verbose="$VERBOSE" "$CLASSIFY" | sort | uniq)
   fi
   [ -n "$OUT" ] && printf '%s\n' "$OUT"

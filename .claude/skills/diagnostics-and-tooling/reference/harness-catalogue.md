@@ -3,7 +3,8 @@
 Read when you picked a harness from the SKILL.md chooser and need the exact command, the output to
 expect today, how to adapt it, and what it costs. All commands run from the repo root
 (`cd "$(git rev-parse --show-toplevel)"`). `S=.claude/skills/diagnostics-and-tooling/scripts`.
-Outputs VERIFIED 2026-10-01 against HEAD 5308258 (the skills commit on top changes only `.claude/`).
+Outputs VERIFIED 2026-10-01. Code facts as of 5308258 (events-processor tree 83e012866f29); the working
+branch may carry skills-only commits on top.
 Timings: 4 vCPU sandbox, warm Go caches unless stated. Conclusions drawn from these outputs belong to
 the owning skills named in each entry, not to this one.
 
@@ -37,13 +38,16 @@ H10 log triage · H11 scratch copy
   (`GetBillableMetric`, `SearchSubscriptions`, `HasPayInAdvanceCharge`).
 - **Cost:** ~4-6 s. No CGO needed: `go list -deps ./cmd/cdc-brokers | grep -c lago-expression` -> `0`
   (run in `scripts/kfake-harness`; same for `./cmd/smoke`, `./kfx`, `./fixture`; `./pipeline` and `./cmd/happy-path` -> `1`).
-- **Owner:** `architecture-contract`, `config-and-flags`; production relevance = OPEN DECISION OD-1 (owner).
+- **Owner:** meaning `architecture-contract` WP10 (as-is), variable `config-and-flags`; production
+  relevance = OPEN DECISION OD-1 (owner). Fixing it is unowned: OPEN DECISION OD-20 (owner), candidate
+  future campaign.
 
 ## H3. Binary smoke (`smoke-binary.sh`)
 
-- **Question:** what does the real binary, started like production (env vars, fail-fast startup,
-  graceful SIGTERM), do with 9 typical and malformed events?
-- **Run:** `$S/smoke-binary.sh [db|cache|cache-cdc|all] [--keep] [--no-expected]`
+- **Question:** what does the real binary, started like production (env vars, startup checks that are
+  only partially fail-fast (`architecture-contract` I14), graceful SIGTERM), do with 9 typical and
+  malformed events?
+- **Run:** `$S/smoke-binary.sh [db|cache|cache-cdc|all] [--keep] [--no-expected] [--env K=V ...]`
 - **What it does:** `source ep-env.sh`; `go build -o $tmp/events-processor .`; builds `cmd/smoke`;
   `scratch-pg.sh create scratch_smoke_<pid> fixtures/smoke-schema.sql`; starts kfake (TCP on 127.0.0.1)
   + miniredis inside the driver; runs the binary with the dev-like env (`ENV=development`, topics
@@ -75,8 +79,15 @@ H10 log triage · H11 scratch copy
   `cache-cdc` differs from `cache` in one line: `tx_A ... in_advance=no`.
   Script exit 0 = all modes MATCH; 3 = a mode DIFFERS (diff printed as `- expected` / `+ observed`).
 - **Adapt:** edit the `cases()` list in `kfake-harness/cmd/smoke/main.go` (one line per event) and the
-  expected files; add env vars in its `env` slice; run the driver directly against a kept binary:
-  `$S/kfake-run.sh smoke -bin <path> -mode db -db-url <url> -log <file> [-expected <file>]`.
+  expected files; run the driver directly against a kept binary:
+  `$S/kfake-run.sh smoke -bin <path> -mode db -db-url <url> -log <file> [-expected <file>] [-env K=V]`.
+- **New or changed variable (end to end, no daemon):** `--env K=V` (repeatable; appended after the fixed
+  environment, so it also overrides; `K=` sets it empty). VERIFIED 2026-10-01:
+  `$S/smoke-binary.sh db --env LAGO_USE_MEMORY_CACHE=1` -> `EXPECTED-TODAY: MATCH` (db: only the string
+  `true` turns cache mode on); `$S/smoke-binary.sh db --no-expected --keep --env LAGO_KAFKA_ENRICHED_EVENTS_TOPIC=`
+  -> 9 x `on-no-output-topic`, `exit_before_sigterm=exit status 2`, `ERROR=1 panic_lines=1`, log
+  `panic: LAGO_KAFKA_ENRICHED_EVENTS_TOPIC variable is required` (the driver stops waiting as soon as the
+  binary exits). Variable meaning and the add-a-variable checklist: `config-and-flags`.
 - **Cost:** ~7-8 s for `all` warm (binary build ~6 s); `go build` of the binary with an empty Go build
   cache: allow 1-2 min (135 s measured on a shared sandbox, 2026-10-01).
 - **Owner:** `architecture-contract` (dispositions, DLQ codes), `rails-go-parity` (`1e-07`, tx_H),
@@ -161,9 +172,15 @@ H10 log triage · H11 scratch copy
   printf "SELECT 1;\nSELECT toDateTime64('1727787600.123', 3, 'UTC');\n" | $S/ch-local.sh -
   # 1
   # 2024-10-01 13:00:00.123
-  $S/ch-local.sh --version    # 26.2.19.43 ; $S/ch-local.sh --path -> <cache>/clickhouse/26.2.19.43/clickhouse
+  $S/ch-local.sh --version    # 26.2.19.43 ; $S/ch-local.sh --path -> <cache>/clickhouse/<version>/clickhouse
   ```
   A SQL error returns ClickHouse's code (e.g. `SELEC 1` -> `Code: 62 ... SYNTAX_ERROR`, exit 62).
+- **Shared layout (owned here):** `$LAGO_SKILLS_CACHE/clickhouse/<version>/clickhouse`. Other skills obtain
+  the binary with `"$($S/ch-local.sh --path)"` and never hardcode a versioned path (`rails-go-parity`'s
+  `ch-decimal-probe.sh` also reuses a legacy `clickhouse-<version>/clickhouse` if one exists).
+- **stdin:** query mode runs `clickhouse local --query` with `</dev/null`, so an inherited open stdin pipe
+  cannot stall it; `-` mode reads the SQL from stdin and needs EOF (close the pipe). When calling the
+  binary directly, do the same (`</dev/null` or `--queries-file`).
 - **Version:** `CH_VERSION=<x.y.z.w>` if set; else the newest patch of 26.2 already in the cache (no
   network); else, or with `--refresh`, the newest `v26.2.*-stable` tag on GitHub (26.2.19.43 on 2026-10-01).
   The minor comes from the floating `clickhouse/clickhouse-server:26.2-alpine` in `docker-compose.dev.yml:460`.
@@ -234,7 +251,8 @@ jq -r 'select(.msg|test("Starting event consumer|Received shutdown|Gracefully sh
 # Starting event consumer / Received shutdown signal / Gracefully shutting down consumer group / leaving group / Event processor stopped
 grep -vc '^{' "$L"                                                     # 0 non-JSON lines (a panic would add some)
 ```
-Mapping messages to causes and fixes: `debugging-playbook` (owns `triage-ep-log.sh` and DLQ code tables).
+Mapping messages to causes and fixes: `debugging-playbook` (owns `triage-ep-log.sh` and the symptom
+tables); DLQ error_code -> cause -> retryable: `architecture-contract` section 9.
 
 ## H11. Scratch copy (when an overlay is not enough)
 

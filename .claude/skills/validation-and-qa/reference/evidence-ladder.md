@@ -3,7 +3,10 @@
 Read this when you prepare the evidence block of a PR, or when you review one and must decide
 whether the evidence is enough. The classes (C0-C7), the gates and the sign-off rules are owned by
 `change-control`; this file says what output proves each gate, how to produce it, and what does
-NOT count. All commands run from the repo root. Facts as of 2026-10-01.
+NOT count. The one canonical command list for the events-processor pre-PR gate (change-control N9)
+is change-control SKILL.md §3 "Pre-PR gate for events-processor code"; the validation-and-qa
+SKILL.md §3 runbook labels which steps are REQUIRED. All commands run from the repo root. Facts
+verified 2026-10-01; code facts as of 5308258 (events-processor tree 83e012866f29).
 
 Path convention: code cites are relative to `events-processor/`; bare `processor_test.go`,
 `enrichment_service_test.go`, `event_producer_service_test.go`, `processor.go`,
@@ -12,7 +15,7 @@ Path convention: code cites are relative to `events-processor/`; bare `processor
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 V=.claude/skills/validation-and-qa/scripts
-BASE=$(git merge-base origin/main HEAD)        # the PR base
+BASE=$(git merge-base origin/main HEAD)        # the PR base; shallow clone: git fetch --deepen=100 origin main, retry
 ```
 
 `ep-test.sh` below means `.claude/skills/build-and-env/scripts/ep-test.sh` (go test args pass through).
@@ -40,13 +43,19 @@ script's known list (verified 2026-10-01) and does not fail the run.
 | Class | Evidence that counts | Command(s) | Pass condition |
 |---|---|---|---|
 | C0 docs/skills | each new claim has `path:line`, a sha or a command + output; each documented command was run, or is marked "not runnable here; verified by reading `<file:line>`" | the commands you document; `research-methodology` citation lint | outputs pasted; nothing unlabelled |
-| C1 tests/tooling | full suite green; PASS count up by exactly your new tests; race clean; new leaves pass alone; no NEW unmet sqlmock expectation; for a regression test: its failing run on the unfixed code | `$V/baseline.sh`; `$V/race-shuffle.sh --isolation`; `$V/sqlmock-strict.sh`; for skill scripts `bash -n` + a real run + clean `git status` | 0 FAIL; `isolation ... 0 new`; `0 new` unmet |
-| C2 refactor (no behaviour change) | C1 + no test expectation changed + vet/gofmt clean + no new lint + coverage of touched packages not lower | `$V/baseline.sh`; `golangci-lint run --new-from-rev="$BASE" ./...`; `git diff "$BASE" -- 'events-processor/*_test.go' \| grep -E '^-[^-]'` | `SUMMARY baseline: 0 FAIL`; `0 issues.`; the diff grep prints nothing |
+| C1 tests/tooling | full suite green; PASS count up by exactly your new tests; `-race` ok on the unit suite (which never runs `processRecordsAndCommit`); new leaves pass alone; no NEW unmet sqlmock expectation; for a regression test: its failing run on the unfixed code | `$V/baseline.sh`; `$V/race-shuffle.sh --isolation`; `$V/sqlmock-strict.sh`; for skill scripts `bash -n` + a real run + clean `git status` | 0 FAIL; `isolation ... 0 new`; `0 new` unmet |
+| C2 refactor (no behaviour change) | C1 + no test expectation changed + vet clean + `gofmt -l` empty on changed `.go` files + no new lint + coverage of touched packages not lower | `$V/baseline.sh`; `golangci-lint run --new-from-rev="$BASE" ./...`; `git diff "$BASE" -- 'events-processor/*_test.go' \| grep -E '^-[^-]'` | `SUMMARY baseline: 0 FAIL`; `0 issues.`; the diff grep prints nothing |
 | C3 behaviour | C2 + a new or changed test that FAILS on `$BASE` and PASSES on the branch; both data modes when the logic exists in both; exact SQL pinned for query changes; parity evidence | `$V/fails-on-base.sh -- -count=1 -run '<TestName>' ./<pkg>/` then the same `go test` green; parity probe from `rails-go-parity`; before/after table for value/time changes (`event-accounting-campaign`) | `EVIDENCE OK` + green run; both `WithCache` and `WithoutCache` subtests listed |
-| C4 delivery / contract | C3 + a kfake-driven test through `processRecordsAndCommit` with a per-offset outcome (enriched / DLQ / redelivered / LOST) + ADR + paired lago-api PR | kfake harness from `diagnostics-and-tooling`; ledger from `event-accounting-campaign` | ledger pasted; ADR linked; lago-api PR linked (OPEN DECISION OD-4 (owner), default YES); owner sign-off (OPEN DECISION OD-2 (owner)) |
+| C4 delivery / contract | C3 + a kfake-driven test through `processRecordsAndCommit` with a per-offset outcome (enriched / DLQ / redelivered / LOST) + one `GOFLAGS=-race` kfake run + ADR + paired lago-api PR | kfake harness from `diagnostics-and-tooling` (`GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4`); ledger from `event-accounting-campaign` | `RESULT: PASS` (exit 0); ledger pasted; ADR linked; lago-api PR linked (OPEN DECISION OD-4 (owner), default YES); owner sign-off (OPEN DECISION OD-2 (owner)) |
 | C5 release/pins/CI | pin-sync output; for dependency, Go or lago-expression bumps the full C2 rung on the new versions; workflow YAML parses; actionlint shows no NEW finding; images "not built locally" | `pin-sync-check.sh` (change-control); `$V/baseline.sh` (expect a `go`/toolchain WARN on a Go bump); `python3 -c 'import yaml,sys;[yaml.safe_load(open(f)) for f in sys.argv[1:]]' .github/workflows/*`; actionlint via `release-and-images` | 0 FAIL; YAML command prints nothing |
 | C6 dev env/compose/deploy | `docker compose -f <file> config --quiet` exit 0 for each touched file; service-list diff; `bash -n` on touched scripts; bring-up either done on a machine with a daemon (paste it) or labelled "not runnable in a daemon-less sandbox" | see `run-and-operate` (compose matrix) | exit 0; diff explained |
 | C7 security overlay | counts-only scan output and file:line, never a value | `security-and-supply-chain` scans; change-control `precommit-guard.sh` | 0 FAIL |
+
+C3 or C4 for an edit to a C4 file (`config/kafka/consumer.go`, `config/kafka/producer.go`,
+`processor.go:50-88`, `event_producer_service.go`): the behaviour test wins (change-control §2). A
+log line, span attribute or counter that changes no control flow, return value, commit/DLQ/produce
+call or payload field is C3 when `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline`
+prints `moved=0` (paste it). Anything that alters commit, retry, DLQ or skip behaviour is C4.
 
 ### C1 detail: a new test
 
@@ -66,12 +75,17 @@ $V/fails-on-base.sh -- -count=1 -run 'TestFoo' ./processors/events_processor/
 # expect: ok  github.com/getlago/lago/events-processor/processors/events_processor
 ```
 
-- `WEAK EVIDENCE` (the test does not compile on base) is acceptable only for a new function.
-  For a behaviour change, write the test against the existing API first.
+- `WEAK EVIDENCE` (the test does not compile on base) is acceptable only when the change adds
+  new API: a new function, type, struct field or option (e.g. a new `ProducerConfig` field). Paste
+  the compile error it printed (`undefined: ...` or `unknown field ...`) next to the green run, so
+  the reviewer sees that the base lacks the API. For a behaviour change of existing API, write the
+  test against the existing API first: it must give `EVIDENCE OK`.
 - `NO EVIDENCE` (exit 1): the test passes without your change. It does not pin the change.
 - Verified 2026-10-01 in a scratch clone: a `ParseBrokersEnv` change plus its test gave
-  `EVIDENCE OK`; an unrelated existing test gave `NO EVIDENCE`; a test of a new function gave
-  `WEAK EVIDENCE`; no production change gave exit 3.
+  `EVIDENCE OK`; an unrelated existing test gave `NO EVIDENCE`; a test of a new `ProducerConfig`
+  field gave `WEAK EVIDENCE` after printing
+  `config/kafka/producer_linger_test.go:13:100: unknown field Linger in struct literal of type ProducerConfig`;
+  no production change gave exit 3.
 
 ### Both data modes (C3)
 
@@ -80,6 +94,23 @@ a snapshot + Debezium CDC, `LAGO_USE_MEMORY_CACHE=true`). Whether production run
 OPEN DECISION OD-1 (owner), so a change to shared logic needs evidence in BOTH modes:
 the `-v` output must show `.../WithCache/<case>` and `.../WithoutCache/<case>`.
 Use `templates/enrichment_template_test.go.tmpl`.
+
+### DB-only query change (C3)
+
+Some SQL exists only in DB mode: `FetchBillableMetric` runs only when there is no memory cache
+(`enrichment_service.go:36-40`; cache mode calls `memCache.GetBillableMetric`). Its SQL is pinned
+twice: exactly in `models/billable_metrics_test.go:14-20`, and loosely in the shared
+`MockDataStore` (`processor_test.go:91`, `SELECT \* FROM "billable_metrics".*`). Evidence:
+
+1. Update the `models` pin to the new exact SQL (`"^" + regexp.QuoteMeta(q) + "$"`, change-control N4).
+2. Update the `MockDataStore` expectation in `processor_test.go` too, preferably to the same
+   anchored `QuoteMeta` pin. If you forget it, the DB-mode subtests fail (verified 2026-10-01 with
+   an explicit-column `Select` overlay: `--- FAIL: TestEnrichEvent/WithoutCache`, then
+   `panic: runtime error: invalid memory address or nil pointer dereference`, which hides every
+   later test in the package).
+3. Show `.../WithoutCache/...` green and `.../WithCache/...` unchanged and green in `-v` output.
+4. In new or touched tests use `require` for preconditions (`require.True(t, result.Success())`
+   before `result.Value()`), so one failure cannot panic the whole package.
 
 ## 3. What is NOT evidence
 
@@ -129,12 +160,14 @@ git diff -- .claude/skills/validation-and-qa/scripts/baseline.json   # review: o
 ```
 Class: C3 (+C1)   Base: <sha>   Head: <sha>
 baseline.sh:      SUMMARY baseline: 0 FAIL, 0 WARN  (pass.total 235 -> <n>; cover.<pkg> <old> -> <new>)
-race-shuffle.sh:  OK race: 6 packages ok, 0 DATA RACE; OK shuffle: seed <n> x10; isolation: <n> leaf tests, 2 known, 0 new
+race-shuffle.sh:  OK race: 6 packages ok, 0 DATA RACE (unit suite); OK shuffle: seed <n> x10; isolation: <n> leaf tests, 2 known, 0 new
+gofmt -l (changed .go files): empty
 sqlmock-strict:   4 unmet (4 known, 0 new)
 golangci-lint --new-from-rev=<base>: 0 issues. (repo baseline 21)
 fails-on-base:    EVIDENCE OK: TestFoo fails on base <sha>; green on head
 both data modes:  TestFoo/WithCache/..., TestFoo/WithoutCache/... PASS
 parity:           <rails-go-parity probe output or $API/<file>:<line>>
+C4 only:          kfake ledger <before -> after>; GOFLAGS=-race kfake-run.sh happy-path: RESULT: PASS
 ```
 
 Templates for the rest of the PR body (Context, Description, ADR) are in `docs-and-writing`.

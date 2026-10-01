@@ -8,7 +8,7 @@
 #
 # Options:
 #   --api DIR       use this lago-api checkout (default: $API, else pinned-checkout.sh api)
-#   --no-api        do not read lago-api (API column empty; gaps G3, G5, G6 skipped)
+#   --no-api        do not read lago-api (API column empty; gaps GAP3, GAP5, GAP6 skipped)
 #   --with-front    also read lago-front .env.sh + vite.config.ts at the pinned SHA (FRT column)
 #   --matrix-only   print only the matrix
 #   --gaps-only     print only the gap report
@@ -31,12 +31,12 @@
 #   FRT   lago-front start-up env (.env.sh / vite define): x (only with --with-front)
 #
 # Gap report:
-#   G1 events-processor reads missing from .env.development.default
-#   G2 events-processor env constants declared but never read (dead)
-#   G3 .env.development.default keys with no consumer (EP, lago-api, front, compose interpolation, shim)
-#   G4 root docker-compose.yml vs deploy/*.yml backend-variable drift (both directions)
-#   G5 LAGO_* names read by lago-api but set in NO wrapper plane (api-only knobs)
-#   G6 LAGO_*/SIDEKIQ_* names set in a wrapper plane that no reader consumes
+#   GAP1 events-processor reads missing from .env.development.default
+#   GAP2 events-processor env constants declared but never read (dead)
+#   GAP3 .env.development.default keys with no consumer (EP, lago-api, front, compose interpolation, shim)
+#   GAP4a/GAP4b root docker-compose.yml vs deploy/*.yml backend-variable drift (both directions)
+#   GAP5 LAGO_* names read by lago-api but set in NO wrapper plane (api-only knobs)
+#   GAP6 LAGO_*/SIDEKIQ_* names set in a wrapper plane that no reader consumes
 #
 # Exit codes: 0 = report printed (gaps are informational, not failures)
 #             2 = usage error
@@ -193,18 +193,18 @@ gap() { # $1 title, $2 awk condition
   return 0
 }
 echo; echo "== gaps =="
-gap "G1 events-processor reads missing from .env.development.default" '$2 == "R" && $3 == ""'
-gap "G2 events-processor env constants declared but never read" '$2 == "d"'
+gap "GAP1 events-processor reads missing from .env.development.default" '$2 == "R" && $3 == ""'
+gap "GAP2 events-processor env constants declared but never read" '$2 == "d"'
 if [ "$USE_API" = 1 ]; then
-  gap "G3 .env.development.default keys with no consumer" '$3 == "x" && $2 != "R" && $11 == "" && $12 == "" && $4 != "i" && $4 != "h"'
+  gap "GAP3 .env.development.default keys with no consumer" '$3 == "x" && $2 != "R" && $11 == "" && $12 == "" && $4 != "i" && $4 != "h"'
 else
-  echo; echo "G3 skipped (--no-api: lago-api consumers unknown)"
+  echo; echo "GAP3 skipped (--no-api: lago-api consumers unknown)"
 fi
-gap "G4a set in root docker-compose.yml but missing from >=1 deploy/*.yml" '$5 == "S" && $1 !~ /^(PGDATA|POSTGRES_(USER|PASSWORD|DB|PORT))$/ && ($6 != "S" || $7 != "S" || $8 != "S")'
-gap "G4b set in every deploy/*.yml but not in root docker-compose.yml" '$6 == "S" && $7 == "S" && $8 == "S" && $5 != "S"'
+gap "GAP4a set in root docker-compose.yml but missing from >=1 deploy/*.yml" '$5 == "S" && $1 !~ /^(PGDATA|POSTGRES_(USER|PASSWORD|DB|PORT))$/ && ($6 != "S" || $7 != "S" || $8 != "S")'
+gap "GAP4b set in every deploy/*.yml but not in root docker-compose.yml" '$6 == "S" && $7 == "S" && $8 == "S" && $5 != "S"'
 if [ "$USE_API" = 1 ]; then
-  gap "G5 LAGO_* read by lago-api but set in no wrapper plane" '$1 ~ /^LAGO_/ && $11 != "" && $3 == "" && $4 == "" && $5 == "" && $6 == "" && $7 == "" && $8 == "" && $9 == "" && $10 == ""'
-  gap "G6 LAGO_*/SIDEKIQ_* set in a wrapper plane but read by nobody (EP/lago-api$( [ "$WITH_FRONT" = 1 ] && echo /front))" \
+  gap "GAP5 LAGO_* read by lago-api but set in no wrapper plane" '$1 ~ /^LAGO_/ && $11 != "" && $3 == "" && $4 == "" && $5 == "" && $6 == "" && $7 == "" && $8 == "" && $9 == "" && $10 == ""'
+  gap "GAP6 LAGO_*/SIDEKIQ_* set in a wrapper plane but read by nobody (EP/lago-api$( [ "$WITH_FRONT" = 1 ] && echo /front))" \
     '$1 ~ /^(LAGO_|SIDEKIQ_)/ && $2 != "R" && $11 == "" && $12 == "" && $4 != "h" && ($3 != "" || $4 == "S" || $5 == "S" || $6 == "S" || $7 == "S" || $8 == "S" || $9 == "S" || $10 == "x")'
 fi
 echo

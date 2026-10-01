@@ -6,7 +6,8 @@ description: As-is architecture contract of the Go events-processor and its edge
 
 What the Go `events-processor/` IS today: its edges, the decisions it rests on and why, the invariants that must
 hold, and its weak points stated plainly. It describes; it does not prescribe fixes.
-Facts verified 2026-10-01 against HEAD 5308258 unless marked. Paths are repo-relative, except Go source paths in
+Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on
+top. Verified 2026-10-01 unless marked. Paths are repo-relative, except Go source paths in
 sections 2-10, which are relative to `events-processor/` (e.g. `config/kafka/consumer.go`). `$API` is the pinned
 lago-api checkout (`API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)`).
 
@@ -82,21 +83,24 @@ Do NOT use for (go to the sibling instead):
 - Full tables, payload shapes and downstream evidence: [reference/topology-and-naming.md](reference/topology-and-naming.md)
   (read when you rename a topic, touch a payload, or bump the api submodule). Regenerate with `scripts/topic-map.sh`.
 
-## 2. Startup contract (fail-fast)
+## 2. Startup contract (partially fail-fast: see I14)
 
-Order and failure of each step (captured from the real binary with `scripts/startup-contract.sh`):
+This section owns the startup order and panic contract (symptom → fix: `debugging-playbook`). Order and failure of
+each step. `#` is the step number of
+[reference/startup-and-shutdown.md](reference/startup-and-shutdown.md) §1 (rows 5a-5c and 10 are folded here);
+`Probe` is the step id printed by `scripts/startup-contract.sh`, which captures each failure from the real binary.
 
-| # | Step | Failure → log `msg` / panic text |
-|---|---|---|
-| 0 | loader finds `libexpression_go.so` | `error while loading shared libraries: libexpression_go.so…` (exit 127, before `main`) |
-| 1 | logger (`service=post_process`; DEBUG unless `ENV` set and ≠ `development`), tracer, Sentry (`main.go:31-64`) | Sentry init error only printed |
-| 2 | cache mode iff `LAGO_USE_MEMORY_CACHE` == `"true"` (`main.go:67`): badger → **blocking PG snapshot** → 6 CDC consumers | PG unreachable → `Error connecting to the database` (before any Kafka check); table errors **swallowed** |
-| 3 | brokers (`main_processor.go:103-107`) | `brokers not found` / `panic: brokers not found` |
-| 4 | producers enriched → in-advance → DLQ: env required + `Ping` (`:55-76,118-131`) | `failed to initialize enriched events producer` / `panic: LAGO_KAFKA_ENRICHED_EVENTS_TOPIC variable is required`; unreachable: `panic: unable to dial: …`; bad `LAGO_KAFKA_SCRAM_ALGORITHM` → **SIGSEGV, no log** |
-| 5 | DB mode only: pool size int, connect (`:133-150`) | `Error converting max connections into integer`; `Error connecting to the database` |
-| 6 | Redis flag store + `Ping` (`:152-156`) | `Error connecting to the flag store` (bad DB int, unreachable, or `ENV=production` ⇒ TLS ⇒ `panic: EOF` on plaintext Redis) |
-| 7 | consumer group + `Ping` (`:168-179`) | `Error starting the event consumer`; empty topic/group accepted (group `_`, idles) |
-| 8 | `Starting event consumer` → `cg.Start` blocks | — |
+| # | Step | Failure → log `msg` / panic text | Probe |
+|---|---|---|---|
+| 0 | loader finds `libexpression_go.so` (the image copies it to `/usr/lib`, `events-processor/Dockerfile:14,22`) | `error while loading shared libraries: libexpression_go.so…` (exit 127, before `main`) | S0 |
+| 1-4 | signal handler, logger (`service=post_process`; DEBUG unless `ENV` set and ≠ `development`), tracer, Sentry (`main.go:28-64,90-99`) | Sentry init error only printed | — |
+| 5 | cache mode iff `LAGO_USE_MEMORY_CACHE` == `"true"` (`main.go:67`): badger → **blocking PG snapshot** → 6 CDC consumers | PG unreachable → `Error connecting to the database` (before any Kafka check); table errors **swallowed**; `=1` is DB mode | S5, S6, S7 |
+| 6 | brokers (`main_processor.go:103-107`) | `brokers not found` / `panic: brokers not found` (no Sentry event) | S1 |
+| 7 | producers enriched → in-advance → DLQ: env required + `Ping` (`main_processor.go:55-76,118-131`) | `failed to initialize enriched events producer` / `panic: LAGO_KAFKA_ENRICHED_EVENTS_TOPIC variable is required`; unreachable: `panic: unable to dial: …`; bad `LAGO_KAFKA_SCRAM_ALGORITHM` → **SIGSEGV, no log** | S2, S3, S4, SK1, SK2 |
+| 8 | DB mode only: pool size int, connect (`main_processor.go:133-150`) | `Error converting max connections into integer`; `Error connecting to the database` | SK3, SK4 |
+| 9 | Redis flag store + `Ping` (`main_processor.go:152-156`) | `Error connecting to the flag store` (bad DB int, unreachable, or `ENV=production` ⇒ TLS ⇒ `panic: EOF` on plaintext Redis) | SK5, SK6, SK7 |
+| 11 | consumer group + `Ping` (`main_processor.go:168-179`) | `Error starting the event consumer`; empty topic/group accepted (group `_`, idles); missing topic not fatal (INFO `UNKNOWN_TOPIC_OR_PARTITION`, waits) | SK9, SK8 |
+| 12 | `Starting event consumer` → `cg.Start` blocks (`main_processor.go:181-182`) | — (SIGTERM → graceful shutdown) | SK8 |
 
 `LogAndPanic` (`utils/error_tracker.go:30-34`) logs `msg`=step, `error`=err, captures to Sentry, then panics with the
 **error text**. Full captured outputs, the healthy-start log (`"At":-2` = earliest), and the SIGTERM sequence:
@@ -106,16 +110,17 @@ Order and failure of each step (captured from the real binary with `scripts/star
 
 - 1 poll goroutine: `PollRecords(ctx, 10000)` (`config/kafka/consumer.go:168`); per partition, the batch is sent on an
   **unbuffered** channel (`:122,195`) — the loop blocks until that partition consumer is idle ⇒ head-of-line blocking.
-- 1 goroutine per assigned partition (`:111-130`), one batch in flight; `kgo.BlockRebalanceOnPoll()` (`:245`) +
-  `AllowRebalance()` after dispatch (`:203`): rebalances happen between polls; revoke/lost (`:132-150`) waits for the
-  in-flight batch to finish and commit.
+- 1 goroutine per assigned partition (`consumer.go:111-130`), one batch in flight; `kgo.BlockRebalanceOnPoll()`
+  (`consumer.go:245`) + `AllowRebalance()` after dispatch (`consumer.go:203`): rebalances happen between polls;
+  revoke/lost (`consumer.go:132-150`) waits for the in-flight batch to finish and commit.
 - 1 goroutine **per record**, unbounded `errgroup` (`processors/events_processor/processor.go:38-44`); per event up to
   2 more for `ProduceSync` to enriched / in-advance (`:110-126`), joined before the record is marked.
-- Batch context = `context.Background()` (`consumer.go:83`), threaded unchanged to every record (there is no
-  per-record derived ctx): SIGTERM never cancels in-flight work, and there is **no context deadline** on the hot
+- Batch context = `context.Background()` (`consumer.go:83`), threaded unchanged to every record (one ctx for
+  the whole batch): SIGTERM never cancels in-flight work, and there is **no context deadline** on the hot
   path (no gorm `WithContext`, unbounded produce retries). Only Redis calls are bounded, by go-redis client timeouts
   (dial 5 s, read/write 3 s, pool wait 4 s; `config/redis/redis.go:35-39`).
-- Shutdown: cancel → poll exits → close each `quit`, wait `done` → `client.Close()` (leave group) → deferred closes.
+- Shutdown: cancel (`main.go:94-98`) → poll exits → close each `quit`, wait `done` → `client.Close()` (leave group)
+  (`consumer.go:207-225,261-272`) → deferred closes.
 - Details, goroutine tree, franz-go defaults: [reference/concurrency-and-commit.md](reference/concurrency-and-commit.md)
   (read before touching `config/kafka/` or the per-record fan-out).
 
@@ -132,7 +137,7 @@ no commit (`9acd83e`). Commit errors are logged + captured, not retried. **The f
 | non-retryable failure | `processor.go:63-88` | yes, after DLQ | yes | unless not-found |
 | retryable failure, `ingested_at` < 12 h old | `processor.go:74-79` | **no** | no | yes |
 | retryable failure, ≥ 12 h old or no `ingested_at` | `processor.go:74,82` | yes | yes | yes |
-| enriched / in-advance produce fails | `event_producer_service.go:87-89` (result ignored at `processor.go:110-113`) | yes | yes (`error_code ""`) | yes |
+| enriched / in-advance produce fails (the other output and the ZADD still happen) | `event_producer_service.go:87-89` (result ignored at `processor.go:110-126`) | yes | yes (`error_code ""`) | yes |
 | DLQ produce fails | `event_producer_service.go:66-73` | yes | — | yes (only copy) |
 | non-context fetch error | `consumer.go:175-183` | — | — | no: process panics |
 
@@ -142,10 +147,14 @@ Where records are lost, plainly (fix plan: `event-accounting-campaign`; OPEN DEC
   (offsets 0-4, offset 2 not marked once, then 5 and 6 produced): `times each offset seen: map[0:1 1:1 2:1 3:1 4:1
   5:1 6:1]`, `committed offset … 7`. Reproduce with the `diagnostics-and-tooling` kfake harness (its wrap hook drops
   a record = the retryable path); setup and output in [reference/concurrency-and-commit.md](reference/concurrency-and-commit.md) §4.
-- **L2** undecodable records are committed with no DLQ copy (verified: numeric `precise_total_amount_cents` →
-  `json: cannot unmarshal number into Go struct field Event.precise_total_amount_cents of type string`).
-- **L3/L4** a failed enriched/in-advance produce leaves only a DLQ copy; a failed DLQ produce leaves only Sentry.
-- **L5** enriched is produced before the in-advance check and ZADD; their retryable failure falls under L1.
+- **L2** undecodable records are committed with no DLQ copy (`processor.go:49-60`; verified: numeric
+  `precise_total_amount_cents` → `json: cannot unmarshal number into Go struct field Event.precise_total_amount_cents of type string`).
+- **L3/L4** a failed enriched produce leaves a DLQ copy (`error_code ""`) while the in-advance event (if any) is
+  still produced, the refresh ZADD still runs and the record is committed (ledger case 6 in `event-accounting-campaign`);
+  a failed in-advance produce leaves enriched + a DLQ copy; a failed DLQ produce leaves only Sentry
+  (`event_producer_service.go:66-73,87-89`; the goroutines at `processor.go:110-126` ignore the result).
+- **L5** enriched is produced before the in-advance check and ZADD (`processor.go:110-131`); their retryable
+  failure falls under L1.
 - **L6/L7** not lost but silently changed: `value` via `%v` (`1e+06`, `<nil>`), `ToTime` 496/1000 ms off by 1 ms
   (both verified 2026-10-01) → owned by `rails-go-parity`.
 Full table with evidence: [reference/concurrency-and-commit.md](reference/concurrency-and-commit.md) §3-4.
@@ -158,11 +167,11 @@ defects with UNVERIFIED production impact.
 
 | | DB mode | Memory-cache mode |
 |---|---|---|
-| Per event | 1 BM query (gorm `First`), 1-2 subscription queries (Rails-copied SQL, ms `date_trunc`), 1 charges query if a subscription was found and not API-post-processed | badger lookups: `bm:<org>:<code>`, prefix scans `sub:<org>:<ext_id>:`, `ch:<org>:<plan>:<bm>:` |
-| Warm-up | none | blocking PG snapshot of 6 tables (pool 10); **table errors swallowed** |
-| Freshness | live | 6 CDC consumers, new `lago_evp_<model>_<uuid>` group per start (full replay), apply only if `updated_at` strictly newer |
-| TTL | — | terminated subscriptions rewritten with 30-day TTL; snapshot keeps terminations < 1 month |
-| Known traps | `SELECT *` on billable_metrics (I2) | Debezium list lacks `charges.pay_in_advance`, `billable_metrics.recurring` ⇒ a CDC update zeroes them; raw broker string, no SASL/TLS; `:` in external_id leaks (verified); µs vs ms boundary (verified); 3 filter tables loaded but unread |
+| Per event | 1 BM query (gorm `First`), 1-2 subscription queries (Rails-copied SQL, ms `date_trunc`), 1 charges query if a subscription was found and not API-post-processed (`models/billable_metrics.go:59-73`, `models/subscriptions.go:24-52`, `models/charges.go:47-66`) | badger lookups: `bm:<org>:<code>`, prefix scans `sub:<org>:<ext_id>:`, `ch:<org>:<plan>:<bm>:` (`cache/subscriptions.go:46`, `cache/charges.go:87-102`) |
+| Warm-up | none | blocking PG snapshot of 6 tables (pool 10); **table errors swallowed** (`cache/cache.go:63-107`) |
+| Freshness | live | 6 CDC consumers, new `lago_evp_<model>_<uuid>` group per start (full replay), apply only if `updated_at` strictly newer (`cache/consumer.go:26-35,143-156`) |
+| TTL | — | terminated subscriptions rewritten with 30-day TTL (`cache/subscriptions.go:119-128`); snapshot keeps terminations < 1 month (`models/subscriptions.go:56-77`) |
+| Known traps | `SELECT *` on billable_metrics (I2, `models/billable_metrics.go:61`) | Debezium list lacks `charges.pay_in_advance`, `billable_metrics.recurring` (`extra/debezium_config.json:2`) ⇒ a CDC update zeroes them; raw broker string, no SASL/TLS; `:` in external_id leaks (verified); µs vs ms boundary (verified); 3 filter tables loaded but unread |
 
 Keys, CDC apply rules, column contract, failure table: [reference/memory-cache.md](reference/memory-cache.md)
 (read before touching `cache/`, `models/*GetAll*` or `extra/debezium_config.json`).
@@ -171,11 +180,11 @@ Keys, CDC apply rules, column contract, failure table: [reference/memory-cache.m
 
 | # | Decision | Recorded why (or "not recorded") |
 |---|---|---|
-| D2 | fail-fast panics via `LogAndPanic` | `e58befb` "Capture startup errors and replace os.Exit with panic" (panic lets the deferred Sentry flush run — inference) |
+| D2 | startup panics via `LogAndPanic` (only partially fail-fast: I14) | `e58befb` "Capture startup errors and replace os.Exit with panic" (panic lets the deferred Sentry flush run — inference) |
 | D3 | goroutine per partition + `BlockRebalanceOnPoll` + manual sync commit | **not recorded** (`4100da0`); matches franz-go's "manual commit" per-partition example (INFERENCE) |
 | D4 | goroutine per record, unbounded | **not recorded** (`4100da0`, `a15bd3b`) |
 | D5 | retryable ⇒ no commit; 12 h ⇒ DLQ | `cec0eb2` says what, not why; 12 h **not recorded** (OD-2) |
-| D6 | commit longest prefix; skip if empty | `9acd83e`: nil record segfaulted franz-go (ING-15) |
+| D6 | commit longest prefix; skip if empty | `9acd83e`: nil record segfaulted franz-go (ING-15); chain `cec0eb2` → … → `9acd83e` in `failure-archaeology` chain A |
 | D7 | undecodable ⇒ commit, no DLQ | comment `processor.go:56` "it will failed forever"; no-DLQ **not recorded** |
 | D8 | batch on `context.Background()`, stores take ctx | `02a4bc8`: in-flight Redis writes failed with `context canceled` on every rolling restart |
 | D12 | expressions only for non-`http_ruby` | `d1c1629`: Rails already evaluated them |
@@ -197,14 +206,14 @@ changing any mechanism; D3-D8 are change class C4 → change-control N7).
 | I4 | subscription SQL mirrors Rails `Events::Common#subscription` | `models/subscriptions.go:29-40` | subscriptions pin | HOLDS (DB) / PARTIAL (cache) |
 | I5 | exactly one side post-processes (`NotAPIPostProcessed`) | `processors/events_processor/processor.go:115`, `models/event.go:86-92` | `TestNotAPIPostProcessed`, `processor_test.go:204` | HOLDS |
 | I6 | expressions only for non-`http_ruby` | `processors/events_processor/enrichment_service.go:104` | none | HOLDS |
-| I7 | side effects use batch/record ctx, never process ctx | `config/kafka/consumer.go:83`, `models/stores.go:50-54` | none | HOLDS |
+| I7 | side effects use the batch ctx (`context.Background()`), never the process/signal ctx | `config/kafka/consumer.go:83`, `models/stores.go:50-54` | none | HOLDS |
 | I8 | commit only a processed prefix, never nil | `config/kafka/consumer.go:92-104,278-308` | `TestFindMaxCommitableRecord` | HOLDS within a batch (not across: L1) |
 | I9 | retryable > 12 h old (or no `ingested_at`) ⇒ DLQ | `processor.go:74` | none | HOLDS (OD-2) |
 | I10 | refresh ZSET contract `subscription_refreshed_v2` / `<org>:<sub>\|<10s>` | `main_processor.go:152`, `models/stores.go:16,54-69` | `TestFlag` | HOLDS (change-control N6) |
 | I11 | key `<org>-<transaction_id>`; DLQ unkeyed | `event_producer_service.go:30,41` | `event_producer_service_test.go:45-52` | HOLDS |
-| I12 | duplicates safe only via downstream dedup on `transaction_id` | `$API` ReplacingMergeTree + `PayInAdvanceJob` unique | none here | HOLDS (external) |
+| I12 | duplicates safe only via downstream dedup on `transaction_id` | `$API/app/services/billable_metrics/aggregations/base_service.rb:161-169` (`FINAL` only if the org has `clickhouse_deduplication_enabled`, default false); `PayInAdvanceService#already_processed?` | none here | **CONDITIONAL** (external) |
 | I13 | CDC apply monotonic per key; delete only on same id | `cache/consumer.go:107-156` | `cache/consumer_test.go` | HOLDS |
-| I14 | fail-fast on missing config | `utils/error_tracker.go:30-34`, `main_processor.go:103-179` | `startup-contract.sh` only | PARTIAL |
+| I14 | startup fails fast on missing config (partially: empty topic/group/prefix, swallowed snapshot errors, SCRAM SIGSEGV) | `utils/error_tracker.go:30-34`, `main_processor.go:103-179` | `startup-contract.sh` only | PARTIAL |
 | I15 | missing BM ⇒ DLQ; missing subscription ⇒ still enriched | `models/billable_metrics.go:75-83`, `enrichment_service.go:61-67` | enrichment/processor tests | HOLDS |
 
 Static re-check: `.claude/skills/architecture-contract/scripts/invariants-grep.sh` (expected today: 1 FLAG = I2).
@@ -213,35 +222,39 @@ Static re-check: `.claude/skills/architecture-contract/scripts/invariants-grep.s
 
 | Sev | Weak point | Owner skill |
 |---|---|---|
-| HIGH | L1: retryable failures silently skipped (no seek, prefix commit) | event-accounting-campaign (OD-2) |
-| HIGH | L2-L4: undecodable ⇒ dropped; produce failure ⇒ DLQ+commit; DLQ failure ⇒ Sentry only | event-accounting-campaign |
+| HIGH | L1: retryable failures silently skipped (no seek, prefix commit; `processor.go:74-79`, `consumer.go:92-104`) | event-accounting-campaign (OD-2) |
+| HIGH | L2-L4: undecodable ⇒ dropped; produce failure ⇒ DLQ (+ in-advance still emitted) + commit; DLQ failure ⇒ Sentry only (`processor.go:49-60`, `event_producer_service.go:66-73,87-89`) | event-accounting-campaign |
 | HIGH | `value` via `%v` ⇒ exponent strings / `<nil>` reach ClickHouse | rails-go-parity, campaign (OD-3) |
-| HIGH (OD-1) | cache: Debezium list zeroes `pay_in_advance` / `recurring`; snapshot errors swallowed; `:` prefix leak | no owning skill for cache hardening (raise with the owner, OD-1); parity cases: rails-go-parity |
+| HIGH (OD-1) | cache: Debezium list zeroes `pay_in_advance` / `recurring`; snapshot errors swallowed; `:` prefix leak | Memory-cache CDC hardening (WP6-WP10) is unowned: owner question OPEN DECISION OD-20 (owner), next to OD-1; candidate future campaign; `event-accounting-campaign` excludes it. Parity cases: rails-go-parity |
 | MEDIUM | `SELECT *` in `FetchBillableMetric` (and its test pins it) | change-control N4 |
-| MEDIUM | unbounded goroutines vs DB pool 200 / Redis pool 10; no deadlines; head-of-line blocking; fetch error ⇒ panic | event-accounting-campaign, debugging-playbook |
-| MEDIUM | startup validation gaps (empty topic/group/prefix, `=1` ≠ cache mode, SCRAM SIGSEGV) | config-and-flags, debugging-playbook |
-| LOW | no metrics/health/lag, spans not nested, PII in Sentry/DLQ, Redis `InsecureSkipVerify`, dead code | run-and-operate, security-and-supply-chain |
+| MEDIUM | unbounded goroutines vs DB pool 200 / Redis pool 10 (`processor.go:38-44`); no deadlines; head-of-line blocking; fetch error ⇒ panic (`consumer.go:175-183`) | event-accounting-campaign, debugging-playbook |
+| MEDIUM | startup validation gaps (empty topic/group/prefix, `=1` ≠ cache mode, SCRAM SIGSEGV; `main.go:67`, `config/kafka/kafka.go:48-64`) | config-and-flags, debugging-playbook |
+| LOW | no metrics/health/lag, spans not nested, PII in Sentry/DLQ (`processor.go:70-72`), Redis `InsecureSkipVerify` (`config/redis/redis.go:42-48`), dead code | run-and-operate, security-and-supply-chain |
 
 All 26 entries with evidence and status: [reference/weak-points.md](reference/weak-points.md) (read when triaging
 risk or picking the next hardening item; it also lists the 0%-coverage delivery-path functions).
 
-## 9. Error taxonomy and DLQ codes (short; triage lives in `debugging-playbook`)
+## 9. Error taxonomy and DLQ codes (owner of code → cause → retryable; symptom triage: `debugging-playbook`)
+
+Retryable is a property of the FAILURE, not of the code: every `FailedResult` defaults to retryable + capturable
+(`utils/result.go:113-129`) unless the call site marks it otherwise. A retryable failure reaches the DLQ only once
+its `ingested_at` is ≥ 12 h old (or missing); younger ones are not marked and fall under L1 (`processor.go:74-82`).
 
 | `error_code` | `error_message` | Cause | Retryable |
 |---|---|---|---|
 | `build_enriched_event` | Error while converting event to enriched event | unparsable/unsupported `timestamp` (`models/event.go:70-81`) | no |
-| `fetch_billable_metric` | Error fetching billable metric | not found (`record not found` / `Key not found`): no, not captured; DB/badger error: yes | mixed |
+| `fetch_billable_metric` | Error fetching billable metric | not found (`record not found` / `Key not found`): no, not captured (`models/billable_metrics.go:75-83`, `cache/cache.go:189-191`); DB/badger error: yes (`enrichment_service.go:41-43`) | per failure |
 | `evaluate_expression` | Error evaluating custom expression | lago-expression returned nil; message embeds the event JSON (`enrichment_service.go:121-142`) | no |
 | `fetch_subscription` | Error fetching subscription | DB/badger error other than not-found (`enrichment_service.go:61-64`) | yes |
 | `fetch_pay_in_advance_charge` | Error fetching pay in advance charge | DB/badger error (`processor.go:116-119`) | yes |
 | `flag_subscription_refresh` | Error flagging subscription refresh | Redis error / pool timeout (`processor.go:128-131`) | yes |
-| `""` | `""` | produce to enriched/in-advance failed; `initial_error_message` = `failed to push to <topic> topic` | n/a |
+| `""` | `""` | produce to enriched/in-advance failed; `initial_error_message` = `failed to push to <topic> topic` (`event_producer_service.go:87-89`) | n/a |
 
 DLQ record = `{event, initial_error_message, error_message, error_code, failed_at}` (`models/event.go:50-56`), no key.
 
 ## 10. Observability as-is
 
-- **Logs**: JSON (`log/slog`) to stdout, base attr `service=post_process`; per-event failure line `msg=<error_message>`
+- **Logs**: JSON (`log/slog`, `main.go:31-41`) to stdout, base attr `service=post_process`; per-event failure line `msg=<error_message>`
   with `error_code`, `error`. Component attrs: `component=kafka` / `kafka-producer` (forced ≥ INFO),
   `kafka-topic-consumer=<topic>`, `component=db` (slog-gorm SQL errors with `query`), `pkg=cache` + `model`.
   go-redis prints plain-text `redis: … pool.go:…` lines. DEBUG is the default when `ENV` is unset.
@@ -252,26 +265,29 @@ DLQ record = `{event, initial_error_message, error_message, error_code, failed_a
 - **Tracing**: provider `TRACING_PROVIDER` → `DD_TRACE_ENABLED` → `OTEL_EXPORTER_OTLP_ENDPOINT` → none; spans
   `Consumer.Consume`, `PostProcess.ProcessEvents`, `PostProcess.ProcessOneEvent`, `Producer.Produce`, **never nested**
   (`Span.GetContext()` is unused); Kafka client hooks only with `KAFKA_TRACING_ENABLED=true` (`config/kafka/kafka.go:40-46`).
-- **Metrics / health**: none. No HTTP listener, no DLQ/skip/lag counters; OTel meter only carries kotel Kafka hooks.
+- **Metrics / health**: none (`grep -rl '"net/http"' events-processor --include='*.go'` → no output). No HTTP listener,
+  no DLQ/skip/lag counters; OTel meter only carries kotel Kafka hooks.
   Consumer lag must be read from the broker for group `<group>_<raw topic>`.
 
 ## If you are about to change X
 
 | You touch | Class / rule | Read first | Prove with |
 |---|---|---|---|
-| `config/kafka/consumer.go`, disposition in `processor.go`, producers | C4, change-control N7, OD-2 | §4, D3-D8, `failure-archaeology` | kfake test driving `processRecordsAndCommit` (`diagnostics-and-tooling`) |
+| `config/kafka/consumer.go`, disposition in `processor.go`, producers | C4, change-control N7, OD-2 (a log/span/counter-only edit is C3 only if it passes change-control's behaviour test, §2) | §4, D3-D8, `failure-archaeology` | kfake test driving `processRecordsAndCommit` (`diagnostics-and-tooling`) |
 | SQL in `models/*.go` | C3, change-control N4 | I1-I3 | exact sqlmock pin + `invariants-grep.sh` |
 | topic names, keys, payload, Redis key/bucket | C4, change-control N6, OD-4 paired lago-api PR | §1, I10-I12 | `topic-map.sh`, `rails-go-parity` |
 | `cache/`, `extra/debezium_config.json` | C3/C4, OD-1 | §5, `memory-cache.md` | parity harness in `rails-go-parity` |
 | startup / new env var | C3 (+C6 for compose) | §2, `config-and-flags` checklist | `startup-contract.sh` (update expected steps) |
-| value / time formatting | C3, OD-3 | `rails-go-parity` | its value/time probes |
+| `value` string formatting (`processors/events_processor/enrichment_service.go:114`) | C3 + C4 (cross-repo contract, change-control N6); paired lago-api PR (OPEN DECISION OD-4 (owner)); CH schema only via OPEN DECISION OD-3 (owner) | `rails-go-parity`, `event-accounting-campaign` W2 | value probe + corpus before/after |
+| time parsing (`utils/time.go`: `ToTime`, `ToFloat64Timestamp`) | C3 (C4 if the enriched `timestamp` payload format changes) | `rails-go-parity` | time + subscription probes |
+| a new DLQ `error_code` or DLQ cause (§9) | C4 (changes disposition): ADR + owner acceptance (OPEN DECISION OD-3 (owner) for CH-overflow detection); DLQ rows are not replayable today | §4, §9 | accounting-probe ledger + value corpus before/after (`event-accounting-campaign`); kfake test only if commit logic changes |
 
 ## Scripts
 
 | Script | Purpose | Example | Expected output (2026-10-01) |
 |---|---|---|---|
 | `scripts/topic-map.sh` | every topic/env var/group/key/Redis key with EP file:line, dev value, created-in-dev, lago-api readers; FLAGs drift | `.claude/skills/architecture-contract/scripts/topic-map.sh` (`--no-api` offline, `--strict` exit 1 on FLAG) | 4 EP topics all `yes`; group `lago_dev_events-raw`; CDC prefix `lago_proc_cdc`; `FLAG LAGO_KAFKA_ENRICHED_EVENTS_EXPANDED_TOPIC …`, `FLAG … "unprocessed_events" …`; `SUMMARY flags=2` (`--no-api`: `flags=0`) |
-| `scripts/startup-contract.sh` | builds the binary (temp dir, ~5 s warm) and runs it with env added step by step; PASS/FAIL per documented panic | `.claude/skills/architecture-contract/scripts/startup-contract.sh` (opt. `--bin`, `--broker`, `--redis`, `--pg`, `--out`) | S0-S7 `PASS` (S6 SKIP without Postgres; S0 SKIP if `libexpression_go.so` is installed system-wide), `SUMMARY steps=9 fails=0`, exit 0 (1 = some FAIL, 2 = setup error); with a disposable broker + Redis (e.g. kfake + miniredis) and Postgres: `steps=17 fails=0` |
+| `scripts/startup-contract.sh` | builds the binary (temp dir, ~5 s warm) and runs it with env added step by step; PASS/FAIL per documented panic | `.claude/skills/architecture-contract/scripts/startup-contract.sh` (opt. `--bin`, `--broker`, `--redis`, `--pg`, `--out`) | S0-S7 `PASS` (S6 SKIP without Postgres; S0 SKIP if `libexpression_go.so` is installed system-wide), `SKIP SK1-SK9`, `SUMMARY steps=9 fails=0`, exit 0 (1 = some FAIL, 2 = setup error); with a disposable broker + Redis (e.g. kfake + miniredis) and Postgres: `steps=17 fails=0` |
 | `scripts/invariants-grep.sh` | static checks of change-control N4/N5/N7 rules + Go-side contract snapshot | `.claude/skills/architecture-contract/scripts/invariants-grep.sh --quiet` | `FLAG N4-cols events-processor/models/billable_metrics.go:61 FetchBillableMetric …`, `WARN N4-pin … HasPayInAdvanceCharge …`, `SUMMARY flags=1 warns=1`, exit 1 |
 
 All three are read-only on the repo (temp dirs only) and need no Docker; exit codes are documented in each header.
@@ -280,9 +296,10 @@ All three are read-only on the repo (temp dirs only) and need no Docker; exit co
 
 - Sources: all non-test Go under `events-processor/` (main.go, processors/, config/{kafka,redis,database,tracing},
   cache/, models/, utils/) read in full; `extra/debezium_config.json`; `.env.development.default:77-90`;
-  `docker-compose.dev.yml:318-406`; `$API` karafka.rb, clock.rb, `db/clickhouse_migrate/*`, consumers/jobs cited above;
-  franz-go v1.20.5 sources and `examples/goroutine_per_partition_consuming/README.md`; commits `4100da0`, `e58befb`,
-  `cec0eb2`, `9acd83e`, `02a4bc8`, `42615c9`, `fb6401d`, `731e18f`, `fff5858`, `d9c32b6`, `2fd8e8b`, `b4ad153`, `d1c1629`.
+  `docker-compose.dev.yml:318-406`; `$API` karafka.rb, clock.rb, `db/clickhouse_migrate/*`, consumers/jobs, `billable_metrics/aggregations/base_service.rb`,
+  `organizations/create_service.rb`, `events/pay_in_advance_service.rb` (I12);
+  franz-go v1.20.5 and pgx v5.9.2 sources, `examples/goroutine_per_partition_consuming/README.md`; commits `4100da0`,
+  `e58befb`, `cec0eb2`, `656c829`, `600e195`, `b604769`, `b6d3616`, `9acd83e`, `02a4bc8`, `42615c9`, `fb6401d`, `731e18f`, `fff5858`, `d9c32b6`, `2fd8e8b`, `b4ad153`, `d1c1629`.
 - Volatile facts and one-line re-verification (run from repo root):
   - code under study unchanged: `git log -1 --format=%h -- events-processor extra/debezium_config.json .env.development.default docker-compose.dev.yml` → `5308258` (as of 2026-10-01; anything newer means re-verify this skill)
   - group id format: `grep -n 'cgName := fmt.Sprintf' events-processor/config/kafka/consumer.go` → `237: … "%s_%s"`
@@ -291,11 +308,13 @@ All three are read-only on the repo (temp dirs only) and need no Docker; exit co
   - Redis key: `grep -n 'subscription_refreshed_v2' events-processor/processors/main_processor.go` → 152
   - I2 still violated: `.claude/skills/architecture-contract/scripts/invariants-grep.sh --quiet | tail -1` → `SUMMARY flags=1 warns=1`
   - startup contract: `.claude/skills/architecture-contract/scripts/startup-contract.sh | tail -1` → `SUMMARY steps=9 fails=0 …`
+  - I12 condition: `grep -n 'clickhouse_deduplication_enabled?' "$API/app/services/billable_metrics/aggregations/base_service.rb"` → `168`
   - Debezium gap: `grep -o 'public.charges.([^)]*)' extra/debezium_config.json` → no `pay_in_advance`
   - franz-go pin: `grep -n 'twmb/franz-go v' events-processor/go.mod` → `v1.20.5`
   - coverage of the delivery path (after `source .claude/skills/build-and-env/scripts/ep-env.sh`, in `events-processor/`):
     `go test -count=1 -coverpkg=./... -coverprofile="${TMPDIR:-/tmp}/ac-cov.out" ./cache/... ./config/database/... ./config/kafka/... ./models/... ./processors/events_processor/... ./utils/... && go tool cover -func="${TMPDIR:-/tmp}/ac-cov.out" | grep -E 'ProcessEvents|processRecordsAndCommit|^total'`
-    → both 0.0%, total 44.9% (as of 2026-10-01; needs Postgres; baselines in `validation-and-qa`)
+    → both 0.0%, total 44.9% (the informational `-coverpkg` figure; the gated baseline is 47.4% own-package coverage,
+    `validation-and-qa`; as of 2026-10-01; needs Postgres)
 - Update triggers: any commit under `events-processor/config/kafka/`, `processors/`, `cache/`, `models/`, `main.go`;
   a franz-go bump (defaults cited here); changes to `extra/debezium_config.json` or the Kafka/Redis vars in
   `.env.development.default`; an `api` submodule bump (downstream readers); owner answers to OD-1, OD-2, OD-3, OD-4.

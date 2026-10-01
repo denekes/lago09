@@ -5,8 +5,12 @@ Read this when you are about to touch code that a chain covers (find it with
 here were already tried. Each chain lists every step in order: what the step tried, why it failed,
 what finally held, what is still live in the code today, and the rule that stops a re-fight.
 
-Facts verified 2026-10-01 against HEAD `5308258` and the full history clone (776 commits).
+Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
+skills-only commits on top. History facts verified 2026-10-01 in the history clone (`H`, 776 commits
+from the fork remote). lago-api facts are at the pin `591ae90` (2026-09-08).
 Replay any chain with `.claude/skills/failure-archaeology/scripts/chain.sh --named <ID>`.
+Commits before `d5bce86` (2025-03-21) use the directory `events_processor/`: for `git show <sha>:<path>`
+or `ls-tree` on them spell it so (`git -C "$H" show 4100da0:events_processor/config/kafka/consumer.go`).
 Status words: **settled** (the fix holds), **removed** (resolved by deleting the feature),
 **residual** (the class of bug is still possible; current code cited), **open** (the defect is live).
 
@@ -22,7 +26,9 @@ Reproduce: `scripts/chain.sh events-processor/config/kafka/consumer.go 'findMaxC
 prints exactly `4100da0 cec0eb2 600e195 b604769 b6d3616 9acd83e`.
 
 1. `4100da0` (2025-03-11, #474). Each partition goroutine processed a batch and committed its last
-   record. A failed record was still committed. No retry existed.
+   record. A failed record was still committed, but every processing failure went to the DLQ
+   (`go produceToDeadLetterQueue(event, result)` in `events_processor/processors/events.go` at
+   `4100da0`; an unparseable record was only logged). No retry existed.
 2. `cec0eb2` (2025-03-31, #502). Tried: retry transient failures. Added `Retryable`/`Capture` flags,
    a 12 h window on `ingested_at`, and `findMaxCommitableRecord` to commit only the processed prefix.
    Failed because the partial-batch branch ended in a stray `return` inside the `for { select {} }`
@@ -61,7 +67,10 @@ Residual (open, delivery semantics, OPEN DECISION OD-2 (owner)):
 Do not re-fight: never change commit or delivery code without a test that drives
 `processRecordsAndCommit` (kfake harness, see `diagnostics-and-tooling`), a design note, and owner
 sign-off (change-control N7). Never pass a computed record to `CommitRecords` without the `ok` check.
-The fix for the residual belongs to `event-accounting-campaign` (W1).
+"Commit every record" is the `4100da0` design (every failure DLQ'd) that `cec0eb2` replaced on purpose
+("…and avoid commit"); today it turns REDELIVERED into LOST (accounting-probe UNACCOUNTED 5 -> 7, see
+`event-accounting-campaign` "Wrong paths"). The fix for the residual belongs to
+`event-accounting-campaign` (W1).
 
 ## B. `SELECT *` and pgx cached plans (SQLSTATE 0A000)
 
@@ -142,7 +151,7 @@ string (change-control N4). When you change a struct field's type, check what go
 
 Residual: the memory cache still snapshots and CDC-consumes billable-metric filters, charge filters
 and charge filter values (`events-processor/cache/cache.go:94-119`), and no processor reads them.
-lago-api at the pinned SHA still ships the `events_enriched_expanded*` ClickHouse migrations
+lago-api at the pin `591ae90` (2026-09-08) still ships the `events_enriched_expanded*` ClickHouse migrations
 (`$API/db/clickhouse_migrate/20250814124830_create_events_enriched_expanded_queue.rb:9` reads
 `LAGO_KAFKA_ENRICHED_EVENTS_EXPANDED_TOPIC`) and the `enriched_events_aggregation` flag
 (`$API/app/config/feature_flags.yaml:5`). Impact depends on OD-8.
@@ -165,7 +174,8 @@ stringification, tie-breaks) and owner sign-off.
 Settled. Rule: "the plan has at least one non-deleted pay-in-advance charge for this billable metric",
 as in Rails `PostProcessService#charges`. It is not per filter. In memory-cache mode the same check
 reads cached charges whose Debezium column list lacks `pay_in_advance`
-(`extra/debezium_config.json`, OPEN DECISION OD-1 (owner)).
+(`extra/debezium_config.json`; production use is OPEN DECISION OD-1 (owner); the hardening is unowned,
+OD-20, `architecture-contract` WP6).
 
 ## F. Go-side expiry of Rails charge-usage cache keys (15.2 months, removed)
 
@@ -244,11 +254,14 @@ keep every Rails producer format working (float seconds string, ISO with ms and 
 3. `b6d3616` (2025-11-25, #608): signals cancel a root context. The flag and cache stores had captured
    the process context at construction since `7421650` (harmless while it was `context.Background()`),
    so every in-flight Redis write now failed with `context canceled` on SIGTERM.
-4. `02a4bc8` (2026-08-27, #785): "Redis writes now receive the context of the record being processed";
-   connection setup keeps the process context. Exposure: 275 days.
+4. `02a4bc8` (2026-08-27, #785): "Redis writes now receive the context of the record being processed"
+   (in code: the batch context that `processRecordsAndCommit` passes to every record); connection
+   setup keeps the process context. Exposure: 275 days.
 
-Settled. Rule: per-record side effects use the record/batch context; batch processing deliberately runs
-on `context.Background()` (`consumer.go:83`) so in-flight events survive shutdown (change-control N5).
+Settled. Rule (change-control N5): per-record side effects (Redis, produce) use the batch context that
+`processRecordsAndCommit` creates (`context.Background()`, `events-processor/config/kafka/consumer.go:83`)
+and passes to every record, never the process/signal context that SIGTERM cancels; so in-flight events
+survive shutdown.
 
 ## K. Tracing provider
 
@@ -310,24 +323,26 @@ manual dispatch), never on a PR. Each break below was found on, or after, a rele
 |---|---|---|---|---|
 | `52ab3b3` → `023bfe1` → `c91af2b` | 2025-02-12 17:25 / 17:31 / 17:44 | first release workflow failed twice | wrong `needs:` job id; checkout without `submodules: true` | fixed within 19 min |
 | `e07e182` → `d0099a9` → `9eb8c3b` → `92b1af2` | 2025-05-13..16 | image broken after the Ruby 3.4 move | Ruby ARG behind lago-api; Ruby 3.4 needs `libyaml-dev`; `packages.redis.io` `redis` package; missing `LAGO_ENCRYPTION_*` keys | pin Ruby, add libyaml, Debian `redis-server`, generate keys in `runner.sh` |
-| `b6b98c8` | 2025-09-15 | build failed | inferred: `ruby:*-slim` moved to Debian trixie (no `postgresql-15`, no `software-properties-common`); no commit body, UNVERIFIED | `postgresql-17` |
-| `218c9c9` → `18b26d0` | 2025-10-29 → 10-30 | v1.35.0 build: `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`, then `tsc: not found` with `CI=true` | `corepack prepare pnpm@latest` pulled a new pnpm | drop `pnpm prune --prod`; `.dockerignore` for `front/node_modules`, `api/.env`. `getlago/lago:v1.35.0` pushed 2025-10-30T16:20Z, after the fix |
+| `14fa1e0` → `b6b98c8` | 2025-08-19 → 09-15 | v1.33.0 (2025-08-27), v1.33.1 (08-28), v1.33.2 (09-08): no `getlago/lago` image (Docker Hub 404, checked 2026-10-01) | `14fa1e0` (Ruby 3.4.4 → 3.4.5) moved `ruby:*-slim` from bookworm to Debian trixie (today's Docker Hub digests: `3.4.5-slim` == `-trixie`, see `release-and-images`; that it already did on 2025-08-27 is inferred): no `postgresql-15`, no `software-properties-common` | `postgresql-17` (`b6b98c8`); v1.33.3 (2025-09-15) is the first image after the break |
+| `218c9c9` → `18b26d0` | 2025-10-29 → 10-30 | v1.35.0 build: `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`, then `tsc: not found` with `CI=true` | failed in the `corepack prepare pnpm@latest` / `pnpm prune` step; body: "seems to be related to the pnpm version update". Which pnpm ran is UNVERIFIED: lago-front pinned `packageManager: pnpm@10.18.3` at v1.35.0, and `pnpm@latest` sets only corepack's global default | drop `pnpm prune --prod`; `.dockerignore` for `front/node_modules`, `api/.env`. `getlago/lago:v1.35.0` pushed 2025-10-30T16:20Z, after the fix |
 | `9faa659` → `c6abc1e` | 2025-12-09 → 12-11 | v1.37.0 image two days late | runner labels `linux/amd64` / `lago-runner` (in place since `52ab3b3`) stopped being served (inferred) | `ubuntu-latest`; image pushed 2025-12-11T09:03Z |
 | `fd77a74` | 2026-02-03 | signup seed failed in the image (inferred from title) | lago-api needed `roles:seed_predefined` first | `docker/runner.sh:90-91` |
 | `57508c2` → `074fc9a` → `558814a` | 2026-03-23 → 04-07 11:05 → 11:25 | v1.45.0 build broke | Bundler 4.0.4 (from `57508c2`) removed `bundle install --without`; latent 15 days | `bundle config set without` (`docker/Dockerfile:33`); v1.45.1 cut the same day |
-| v1.48.0, v1.49.0, v1.50.0 | 2026-06-10 / 06-29 / 07-07 | `getlago/lago` has no image for these tags (Docker Hub API 404, checked 2026-10-01) while `getlago/lago-events-processor` has all three | UNVERIFIED (workflow logs not reachable from here) | none; v1.48.1 and v1.51.0 exist |
+| v1.48.0, v1.49.0, v1.50.0 | 2026-06-10 / 06-29 / 07-07 | `getlago/lago` has no image for these tags (Docker Hub API 404, checked 2026-10-01) while `getlago/lago-events-processor` has all three | UNVERIFIED (workflow logs not reachable from here) | none; v1.48.1 and v1.51.0 exist (other image gaps, e.g. `getlago/lago-events-processor:v1.41.2`: `release-and-images`) |
 | `01cfbc6` | 2026-08-27 | v1.52.1 bump moved only the compose tags | its gitlinks are lago-api/front v1.52.0 (`731388f`, `dbde527`) | none: `getlago/lago:v1.52.1` was built from v1.52.0 api/front (inferred from `submodules: true` at the tag) |
 | `ba292b6` → `b267320` → `f719ef1` | 2026-09-08 16:31 → 17:04 → 17:20 | v1.53.0 | Node 20 too old for front; Ruby 4.0.2 vs lago-api's 4.0.6 (inferred; no bodies) | Node 24, Ruby 4.0.6; `getlago/lago:v1.53.0` pushed 15:26Z = 17:26 +0200, after both fixes |
 
 Residual (class open): no PR-time build of `docker/Dockerfile`; `corepack prepare pnpm@latest` still
-at `docker/Dockerfile:12`; the PGDG apt line at `docker/Dockerfile:43-44` is broken (`tee /etc/ap`,
-`ppc64e1`, wrong keyring name) and the build works only because Debian trixie ships `postgresql-17`;
+at `docker/Dockerfile:12` (inert while lago-front pins `packageManager`; a conditional risk if front
+drops it); missing tags were never backfilled (OPEN DECISION OD-10); the PGDG apt line at
+`docker/Dockerfile:43-44` is broken (`tee /etc/ap`, `ppc64e1`, wrong keyring name) and the build works only because Debian trixie ships `postgresql-17`;
 `docker/redis.conf` unused since `9eb8c3b` while `docker/runner.sh:40` still `sed`s a placeholder into
 the stock config. Release mechanics and the target fix (PR-time `push: false` build) belong to
 `release-and-images`; live triage to `debugging-playbook`.
 
 Do not re-fight: when lago-api or lago-front change Ruby, Bundler or Node, bump `docker/Dockerfile`
-ARGs in the same release PR, and dispatch the image build before tagging. A `workflow_dispatch`
+ARGs in the same release PR (allowed in the bump PR; `precommit-guard.sh --release` WARNs
+G1-release-shape, so explain it in the PR, change-control), and dispatch the image build before tagging. A `workflow_dispatch`
 run checks out the ref it was dispatched on (the default branch unless you pick the tag), whatever
 its `version` input says (`release-docker-image.yml:28-30`: `actions/checkout` with no `ref:`).
 
@@ -369,11 +384,10 @@ Rule: `bash -n` passes on all of these; only an end-to-end run catches them.
 3. `e5392e9` (2025-11-04 17:05, #621): path fixed 25.4 months after `2747b04`; unused `bootstrap.sh` from `52ab3b3` removed.
 4. `fc70e75` (2025-11-04 17:07, #622): the events-processor service still had bare `depends_on` lists → conditions.
 
-Settled for the edges fixed. Residual (as of 2026-10-01): `front → api` and
-`redpanda-console → redpanda` are still bare lists, and 10 edges onto `api` use
-`condition: service_started` (the compose audit one-liner in SKILL.md "How to mine history"). N12's
-"every edge `service_healthy`" describes the rule for new edges, not the current file. Rule:
-change-control N12.
+Settled. Per change-control N12, infra edges use `service_healthy`, one-shot jobs
+`service_completed_successfully`, and app→`api` edges `service_started` (10 explicit plus the bare
+`front → api` list); `redpanda-console → redpanda` (bare) is the known exception (as of 2026-10-01;
+re-check with the compose audit in SKILL.md "How to mine history"). Rule: change-control N12.
 
 ## X5. One env source of truth for dev
 
@@ -382,7 +396,8 @@ change-control N12.
 the other services and `rpk topic create` used `events-raw` (verified in
 `git show 0ca6cdf:docker-compose.dev.yml`) → `16c8b68` (2025-01-23) moved every service to one env
 file with `events-raw` → `84b6eef` renamed it `.env.development.default`. That same file carried a
-real `LAGO_LICENSE` value from `16c8b68` until `6dd7e56` (2025-03-07, 43 days); rotation is OPEN
+real `LAGO_LICENSE` value from `16c8b68` until `6dd7e56` (2025-03-07): 37 days on `main` after merge
+`0a67ac0` (2025-01-29), up to 43 days if the feature branch was public from 2025-01-23 (UNVERIFIED); rotation is OPEN
 DECISION OD-9 (owner); never print the value (change-control N11). Separately `3cd78f1` aligned
 `LAGO_REDIS_CACHE_DB` (chain F step 3). Settled. Residual: `events-processor/README.md:41` still shows
 `events_raw` as the example. Rule: change-control N12.
@@ -411,8 +426,9 @@ Owned by `release-and-images`.
 
 ## X8. Connectors image pipeline
 
-`6a595fb` pinned redpanda connect. `76159bd` (2026-08-24 17:33) dispatched to lago-deploy; `2146a18`
-(17:46) replaced it with a direct reusable-workflow call ("Every push to its ECR repository came from
+`6a595fb` pinned redpanda connect. `76159bd` (authored 2026-08-24 17:33) dispatched to lago-deploy;
+`2146a18` (authored 17:46) replaced it with a direct reusable-workflow call; both landed on `main`
+together (committer 2026-08-25 10:59), so the dispatch workflow never ran alone ("Every push to its ECR repository came from
 a person's local `docker push`"). `986f29b` (2026-08-26): two builds failed with `429 Too Many
 Requests`; pull `docker.io/redpandadata/connect` directly. Residual: the ECR path never logs in to
 Docker Hub, so base pulls stay anonymous (see `release-and-images`).
@@ -428,7 +444,7 @@ without `-p`. Rule: a fix to one compose family must be ported to the other two 
 
 `docker-compose.arm64.yml`: `22a1685` (2022-09-13) → `81a0df4` (2023-04-20), 38 commits of duplicated
 tag bumps in 7 months. Meilisearch: `0e5937e` (2026-07-10) + `f0bb135` → `4230f1f` (2026-09-01, no
-body), 53 days; lago-api at the pinned SHA has no Meilisearch reference. Mailhog → Mailpit `8f8334e`
+body), 53 days; lago-api at the pin `591ae90` has no Meilisearch reference. Mailhog → Mailpit `8f8334e`
 (2026-09-03). Removed. Rule: do not re-add a dev service without a lago-api consumer at the pinned SHA.
 
 ## X11. Lost work and stray material

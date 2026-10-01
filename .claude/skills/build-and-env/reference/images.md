@@ -8,7 +8,8 @@ builds on my machine".
 Nothing here is runnable in a daemon-less sandbox: `docker build --check -f events-processor/Dockerfile
 events-processor` fails with `failed to connect to the docker API at unix:///var/run/docker.sock …`
 (2026-10-01). Every build command below is a CANDIDATE derived from the cited workflow lines; the
-facts about the files are VERIFIED by reading them at `5308258`. CI never builds an image on a PR
+facts about the files are VERIFIED by reading them (code facts as of `5308258`, events-processor tree
+`83e012866f29`; the working branch may carry skills-only commits on top). CI never builds an image on a PR
 (only `events-processor-tests.yml` runs on PRs), so a local build is the only pre-merge check.
 Changing a Dockerfile is change class C5 (change-control).
 
@@ -44,7 +45,7 @@ image smoke tests are the `diagnostics-and-tooling` skill.
 | No `.dockerignore` in `events-processor/` or `connectors/`; `COPY . /app/` copies whatever is there (stray `event_processors` binary, `.env`, `tmp/`) | `events-processor/Dockerfile:11`; root `.dockerignore` excludes only `front/node_modules` and `api/.env` and applies only to root-context builds | Build from a clean tree (`git status --porcelain events-processor` empty, no untracked files) |
 | Cached `git clone` layer predates a new lago-expression tag, so `git checkout vX` fails | `d4e3665` added `--tags` to the clone (`events-processor/Dockerfile:3`) | After a ref bump, build with `--no-cache` once, or prefer `git clone --depth 1 --branch <tag>` (CANDIDATE, a C5 change) |
 | Rust image too old for the lago-expression ref | `5077151` -> `e8bbd60` (`rust:1.82` -> `rust:1.85`) | Bump the ref and the Rust image together (change-control N3) |
-| `@latest` tools break builds | `d589940` (air needed Go 1.25), `18b26d0` (pnpm@latest); `docker/Dockerfile:12` still uses `pnpm@latest` | Pin; never add `@latest` (change-control N3) |
+| `@latest` tools break builds | `d589940` (air needed Go 1.25); `18b26d0` (v1.35.0 failed in the `pnpm@latest` / `pnpm prune` step; which pnpm ran is UNVERIFIED, `toolchain-matrix.md` §5); `docker/Dockerfile:12` still uses `pnpm@latest` | Pin; never add `@latest` (change-control N3) |
 | `docker/Dockerfile` with empty submodules | `COPY ./front/ .` (`:9`), `COPY ./api/Gemfile` (`:27`) | Populate `api/` and `front/` first (`reference/dev-stack.md` §1); failure text UNVERIFIED (no daemon) |
 | `docker/Dockerfile` PGDG apt line is broken (`tee /etc/ap`, `ppc64e1`, wrong keyring name) | `docker/Dockerfile:43-44` | Builds today only because the `ruby:4.0.6-slim` base is Debian trixie (same Docker Hub digest as `ruby:4.0.6-slim-trixie`, as of 2026-10-01), whose own archive ships `postgresql-17`; the image build itself is UNVERIFIED here (no daemon); owned by `release-and-images` |
 | Docker Hub anonymous pull rate limit (429) | `986f29b` (two `build-connectors-image.yaml` runs failed with 429 on 2026-08-25/26; fix: pull `docker.io/redpandadata/connect` instead of the redpanda mirror); comment at `connectors/Dockerfile:1-5` | Log in to Docker Hub before large local builds; keep `docker.io/` bases in CI |

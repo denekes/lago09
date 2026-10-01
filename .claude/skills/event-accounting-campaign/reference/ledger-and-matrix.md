@@ -1,8 +1,8 @@
 # Fault-matrix ledger: cases, outcomes, expected-today output
 
 Read when you run `accounting-probe`, read a ledger row, add a fault case, or need to know which
-code path a case exercises. Facts verified 2026-10-01 against events-processor `5308258`
-(repo HEAD `08065ef` adds only `.claude/`), franz-go v1.20.5, kfake pseudo-version
+code path a case exercises. Code facts as of 5308258 (events-processor tree 83e012866f29); the working
+branch may carry skills-only commits on top. Verified 2026-10-01 with franz-go v1.20.5, kfake pseudo-version
 `v0.0.0-20251123185109-2b5c574e9ddd`, Postgres 16.
 
 ## 1. What the probe drives (and what it does not touch)
@@ -31,6 +31,8 @@ code path a case exercises. Facts verified 2026-10-01 against events-processor `
 
 ## 2. Outcome definitions (one per raw offset)
 
+<!-- evidence-check: off definitions implemented by scripts/accounting-probe/main.go, not claims -->
+
 | Outcome | Rule (deliveries = times handed to `ProcessEvents`; decision = on the last delivery) | Accounted? |
 |---|---|---|
 | ENRICHED | on `events_enriched`, not on the DLQ, decision processed, 1 delivery | yes |
@@ -42,8 +44,11 @@ code path a case exercises. Facts verified 2026-10-01 against events-processor `
 | SENTRY_ONLY | decision processed (so committed) but on no output topic: only log/Sentry saw it | **no** |
 | ENRICHED+DLQ | on both topics | flag it (double accounting) |
 
+<!-- evidence-check: on -->
+
 `UNACCOUNTED = LOST + SKIPPED_RETRY + SENTRY_ONLY` is the gate metric. The probe's exit code is
-`min(UNACCOUNTED, 99)`; 100 = setup error.
+`min(UNACCOUNTED, 99)`; 100 = setup error. So `-case <one fault case>` exits 1 on today's code: that is the
+expected result, not a failure.
 
 ## 3. The matrix: code path, today, target
 
@@ -87,6 +92,7 @@ $ echo $?
 
 Per-case footer lines (committed offset after session 1 / after restart, Sentry captures counted with a
 `BeforeSend` hook, ZSET members):
+<!-- evidence-check: off probe output; re-run the section 4 command to re-verify -->
 
 | Case | committed s1 -> s2 | Sentry | Reading |
 |---|---|---|---|
@@ -96,6 +102,7 @@ Per-case footer lines (committed offset after session 1 / after restart, Sentry 
 | 7 | 3 -> 4 | 2 | producer capture + `ProduceToDeadLetterQueue` capture; committed |
 | 9 | -1 -> 2 | 1 | redelivered and re-produced (duplicates) |
 | 10 | 3 -> 4 | 0 | not-found is NonCapturable (`events-processor/models/billable_metrics.go:79`): no Sentry event, DLQ only |
+<!-- evidence-check: on -->
 
 The first record of every case is offset 0; the full per-case tables print transaction ids
 `<case>-fault`, `<case>-n1`, `<case>-n2`, `<case>-sentinel`.

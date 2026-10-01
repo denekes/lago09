@@ -1,7 +1,8 @@
 # Workflow inventory (10 files in `.github/workflows/`)
 
 Read this when you change a workflow, debug a failed image build, or need the exact trigger, tags
-or secrets of one pipeline. Facts verified 2026-10-01 against HEAD 5308258 by reading each file
+or secrets of one pipeline. Code facts as of 5308258 (events-processor tree 83e012866f29); the working
+branch may carry skills-only commits on top. Verified 2026-10-01 by reading each file
 (`cat -n .github/workflows/<file>`) and by parsing every `on:` block with `yaml.safe_load`.
 Secrets are listed by NAME only (change-control N11).
 
@@ -17,7 +18,7 @@ so per-run status is UNVERIFIED everywhere.
 | `release-processors-image.yml` | same as above (:2-9) | `events-processor/Dockerfile`, context `./events-processor` (:52-53) | Docker Hub `getlago/lago-events-processor` (:11) | `<version>` + `latest` (:36-38, :90-92) | amd64 + arm64 (:14-20) | `DOCKERHUB_USERNAME`, `DOCKERHUB_PASSWORD` | live |
 | `release-images.yml` | `push: tags: ['v*']` (:3-6) | 3 jobs via the reusable workflow: lago-api at `github.ref` (:9-19), lago-front at `github.ref` (:21-31), events-processor from this repo (:33-42) | GHCR `ghcr.io/getlago/{api,front,events-processor}` | `vX.Y.Z`, `X.Y`, `sha-<7>` (reusable :230-236) | **amd64 only** (:16, :27, :39) | `GH_TOKEN` (as `repository-token`, :19, :31); `secrets: inherit` (:42) | live (v1.44.0..v1.53.0 on GHCR) |
 | `release.yml` | `release: [released]` (:2-4) | `repository_dispatch` event `release` to lago-api (:10-16) and lago-front (:17-23) via `peter-evans/repository-dispatch@v2` | none | none | n/a | `GH_TOKEN` (:13, :20) | **DEAD**: no workflow in lago-api@591ae90 or lago-front@0c5e539 has a `repository_dispatch` trigger |
-| `build-processors-image.yaml` | push to `main` touching `events-processor/**` (:2-7); `workflow_dispatch` (:8) | reusable workflow, `events-processor/Dockerfile` (:19-20) | ECR `201661579678.dkr.ecr.us-east-1.amazonaws.com/lago-events-processor` (:15) | `main`, `sha-<7>` | amd64 + arm64 (:18) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (:22-23) | UNVERIFIED (ECR is private) |
+| `build-processors-image.yaml` | push to `main` touching `events-processor/**` (:2-7); `workflow_dispatch` (:8) | reusable workflow, `events-processor/Dockerfile` (:19-20) | ECR `<account-id>.dkr.ecr.us-east-1.amazonaws.com/lago-events-processor` (literal at :15; do not copy the digits) | `main`, `sha-<7>` | amd64 + arm64 (:18) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (:22-23) | UNVERIFIED (ECR is private) |
 | `build-connectors-image.yaml` | push to `main` touching `connectors/**` (:2-7); `workflow_dispatch` input `ref` (:8-13) | reusable workflow, `connectors/Dockerfile` (:24-25) | ECR `…/lago-connectors` (:19) | `main` (or the dispatched branch), `sha-<7>` | amd64 + arm64 (:23) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (:27-28) | UNVERIFIED (ECR is private) |
 | `docker-build-multi-arch.yaml` | `workflow_call` (:4-5) | reusable multi-arch build (below) | Docker Hub / GHCR / ECR by input `registry` (:30-34) | see "Tag recipe" | per input `platforms` (default `amd64,arm64`, :24-28) | inputs `registry-user`, `registry-token`, `repository-token`, `build-secrets` (:96-111); `GITHUB_TOKEN` (:222, :363) | live; **also called by lago-front @main** |
 | `events-processor-tests.yml` | push to `main` (all paths) (:4-6); `pull_request` opened/synchronize/reopened on `events-processor/**` (:7-13) | `go test -v ./...` with Postgres 14 service, lago-expression v0.2.0 built in CI | none | none | amd64 | none | live (only PR gate in the repo) |
@@ -60,7 +61,8 @@ Only `docker-build-multi-arch.yaml` (:126-129) and the `gh-page.yml` deploy job 
   `DOCKERHUB_USERNAME`/`DOCKERHUB_PASSWORD` (:11-22). Commit bodies name more external callers:
   lago-self-billing (`5070e24`) and a lago-deploy pattern (`76159bd`); not verifiable from here.
 - Consequence: a merge to this file on `main` changes how `getlago/front` is released on lago-front's
-  next release, with no version pin. Treat any edit as change class C5 with cross-repo blast radius.
+  next release, with no version pin. Treat any edit as change class C5 + C4 (change-control contract K10)
+  and tell the lago-front owners (OPEN DECISION OD-14 (owner)).
 - Permissions: top-level `contents: read`, `id-token: write`, `packages: write` (:126-129). Callers
   declare none. Whether caller/org defaults allow this is UNVERIFIED (repo settings are invisible).
 - OIDC (`role-to-assume`, added `5ee8e98`) is plumbed but unused: both ECR callers pass static keys.
@@ -112,7 +114,7 @@ is stale: metadata-action's `type=sha` adds the `sha-` prefix.
 - lago-api's own release builds `getlago/api` (no `latest`) and dispatches `lago-private-release` to
   `getlago/lago-embedded` (`$API/.github/workflows/release.yml:136-156`); lago-front's builds
   `getlago/front` through this repo's reusable workflow. Both fire on their OWN `released` events.
-- Deleting `release.yml` is an owner call (see SKILL.md, OPEN DECISION REL-2).
+- Deleting `release.yml` is an owner call (OPEN DECISION OD-11 (owner), change-control §9).
 
 ### `events-processor-tests.yml`
 - Postgres `postgres:14-alpine` service (:23-31); lago-expression `v0.2.0` checked out (:40-45) and built

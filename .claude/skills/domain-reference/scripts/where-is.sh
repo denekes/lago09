@@ -160,7 +160,11 @@ print_block() { # label, dir, prefix, regex, pathspecs...
 if [ "$api_only" -eq 0 ]; then
   ep_specs=(events-processor ':(exclude)events-processor/go.sum')
   [ "$tests" -eq 1 ] || ep_specs+=(':(exclude)*_test.go' ':(exclude)events-processor/tests')
-  print_block "events-processor @ $(git -C "$repo" rev-parse --short HEAD)" "$repo" "" "$ep_re" "${ep_specs[@]}"
+  # Label = last commit that touched events-processor/ (HEAD may carry skills-only commits on top);
+  # "+dirty" when the searched working tree differs from it.
+  ep_ver="$(git -C "$repo" log -1 --format=%h -- events-processor)"
+  [ -z "$(git --no-optional-locks -C "$repo" status --porcelain -- events-processor 2>/dev/null)" ] || ep_ver="$ep_ver+dirty"
+  print_block "events-processor @ $ep_ver" "$repo" "" "$ep_re" "${ep_specs[@]}"
 fi
 
 if [ "$ep_only" -eq 0 ]; then

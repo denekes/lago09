@@ -3,8 +3,11 @@
 # shellcheck shell=bash
 # ep-env.sh — make `go build` / `go test` work in events-processor WITHOUT Docker.
 #
-# SOURCE it (do not execute it), from anywhere inside the lago repo:
+# SOURCE it (do not execute it):
 #     source .claude/skills/build-and-env/scripts/ep-env.sh
+# Repo used: the lago checkout containing the current directory (so it also serves another
+# clone you cd into); if the cwd is outside any lago checkout, the checkout containing this
+# script. Sourcing by absolute path from anywhere therefore works.
 #
 # What it does:
 #   1. Reads the lago-expression ref pinned in events-processor/Dockerfile
@@ -18,7 +21,7 @@
 # It never writes inside the repository. Cache dir: ${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}
 # Exported: LAGO_REPO LAGO_SKILLS_CACHE LAGO_EXPRESSION_REF LAGO_EXPRESSION_LIB
 #           CGO_LDFLAGS LD_LIBRARY_PATH DATABASE_URL
-# Status: 0 = exported; 1 = not in the lago repo / ref unreadable / cargo missing /
+# Status: 0 = exported; 1 = lago repo not found / ref unreadable / cargo missing /
 #         clone or cargo build failed (nothing exported). Executed instead of sourced: exit 2.
 # Needed by `go build` and `go test` of packages that link libexpression_go
 # (only processors/events_processor has tests). `go vet` and golangci-lint do NOT need it.
@@ -26,8 +29,12 @@
 
 _lago_ep_env() {
   local repo ref cache src lib
-  repo="$(git rev-parse --show-toplevel 2>/dev/null)" || {
-    echo "ep-env: not inside a git checkout of the lago repo" >&2; return 1; }
+  # cwd's checkout first (keeps "source it inside another clone" working), else this script's own.
+  repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -z "$repo" ] || [ ! -f "$repo/events-processor/Dockerfile" ]; then
+    repo="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null)" || {
+      echo "ep-env: cannot locate the lago repo (cwd and script location are not in a lago checkout)" >&2; return 1; }
+  fi
   if [ ! -f "$repo/events-processor/Dockerfile" ]; then
     echo "ep-env: $repo/events-processor/Dockerfile not found (wrong repo?)" >&2; return 1
   fi

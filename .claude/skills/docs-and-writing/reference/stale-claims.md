@@ -2,8 +2,9 @@
 
 Read this before you edit, quote or trust a doc of record, and when `doc-drift-check.sh` prints a
 line you need to act on. Every entry is a doc claim that contradicts the code, the config or another
-doc. Each one was verified on 2026-10-01 against repo HEAD `5308258` (+ the skills-only commit
-`08065ef`), lago-api at the pinned `591ae90` (`$API`), and the full-history clone (`$H`).
+doc. Each one was verified on 2026-10-01. Code facts as of `5308258` (events-processor tree
+`83e012866f29`); the working branch may carry skills-only commits on top. lago-api at the pin
+`591ae90` (2026-09-08, `$API`); full-history clone `$H`.
 
 How to use an entry:
 
@@ -21,7 +22,7 @@ How to use an entry:
 Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)`,
 `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`.
 
-## Summary (38 entries; doc-drift-check today: STALE=36 OPEN=1 KNOWN=1)
+## Summary (42 entries, SC-01 to SC-42; doc-drift-check today: STALE=40 OPEN=1 KNOWN=1)
 
 | ID | Where (as of 2026-10-01) | Wrong claim, short | Fix class | Status |
 |---|---|---|---|---|
@@ -57,12 +58,16 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
 | SC-30 | `deploy/README.md:21-165` (14 commands), `:92-95` | `docker compose up --profile X` | C0 | STALE |
 | SC-31 | `deploy/deploy.sh:106,169-190,288-299,314` | code-vs-code: 3 defects | C6 | STALE |
 | SC-32 | `docker/README.md:40` | default `DATABASE_URL` password `lago` | C0 | STALE |
-| SC-33 | `connectors/README.md:7-22,49-65` | event format and Kinesis table | C0 doc; C4 mapping | STALE |
+| SC-33 | `connectors/README.md:7-22,50-68` | event format and Kinesis table | C0 doc; C4 mapping | STALE |
 | SC-34 | `.env.development.default:3` (`README.md:106`) | `LAGO_MCP_SERVER_URL` -> `mcp-server`, defined only in lago-agent-toolkit's overlay, undocumented here | C6 | STALE |
 | SC-35 | `PULL_REQUEST_TEMPLATE.md:14` | `pnpm test` must pass | C0 | STALE |
 | SC-36 | `PULL_REQUEST_TEMPLATE.md:8`, `CONTRIBUTING.md:170` vs `$API/AGENTS.md:52` | branch prefixes MUST; 72 vs 50 | C0 after OD-7 | OPEN DECISION OD-7 |
 | SC-37 | `$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb:11` | ZSET score is "the event timestamp" | lago-api PR | STALE |
 | SC-38 | commit `5308258` message | AWS account id kept out of public repos | immutable | KNOWN |
+| SC-39 | `docs/dev_environment.md:288-302` | Mailpit catches dev mail (lago-api sends to `mailhog:1025`) | C6 compose (or lago-api PR); C0 note | STALE |
+| SC-40 | `connectors/README.md:31` | `LOG_LEVEL` sets the connector log level | C0 | STALE |
+| SC-41 | `README.md:190` | Prometheus metrics for "APIs, queues, workers, events, billing, webhooks, and dependencies" | C0 | STALE |
+| SC-42 | `docs/database_partitioning.md:75,81-95` | step 4 index names collide; step 3 `PRIMARY KEY` absent from the schema | C0 | STALE |
 
 ## Entries
 
@@ -286,7 +291,9 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
     required" (`main_processor.go:56-58`).
   <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
 - **Corrected text:** add rows for the 8 variables and mark the required ones. Take the semantics
-  from `config-and-flags` (it owns the env registry); do not re-derive them here.
+  from `config-and-flags` (it owns the env registry); do not re-derive them here. Do not promise
+  that every missing variable stops the service: startup is only partially fail-fast
+  (`architecture-contract` I14 lists the silent cases).
 - **Class:** C0.
   <!-- evidence-check: on -->
 
@@ -311,10 +318,14 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
 ### SC-12 `docs/dev_environment.md:154`: disabling ClickHouse
 
 - **Claim** (`docs/dev_environment.md:154`): "If you want to disable Clickhouse, you can set `LAGO_CLICKHOUSE_ENABLED=false`".
-- **Truth (VERIFIED):**
-  - lago-api tests `ENV["LAGO_CLICKHOUSE_ENABLED"].present?`
-    (`$API/app/services/events/stores/store_factory.rb:10`; `$API/clock.rb:210`), so `"false"`
-    means enabled.
+- **Truth (VERIFIED):** MIXED. The full semantics are owned by `config-and-flags`.
+  - 12 sites test `.present?`/`.blank?` and stay ON with `"false"`, e.g. the event store factory
+    (`$API/app/services/events/stores/store_factory.rb:10`) and the refresh clock (`$API/clock.rb:210`):
+    `grep -rn 'LAGO_CLICKHOUSE_ENABLED' "$API" --exclude-dir=spec --exclude-dir=.git | grep -cE 'present\?|blank\?'` -> `12`.
+  - Organization creation casts it as a boolean, so `"false"` turns it OFF there: new organizations
+    get the Postgres event store (`$API/app/services/organizations/create_service.rb:17`,
+    `ActiveModel::Type::Boolean.new.cast`). Two seeds compare `== "true"` and are OFF too
+    (`$API/db/seeds/01_base.rb:41`, `$API/db/seeds/60_email_activity_logs.rb:3`).
   - An empty value in the later env file wins: a scratch compose with `X=true` then `X=` renders
     `X: ""` (`docker compose -f <scratch>.yml config`).
   <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
@@ -322,7 +333,8 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
 
   ```markdown
   _Example:_ To disable ClickHouse, set `LAGO_CLICKHOUSE_ENABLED=` (empty) in your `.env.development`.
-  lago-api only checks that the variable is non-empty, so `LAGO_CLICKHOUSE_ENABLED=false` still enables it.
+  Do not set it to `false`: most of lago-api only checks that the variable is non-empty (so it stays
+  enabled), while organization creation reads `false` as disabled, which leaves a mixed state.
   ```
 
 - **Class:** C0. The general boolean trap is owned by `config-and-flags`.
@@ -409,7 +421,8 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
 - **Truth (VERIFIED):**
   - Gitlinks move only in a release bump PR (change-control N1). Example: the v1.53.0 bump is
     `ba292b6` "Bump version to v1.53.0 (#792)".
-  - Pushing to `main` bypasses review (change-control N2).
+  - Pushing straight to `main` skips the PR flow every change uses (change-control section 1; the
+    gitlink case is change-control N1).
   - An accidental gitlink move shipped once already: `12b8101`, reverted by `647de3e` (#620).
   <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
 - **Corrected text:**
@@ -419,8 +432,8 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
 
   The `api` and `front` pointers move only in a release bump PR. To try another lago-api commit
   locally, check it out inside `api/` and do not commit the umbrella repo. Before any commit here,
-  run `git diff --cached --submodule`; if `api` or `front` shows up, unstage it with
-  `git restore --staged api front`.
+  run `git diff --cached --submodule=short --ignore-submodules=none -- api front`; if it prints
+  anything, unstage it with `git restore --staged api front`.
   ```
 
 - **Class:** C0. Release mechanics: `release-and-images`.
@@ -523,13 +536,17 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
   "Timeout: 25 seconds" / "Jobs timeout after 25 seconds" (`:66,132`) next to "Jobs do not have
   execution timeout" (`:163`). Only `:146-148` is right.
 - **Truth (VERIFIED):**
-  - Sidekiq-level retries are 0: `config[:max_retries] = 0` (`$API/config/initializers/sidekiq.rb:70`)
-    and `sidekiq_options retry: 0` (`$API/app/jobs/application_job.rb:4`).
+  - Sidekiq-level retries are set to 0 in two places: `config[:max_retries] = 0`
+    (`$API/config/initializers/sidekiq.rb:70`) and `sidekiq_options retry: 0`
+    (`$API/app/jobs/application_job.rb:4`). The queue YAML files say otherwise (`retry: 1`, below).
   - ActiveJob retries `RetriableError` with `wait: :polynomially_longer, attempts: 20`
     (`application_job.rb:11`). Jobs add their own `retry_on` (e.g.
     `$API/app/jobs/customers/refresh_wallet_job.rb:16`).
   - `timeout: 25` sits in `$API/config/sidekiq/sidekiq.yml:2`. In Sidekiq that key is the shutdown
-    grace period. That meaning is UNVERIFIED for the pinned Sidekiq version.
+    grace period: the pin locks sidekiq 7.3.10 (`$API/Gemfile.lock:933`), whose
+    `lib/sidekiq/launcher.rb:58` sets the stop deadline from `@config[:timeout]` and whose
+    `lib/sidekiq/cli.rb:370` documents `--timeout` as "Shutdown timeout" (sidekiq tag `v7.3.10`,
+    read 2026-10-01).
   - `retry: 1` sits at `$API/config/sidekiq/sidekiq.yml:3` (and line 3 of all 12
     `config/sidekiq/sidekiq*.yml`). It is the likely source of the doc's "Retry: 1 attempt". Whether
     that YAML key changes anything for jobs that inherit `sidekiq_options retry: 0` is UNVERIFIED
@@ -538,9 +555,10 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
 - **Corrected text:**
 
   ```markdown
-  - **Retry**: Sidekiq retries are off (`config[:max_retries] = 0`, `sidekiq_options retry: 0`). Retries
-    come from ActiveJob: `ApplicationJob` retries `RetriableError` up to 20 attempts with polynomially
-    growing waits, and individual jobs declare their own `retry_on`. Other failures are not retried.
+  - **Retry**: `ApplicationJob` sets `sidekiq_options retry: 0` and the server sets `max_retries = 0`;
+    the queue YAML files also carry `retry: 1`, whose effect on these jobs is unverified. Retries that
+    are certain come from ActiveJob: `ApplicationJob` retries `RetriableError` up to 20 attempts with
+    polynomially growing waits, and individual jobs declare their own `retry_on`.
   - **Timeout**: no per-job execution timeout. `timeout: 25` in `config/sidekiq/*.yml` is the shutdown
     grace period.
   ```
@@ -650,9 +668,9 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
   - In a throwaway database, step 5 fails: `ERROR: INSERT has more expressions than target columns`.
   <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
 - **Corrected text:**
-  - In step 3, add these three lines before `PRIMARY KEY`:
+  - In step 3, add these three lines right after the `enriched_at ...,` line:
     `operation_type character varying,`, `precise_total_amount_cents numeric(40,15),`,
-    `target_wallet_code character varying,`.
+    `target_wallet_code character varying,`. (SC-42 removes the `PRIMARY KEY` line that follows.)
   - Replace step 5 with:
 
     ```sql
@@ -712,7 +730,8 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
   private repository. The events-processor exposes no metrics endpoint (tracing only).
   ```
 
-- **Class:** C0. `/sidekiq` exposure is a security topic (`security-and-supply-chain`).
+- **Class:** C0. `/sidekiq` exposure is a security topic (`security-and-supply-chain`; the
+  `LAGO_SIDEKIQ_WEB` default for self-hosts is OPEN DECISION OD-16, owner).
   <!-- evidence-check: on -->
 
 ### SC-30 `deploy/README.md:21-165,92-95`: `--profile` placement
@@ -774,10 +793,10 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
 - **Class:** C0.
   <!-- evidence-check: on -->
 
-### SC-33 `connectors/README.md:7-22,49-65`: event format
+### SC-33 `connectors/README.md:7-22,50-68`: event format
 
-- **Claim** (`connectors/README.md:7-22,49-65`): the event JSON has numeric `"precise_total_amount_cents": 1000` (`:20`) and no
-  `organization_id`. The Kinesis variable table (`:49-65`) has no `ORGANIZATION_ID`.
+- **Claim** (`connectors/README.md:7-22,50-68`): the event JSON has numeric `"precise_total_amount_cents": 1000` (`:20`) and no
+  `organization_id`. The Kinesis variable table (`:54-68`) has no `ORGANIZATION_ID`.
 - **Truth (VERIFIED by reading):**
   - All three connectors share one mapping (`connectors/http.yml:32-36`, `sqs.yml:34-38`,
     `kinesis.yml:38-42`). It forwards a number unchanged and turns anything else (including a
@@ -791,12 +810,15 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
   <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
 - **Corrected text:**
   - Add `"organization_id": "<lago organization id>"` (HTTP connector only) to the example.
+    Whether the HTTP connector may trust a client-supplied `organization_id` is OPEN DECISION OD-17
+    (owner; `security-and-supply-chain`).
   - Add `|ORGANIZATION_ID|Lago organization ID|Yes|` to the Kinesis table.
   - Replace the `precise_total_amount_cents` comment with: "Do not send `precise_total_amount_cents`
     through the connectors yet: a number makes the events-processor drop the event, and a string is
     replaced by `"0"`."
-- **Class:** C0 for the doc. The mapping fix is C4 (`connectors/*.yml` mappings are a contract, see
-  `change-control`), owned by `event-accounting-campaign` / `rails-go-parity`.
+- **Class:** C0 for the doc. There is no value-preserving workaround through the connectors today.
+  The mapping fix is C4 (`connectors/*.yml` mappings are a contract, see `change-control`), owned by
+  `event-accounting-campaign` (W2, value fidelity) with `rails-go-parity`.
   <!-- evidence-check: on -->
 
 ### SC-34 `.env.development.default:3` (and `README.md:106`): `mcp-server`
@@ -876,8 +898,120 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
   `2146a18` and `4955f79` (August 2026).
   <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
 - **Corrected text:** none possible (history is immutable, change-control N2). Never repeat the
-  claim. Cite this entry instead.
+  claim. Cite this entry instead. Whether the account id may stay in public workflows is OPEN
+  DECISION OD-18 (owner; `security-and-supply-chain`).
 - **Class:** n/a. The check prints `KNOWN`.
+  <!-- evidence-check: on -->
+
+### SC-39 `docs/dev_environment.md:288-302`: Mailpit vs lago-api's `mailhog`
+
+- **Claim** (`docs/dev_environment.md:288-302`): "We rely on Mailpit to test emails locally"; start it with
+  `lago up -d --wait mailpit`. The note at `:300-302` says a send fails "while Mailpit is not
+  running", which implies mail is delivered once it runs.
+- **Truth (VERIFIED 2026-10-01 by reading config; runtime not runnable in a daemon-less sandbox):**
+  - lago-api in development sends mail over SMTP to host `mailhog`, port 1025, and raises delivery
+    errors (`$API/config/environments/development.rb:68-73`).
+  - The dev stack's mail service is `mailpit` (`docker-compose.dev.yml:354-366`), with no `mailhog`
+    alias: `docker compose -f docker-compose.dev.yml --profile mailpit config mailpit` shows only
+    `networks: default: null`, and `grep -rn mailhog docker-compose*.yml .env.development.default`
+    prints nothing.
+  - `8f8334e` (#777, 2026-09-03) replaced Mailhog with Mailpit in this repo only. lago-api at the
+    pin `591ae90` (2026-09-08) still names `mailhog`, and so does lago-api main `b5500bc`
+    (`config/environments/development.rb:71`, read 2026-10-01). So sends fail with a delivery
+    error even while Mailpit runs (inferred from the config above).
+  <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
+- **Corrected text** (after the note at `:300-302`, until the fix lands):
+
+  ```markdown
+  > [!WARNING]
+  > lago-api (development) sends mail to the SMTP host `mailhog` on port 1025
+  > (`api/config/environments/development.rb`). This stack's service is called `mailpit` and has no
+  > `mailhog` alias, so emails fail even while Mailpit runs.
+  ```
+
+- **Class:** C0 for the note. The fix is either a `mailhog` network alias on the `mailpit` service
+  (C6; CANDIDATE: it assumes Mailpit's default SMTP port 1025, not checked here) or a lago-api PR
+  that changes the host (then a release bump moves the pin). After the fix, the check turns
+  RECHECK: replace the warning, do not keep it.
+  <!-- evidence-check: on -->
+
+### SC-40 `connectors/README.md:31`: `LOG_LEVEL`
+
+- **Claim** (`connectors/README.md:31`): `|LOG_LEVEL|Log level for your connector, default: info|No|`.
+- **Truth (VERIFIED 2026-10-01):**
+  - No connector config reads it: `grep -rn 'LOG_LEVEL\|logger' connectors/*.yml connectors/Dockerfile`
+    prints nothing. The image is `redpandadata/connect:4.83.0` with the YAML files copied in and no
+    command override (`connectors/Dockerfile:6-8`).
+  - Redpanda Connect's `--log.level` flag has no environment binding (redpanda-data/benthos
+    `internal/cli/common/run_flags.go`, `RootFlagLogLevel`, at `cd2c3eb` on main, 2026-09-30; the
+    benthos version inside connect 4.83.0 was not checked). The level is the default `info`
+    whatever `LOG_LEVEL` says.
+  <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
+- **Corrected text:** delete the `LOG_LEVEL` row and the then-empty "Configuration" table. To make
+  it real instead, add `logger: {level: "${LOG_LEVEL:INFO}"}` to each `connectors/*.yml`
+  (CANDIDATE, not run here; classify that config change with `change-control`).
+- **Class:** C0.
+  <!-- evidence-check: on -->
+
+### SC-41 `README.md:190`: "Observable operation"
+
+- **Claim** (`README.md:190`): "Lago exposes Prometheus metrics for APIs, queues, workers, events, billing, webhooks,
+  and dependencies."
+- **Truth (VERIFIED at the pin `591ae90`):**
+  - lago-api always mounts Yabeda at `/metrics` (`$API/config/routes.rb:10`) with yabeda-rails and
+    the Puma plugin (`$API/Gemfile:88-91`, `$API/config/puma.rb:71`). It defines no custom metrics:
+    `grep -rln 'Yabeda\.' "$API/app" "$API/lib" "$API/config"` lists only
+    `config/initializers/yabeda.rb`, which sets default tags.
+  - Queue and worker metrics (sidekiq-prometheus-exporter) are mounted only with
+    `LAGO_SIDEKIQ_WEB=true`, which also exposes the Sidekiq Web UI (`$API/config/routes.rb:4-7`;
+    exposure: `security-and-supply-chain`).
+  - The events-processor exposes no metrics endpoint:
+    `grep -rnE 'ListenAndServe|promhttp' events-processor --include=*.go` prints nothing.
+  - No exporter for events, billing, webhooks or dependencies exists in this repo or in lago-api at
+    the pin. The private `lago-sidekiqs` service (SC-29) is UNVERIFIED.
+  <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
+- **Corrected text:**
+
+  ```markdown
+  - **Observable operation.** Lago exposes Prometheus metrics for HTTP requests and Puma at `/metrics`, and Sidekiq queue and worker metrics when `LAGO_SIDEKIQ_WEB=true`. [Review monitoring](./docs/monitoring.md).
+  ```
+
+- **Class:** C0. `README.md` is product copy (MKT), but it must not promise metrics that do not
+  exist. Keep it in step with SC-29.
+  <!-- evidence-check: on -->
+
+### SC-42 `docs/database_partitioning.md:75,81-95`: index names and primary key
+
+- **Claim** (`docs/database_partitioning.md:75,81-95`): step 3 creates the partitioned table with `PRIMARY KEY (id, "timestamp")`
+  (`:75`). Step 4 (`:81-95`) creates `idx_billing_on_enriched_events`,
+  `idx_lookup_on_enriched_events`, `idx_unique_on_enriched_events` and
+  `index_enriched_events_on_event_id` on it.
+- **Truth (VERIFIED 2026-10-01):**
+  - Step 2 only renames the table, and its indexes keep their names. The migration that creates the
+    unpartitioned table uses exactly those four names
+    (`$API/db/migrate/20260109110146_create_enriched_events.rb:16,31-33`; `index: true` on
+    `event_id` gives `index_enriched_events_on_event_id`).
+  - In a throwaway database (`diagnostics-and-tooling` `scratch-pg.sh`: the unpartitioned 18-column
+    table with those four indexes, then doc steps 2-4 verbatim), step 4 fails with
+    `ERROR:  relation "idx_billing_on_enriched_events" already exists`.
+  - The schema has no primary key on `enriched_events`:
+    `grep -n 'enriched_events_pkey\|enriched_events.*PRIMARY KEY' "$API/db/structure.sql"` prints
+    nothing (the migration passes `id: false`). Step 3 builds a table that differs from the one
+    migrations create.
+  - `run-and-operate` records the same defects as PD4 and PD5 and keeps a full corrected
+    conversion block (its `reference/partitioning.md`, section 3).
+  <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
+- **Corrected text:**
+  - Step 2: after the `ALTER TABLE ... RENAME`, add
+    `DROP INDEX IF EXISTS public.idx_billing_on_enriched_events, public.idx_lookup_on_enriched_events, public.idx_unique_on_enriched_events, public.index_enriched_events_on_event_id;`
+    and say: "Run steps 2 to 6 in one transaction (`BEGIN;` ... `COMMIT;`), so a failure leaves the
+    old table and its indexes as they were."
+  - Step 3: delete the `PRIMARY KEY (id, "timestamp")` line and the comma that ends the line
+    before it.
+  - VERIFIED: steps 2-6 with this edit and the SC-27 edits, in one transaction, migrated a row into
+    a throwaway database: 1 row (with `precise_total_amount_cents`), 4 indexes on the new
+    partitioned table, no primary key (2026-10-01).
+- **Class:** C0.
   <!-- evidence-check: on -->
 
 ## Minor doc defects (verified, not scripted)

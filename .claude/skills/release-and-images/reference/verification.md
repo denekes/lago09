@@ -68,6 +68,7 @@ tag, unless the image was rebuilt by dispatch" (see `release-history.md` §5).
 | `artifact-verify.sh v1.53.0` | 9 OK lines (4 Docker Hub, 2 `latest == v1.53.0`, 3 GHCR amd64), `# problems=0`, exit 0 |
 | `artifact-verify.sh v1.48.0` | `MISS  docker.io/getlago/lago:v1.48.0  (Docker Hub 404)`, `# problems=1`, exit 1 |
 | `artifact-verify.sh v1.40.1` | 4 OK, 2 INFO (`latest` != v1.40.1), `SKIP` GHCR, exit 0 |
+| `artifact-verify.sh v1.54.0` (not tagged yet) | `INFO  github.com/getlago/lago has no tag v1.54.0 yet: …`, 4 MISS Docker Hub, 2 INFO `latest`, 3 MISS GHCR, `# problems=7`, exit 1 (= not released, not a failed release) |
 | `artifact-verify.sh --sweep` (from v1.44.0) | 14 rows; `-` only in the `hub:lago` column for v1.48.0, v1.49.0, v1.50.0; `# releases=14 with-missing-artifacts=3`, exit 1 |
 | `artifact-verify.sh --sweep --from v1.32.0 --no-ghcr` | missing: `hub:lago` v1.33.0-2 and v1.48.0-v1.50.0; `hub:lago-events-processor` v1.41.2; `hub:front` v1.41.1-3; `# releases=40 with-missing-artifacts=9`, exit 1 |
 | `artifact-verify.sh --sweep --from v1.0.0 --no-ghcr` | same 9 rows (`.` = not expected: `getlago/lago` before v1.21.0, `lago-events-processor` before v1.32.0); `# releases=99 with-missing-artifacts=9`, exit 1 |
@@ -85,7 +86,7 @@ count of rows to grow by one with the same 3 known gaps.
 
 | Question | Why invisible | Where the answer lives |
 |---|---|---|
-| Did a workflow run fail, who dispatched it, with which ref? | no GitHub API access to getlago/* (`api.github.com` answers 403 "not enabled for this session"; `gh` token invalid) | Actions tab of getlago/lago (owner) |
+| Did a workflow run fail, who dispatched it, with which ref? | no GitHub API access to getlago/* by default: `gh api repos/getlago/lago/releases/tags/v1.53.0` -> HTTP 403 "GitHub access to this repository is not enabled for this session. Use add_repo to request access" (2026-10-01). In a Claude Code cloud session, ask the session owner to attach getlago/lago (read; `push` for API access) with add_repo, then re-run | Actions tab of getlago/lago (owner) |
 | GitHub Release objects (draft/pre-release flags, notes, author) | same; `releases.atom` also 403 | Releases page |
 | ECR images (`lago-events-processor`, `lago-connectors`) | private AWS account | AWS console / lago-deploy |
 | lago-deploy's staging workflow and manifests | private repo | owner |

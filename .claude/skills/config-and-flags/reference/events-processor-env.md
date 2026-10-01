@@ -1,7 +1,7 @@
 # events-processor environment variables (complete registry)
 
-Facts verified 2026-10-01 against the events-processor tree of HEAD 5308258 (unchanged in the skills-only
-commit on top of it). Every row was re-read in code; rows marked "probe" were also executed (scratch
+Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits
+on top. Verified 2026-10-01: every row was re-read in code; rows marked "probe" were also executed (scratch
 programs against the real `utils` / `config/redis` packages, or the built binary under `env -i`).
 
 Re-derive the list at any time:
@@ -71,24 +71,23 @@ Third-party libraries read their own variables too: pgx `PG*` (probe-verified fo
 `DATABASE_URL`), sentry-go `SENTRY_*`, dd-trace-go `DD_*`, OpenTelemetry SDK `OTEL_*`. Those beyond the
 rows above are UNVERIFIED (not enumerated).
 
-## 3. Startup contract (fail-fast order)
+## 3. Startup checks (order of checks; only partially fail-fast)
 
-Verified by reading `processors/main_processor.go:102-183` and by running the binary built to scratch
-under `env -i` (outputs abridged: the JSON log lines also carry `time` and `"service":"post_process"`;
-exit code 2 in every row). Reproduce (needs `source .claude/skills/build-and-env/scripts/ep-env.sh` first):
-`T=$(mktemp -d); (cd events-processor && go build -o "$T/ep" .); env -i LD_LIBRARY_PATH="$LD_LIBRARY_PATH" "$T/ep"`.
+The startup order, panic texts and captured outputs belong to `architecture-contract` section 2 (invariant I14
+is PARTIAL; reproduce with its `startup-contract.sh`); symptom -> fix is `debugging-playbook` section 2. The config
+view (binary built to scratch and run under `env -i`; exit code 2 = Go panic):
 
-| Env present | First failure |
-|---|---|
-| nothing | `{"level":"ERROR","msg":"brokers not found"}` then `panic: brokers not found` |
-| `LAGO_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:1` | `panic: LAGO_KAFKA_ENRICHED_EVENTS_TOPIC variable is required` |
-| `LAGO_KAFKA_BOOTSTRAP_SERVERS=" "` | same as above (`" "` passes the broker check) |
-| + `LAGO_KAFKA_ENRICHED_EVENTS_TOPIC=x LAGO_KAFKA_SCRAM_ALGORITHM=sha512` | `panic: runtime error: invalid memory address or nil pointer dereference` … `kgo.validateCfg` |
+| Variable | Checked at startup | First failure |
+|---|---|---|
+| `LAGO_KAFKA_BOOTSTRAP_SERVERS` | empty only (`" "` passes, section 1) | `{"level":"ERROR","msg":"brokers not found"}` then `panic: brokers not found` (plain `panic`, no Sentry event; `processors/main_processor.go:103-107`) |
+| `LAGO_KAFKA_ENRICHED_EVENTS_TOPIC`, `..._EVENTS_CHARGED_IN_ADVANCE_TOPIC`, `..._EVENTS_DEAD_LETTER_TOPIC` | empty, in that order | `panic: <VAR> variable is required` (`main_processor.go:55-58,118-131`) |
+| `LAGO_KAFKA_SCRAM_ALGORITHM` | no | any value other than `SCRAM-SHA-256`/`-512`: SIGSEGV in `kgo.validateCfg`, no log line, no Sentry (`config/kafka/kafka.go:48-64`) |
+| `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS`, `LAGO_REDIS_STORE_DB` | integer parse | panic `Error converting max connections into integer` / `Error connecting to the flag store` (`main_processor.go:134-137`, `:78-82,152-156`) |
 
-Order after that: in-advance producer, DLQ producer (each `Ping`s), DB pool (DB mode only), Redis flag
-store (`Ping`), consumer group (`Ping`). In cache mode the snapshot + CDC consumers start first
-(`main.go:67-80`). The full narrative and a reusable probe belong to `architecture-contract`
-(startup contract) and `diagnostics-and-tooling` (binary smoke).
+Not checked: `LAGO_KAFKA_RAW_EVENTS_TOPIC`, `LAGO_KAFKA_CONSUMER_GROUP`, `LAGO_DEBEZIUM_TOPIC_PREFIX` (empty
+accepted; `main_processor.go:168-172`, `main.go:70`); cache-snapshot errors are swallowed (`main.go:77`, no return value);
+`brokers not found` and the SCRAM SIGSEGV reach no Sentry. In cache mode the snapshot + CDC consumers start
+before any Kafka check (`main.go:67-80`).
 
 ## 4. Running the binary on the host against the dev stack (not runnable here: no Docker daemon)
 
@@ -113,6 +112,6 @@ against a live stack is UNVERIFIED here. Build/CGO env: see `build-and-env`.
 | `f277b44` (2025-03-21, #495) | added `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNEXIONS` | — |
 | `7421650` (2025-04-07, #500) | renamed it to `..._CONNECTIONS` with no fallback; added `LAGO_REDIS_STORE_*` (and moved the `api` gitlink in the same commit, see change-control N1) | a rename silently drops every deployed setting |
 | `a918f60` (2025-10-29, #613) | `LAGO_REDIS_STORE_TLS` replaces `ENV==production` (kept as default) | keep the old behaviour as the default when replacing a coupling |
-| `475761d`, `1f2d36e` (2025-11, #633, #641) | Datadog tracing vars + `KAFKA_TRACING_ENABLED` added in Go only | README and DEF were not updated. The same pattern of skipping DEF (also `a918f60`, `fff5858`, which did update the README) is why 14 EP reads are absent from DEF today (`env-crossref.sh` gap G1) |
+| `475761d`, `1f2d36e` (2025-11, #633, #641) | Datadog tracing vars + `KAFKA_TRACING_ENABLED` added in Go only | README and DEF were not updated. The same pattern of skipping DEF (also `a918f60`, `fff5858`, which did update the README) is why 14 EP reads are absent from DEF today (`env-crossref.sh` gap GAP1) |
 | `fff5858` (2026-04-27, #639) | `LAGO_USE_MEMORY_CACHE`, `LAGO_DEBEZIUM_TOPIC_PREFIX` | experimental mode never wired into DEF or compose |
 | `2fd8e8b` (2026-09-14, #766) | last reader of `LAGO_REDIS_CACHE_*` removed | constants and README rows left behind (DEAD) |

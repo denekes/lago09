@@ -9,17 +9,24 @@ git -C "$H" rev-list --count HEAD                                    # 776 (fork
 ```
 
 Narratives of incidents and chains belong to the `failure-archaeology` skill. This file is the
-**method**.
+**method**: the generic recipes live here, `failure-archaeology` keeps only its own gotchas.
+
+Commands that contain a shell pipe are in fenced blocks, never in table cells: in a Markdown table a
+pipe has to be written `\|`, and a shell that receives `\|` passes it on as a literal argument.
 
 ## 0. The shallow-clone trap (check first, every session)
 
 | Check | Output here | Meaning |
 |---|---|---|
 | `git rev-parse --is-shallow-repository` | `true` | The working clone lacks history. |
-| `git rev-list --count HEAD` | `58` (57 before the skills commit `08065ef`) | vs 776 in `H` |
+| `git rev-list --count 5308258` | `57` (count the code commit: HEAD's count grows with every skills-only commit on the working branch) | vs 776 in `H` |
 | `cat .git/shallow` | `8ceca4b…` | the history boundary (2026-05) |
-| `git blame -s events-processor/config/kafka/consumer.go \| awk '{print $1}' \| sort -u` | `^8ceca4b` (all 308 lines) | Blame in the shallow clone is useless. |
+| blame in the working clone (block below) | `^8ceca4b` (all 308 lines) | Blame in the shallow clone is useless. |
 | `git -C "$H" blame -s -L 97,97 5308258 -- events-processor/config/kafka/consumer.go` | `9acd83e8 97) // Skip the commit; …` | Use `H` for blame. |
+
+```bash
+git blame -s events-processor/config/kafka/consumer.go | awk '{print $1}' | sort -u    # ^8ceca4b only
+```
 
 Never conclude "this never happened" or "nobody touched this" from the working clone. Never deepen
 the working clone (no `git fetch --unshallow` in the repo; change-control N10); use `H`.
@@ -28,21 +35,23 @@ the working clone (no `git fetch --unshallow` in the repo; change-control N10); 
 
 The service lived in `events_processor/` until `d5bce86` (2025-03-21).
 
-| Command | Output |
-|---|---|
-| `git -C "$H" log --format=%h -- events-processor \| wc -l` | 88 |
-| `git -C "$H" log --format=%h -- events-processor events_processor \| wc -l` | 96 |
-| `git -C "$H" log --format='%h %ad %s' --date=short -- events-processor/main.go \| tail -1` | `d5bce86 2025-03-21 misc: Align go module name…` |
-| same with `--follow` | `4100da0 2025-03-11 feat(events): Add events post-processor (#474)` |
+```bash
+git -C "$H" log --format=%h -- events-processor | wc -l                                   # 88
+git -C "$H" log --format=%h -- events-processor events_processor | wc -l                  # 96
+git -C "$H" log --format='%h %ad %s' --date=short -- events-processor/main.go | tail -1    # d5bce86 2025-03-21 misc: Align go module name…
+git -C "$H" log --follow --format='%h %ad %s' --date=short -- events-processor/main.go | tail -1   # 4100da0 2025-03-11 feat(events): Add events post-processor (#474)
+```
 
-`--follow` works for one file only. For directories, list both names. Other moves:
-`.env.development.example` became `.env.development.default` in `84b6eef`.
+- `--follow` works for one file only. For directories, list both names.
+- `--follow --reverse` prints a single commit (1 instead of 10 for `events-processor/main.go`). Reverse with `| tac` instead.
+- At commits before `d5bce86`, `git show <sha>:<path>` and `git ls-tree` need the old path: `git -C "$H" show 4100da0:events_processor/main.go` works; `4100da0:events-processor/main.go` exits 128.
+- Other moves: `.env.development.example` became `.env.development.default` in `84b6eef`.
 
 ## 2. Pickaxe: `-S` (occurrence count changed) vs `-G` (a diff line matches a regex)
 
 | Question | Command | Output |
 |---|---|---|
-| When did a literal enter or leave? | `git -C "$H" log -S'201661579678' --format='%h %ad %s' --date=short` | `4955f79 2026-08-25`, `2146a18 2026-08-24` |
+| When did a literal enter or leave? | `git -C "$H" log -S'subscription_refreshed_v2' --format='%h %ad %s' --date=short` | `42615c9 2026-03-27 fix(subscription): Fix flagging for refresh (#720)` |
 | When did a typo get fixed? | `git -C "$H" log -S'events_processors' --format='%h %ad %s' --date=short -- docker-compose.dev.yml` | `aecb8be` (#482), `4100da0` |
 | A value set or cleared (regex), across a rename | `git -C "$H" log -G'^LAGO_LICENSE=.' --format='%h %ad %s' --date=short -- .env.development.default .env.development.example` | `6dd7e56` (removed), `16c8b68` (added). Count lines, never print the value (change-control N11). |
 | Every commit that touched the expanded topic env | `git -C "$H" log -G'LAGO_KAFKA_ENRICHED_EVENTS_EXPANDED_TOPIC' --format='%h %ad %s' --date=short -- events-processor` | `d9c32b6`, `264beb5`, `9a64eb2`, `3dae52f` |
@@ -71,6 +80,9 @@ Then read each step: `git -C "$H" show --stat <sha>`, then `git -C "$H" show <sh
 Deleted files: `git -C "$H" log --diff-filter=D --format='%h %ad %s' --date=short -- 'events-processor/models/flat_filters*.go'`
 gives `d9c32b6`.
 
+Removals here are forward commits, not `git revert`: `git -C "$H" log -i --grep=revert --format=%h -- events-processor events_processor`
+gives nothing. Search removals with `--diff-filter=D`, `-S` or `-G`, never with `--grep=revert`.
+
 ## 4. Tags (the default history clone has none)
 
 - `git -C "$H" tag | wc -l` gives 0, because `H` is cloned from the fork remote. The fork has 0 tags; upstream has 195.
@@ -82,12 +94,16 @@ gives `d9c32b6`.
 
 ## 5. PR numbers, merge style, tickets
 
-| Fact | Command | Output |
-|---|---|---|
-| Squash merges carry `(#NNN)` | `git -C "$H" log --since=2025-01-01 --no-merges --format=%s \| grep -cE '\(#[0-9]+\)$'` | 216 of 293 |
-| True merge commits | `git -C "$H" log --merges --since=2025-01-01 --format=%s \| head -2` | 48 total, e.g. `Merge pull request #782 from getlago/misc-v-52-0` |
-| PR number to sha | `git -C "$H" log --format='%h %s' \| grep -E '\(#797\)$'` | `d9c32b6 misc(events-processor): Remove flat filters…` |
-| Ticket ids (private tracker) | `git -C "$H" log --format='%s%n%b' \| grep -oE '\b(ING\|INF)-[0-9]+' \| sort -u` | INF-366 INF-395 ING-123 ING-143 ING-15 ING-543 |
+```bash
+# squash merges carry (#NNN): 216 of 293 non-merge commits since 2025
+git -C "$H" log --since=2025-01-01 --no-merges --format=%s | grep -cE '\(#[0-9]+\)$'    # 216
+# true merge commits: 48 since 2025, e.g. "Merge pull request #782 from getlago/misc-v-52-0"
+git -C "$H" log --merges --since=2025-01-01 --format=%s | head -2
+# PR number to sha
+git -C "$H" log --format='%h %s' | grep -E '\(#797\)$'          # d9c32b6 misc(events-processor): Remove flat filters…
+# ticket ids (private tracker)
+git -C "$H" log --format='%s%n%b' | grep -oE '\b(ING|INF)-[0-9]+' | sort -u   # INF-366 INF-395 ING-123 ING-143 ING-15 ING-543
+```
 
 - PR pages are not reachable from this session: `curl -s -o /dev/null -w '%{http_code}' https://api.github.com/repos/getlago/lago/pulls/797` gives 403 (see `registry-probing.md`).
 - For squash merges, the commit body is the PR description: `git -C "$H" show -s d9c32b6`.

@@ -1,8 +1,9 @@
 # Toolchain and version matrix (per context)
 
 Read when you bump a toolchain, see different `go version` / Postgres / Node output in two places,
-or need to know which version a given context really uses. All values VERIFIED 2026-10-01 against
-code at `5308258` unless marked. `$API` / `$FRONT` = pinned checkouts from
+or need to know which version a given context really uses. Code facts as of `5308258`
+(events-processor tree `83e012866f29`); the working branch may carry skills-only commits on top.
+All values VERIFIED 2026-10-01 unless marked. `$API` / `$FRONT` = pinned checkouts from
 `.claude/skills/research-methodology/scripts/pinned-checkout.sh api|front`.
 
 Changing any pin below is change class C5 (release/pins/images/CI) and falls under change-control N3:
@@ -52,8 +53,12 @@ Verified facts behind the "v0.1.4 wrapper + v0.2.0 lib" split (do NOT "fix" go.m
 - `git diff --stat expression-go/v0.1.4 v0.2.0 -- expression-go/` (in a lago-expression clone) shows only
   `expression-go/Cargo.toml | 2 +-`; the `.go`/`.h` diff is 0 lines, so the cgo ABI is identical.
   `nm -D libexpression_go.so` shows `T evaluate` and `T free_evaluate`.
-- Rails and Go evaluate with the same Rust core: `git diff --stat v0.2.0 2abd2b3 -- expression-core` is
-  empty and `v0.2.0` is an ancestor of `2abd2b3`.
+- Rails and Go compile the same expression-core SOURCE (`git diff --stat v0.2.0 2abd2b3 -- expression-core`
+  is empty; `v0.2.0` is an ancestor of `2abd2b3`), but with different dependency locks (`Cargo.lock`:
+  `pest` 2.7.13 -> 2.8.5, `bigdecimal` 0.4.6 -> 0.4.10) and a committed prebuilt Ruby `.so`
+  (`expression-ruby/lib/lago_expression/lago_expression.so`, 706,776 bytes, added after v0.2.0).
+  Behavioural parity is UNVERIFIED (rails-go-parity P14). Checked 2026-10-01 in a blob-less clone of
+  getlago/lago-expression.
 - The wrapper links with `// #cgo LDFLAGS: -lexpression_go` and no `-L` (lago-expression@v0.2.0
   `expression-go/expression.go:3`), hence `CGO_LDFLAGS` locally.
 - The Rust image is part of the pin set: `5077151` bumped the ref to v0.2.0 in 3 files while
@@ -111,8 +116,11 @@ For a local ClickHouse to probe SQL semantics, see the `diagnostics-and-tooling`
 | lago-api images | `ruby:4.0.6-slim`, bundler `4.0.19`; `Dockerfile.dev` sets `BUNDLER_VERSION='4.0.19'` but installs `4.0.4` | `$API/Dockerfile:10,23,25`, `$API/Dockerfile.dev:22,30` |
 | lago-api pdfcpu build stage | `golang:1.26.6` | `$API/Dockerfile:2,4` |
 
-`pnpm@latest` is not hypothetical: `18b26d0` (#617) fixed a v1.35.0 all-in-one build failure
-(`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`) that its commit body attributes to a pnpm version update (pnpm/pnpm#9966).
+`pnpm@latest` (`docker/Dockerfile:12`): the v1.35.0 all-in-one build failed in the
+`corepack prepare pnpm@latest` / `pnpm prune` step (`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`, fixed
+by `18b26d0`, #617, whose body blames a pnpm update, pnpm/pnpm#9966). Which pnpm actually ran is
+UNVERIFIED: lago-front pins `"packageManager": "pnpm@10.34.5"` (`$FRONT/package.json:11`), which makes
+`pnpm@latest` inert today; it stays a conditional risk if front drops `packageManager`.
 Building and publishing these images is the `release-and-images` skill.
 
 ## 6. Lint and other tools (not pinned in the repo)

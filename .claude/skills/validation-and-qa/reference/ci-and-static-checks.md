@@ -23,7 +23,7 @@ Of the 10 workflows, this is the only one with a `pull_request` trigger
 | Gap | Consequence | Local substitute |
 |---|---|---|
 | no golangci-lint, no config committed (OPEN DECISION OD-6 (owner)) | 21 issues today; new ones land silently | `scripts/baseline.sh`, `golangci-lint run --new-from-rev="$BASE"` |
-| no `-race` | concurrency regressions only show in production | `scripts/race-shuffle.sh` |
+| no `-race` | concurrency regressions only show in production | `scripts/race-shuffle.sh` (unit suite only: it never runs `processRecordsAndCommit`); for the consumer path `GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4` (`RESULT: PASS`) |
 | no coverage | coverage can fall to anything | `scripts/baseline.sh` (`cover.*` rows) |
 | no gofmt / explicit vet | `go test` runs only a small vet subset | `gofmt -l`, `go vet ./...` |
 | no shuffle / isolation | order-dependent tests stay hidden (`TestEvaluateExpression`) | `scripts/race-shuffle.sh --isolation` |
@@ -50,10 +50,10 @@ CANDIDATE (not run in CI; each step was run locally on 2026-10-01 with the resul
 
 | What | Command (repo root unless stated) | Result 2026-10-01 | Owner of details |
 |---|---|---|---|
-| go vet | `( cd events-processor && go vet ./... )` | exit 0, no output; works without the CGO env | here |
+| go vet | `go -C events-processor vet ./...` | exit 0, no output; works without the CGO env | here |
 | gofmt | `gofmt -l events-processor` | no output | here |
-| go mod tidy | `( cd events-processor && go mod tidy -diff )` | exit 0, empty | here |
-| golangci-lint v2.5.0 | `( source .claude/skills/build-and-env/scripts/ep-env.sh && cd events-processor && GOLANGCI_LINT_CACHE="$LAGO_SKILLS_CACHE/golangci-cache" golangci-lint run --allow-serial-runners ./... )` | `21 issues: errcheck: 16, staticcheck: 5`, exit 1 (without `--allow-serial-runners` a concurrent run exits 3: `parallel golangci-lint is running`) | here (`baselines.md` §3) |
+| go mod tidy | `go -C events-processor mod tidy -diff` | exit 0, empty | here |
+| golangci-lint v2.5.0 | `( cd events-processor && GOLANGCI_LINT_CACHE="${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/golangci-cache" golangci-lint run --allow-serial-runners ./... )` (no CGO env needed: verified with `env -u CGO_LDFLAGS -u LD_LIBRARY_PATH`) | `21 issues: errcheck: 16, staticcheck: 5`, exit 1 (without `--allow-serial-runners` a concurrent run exits 3: `parallel golangci-lint is running`) | here (`baselines.md` §3) |
 | workflow YAML parses | `python3 -c 'import yaml,sys;[yaml.safe_load(open(f)) for f in sys.argv[1:]]' .github/workflows/*` | prints nothing, exit 0 (10 files) | here |
 | actionlint | not installed in this sandbox | n/a | `release-and-images` (actionlint script) |
 | compose files | `docker compose -f docker-compose.dev.yml config --quiet` (no daemon needed) | exit 0; the root `docker-compose.yml` prints 25 "variable is not set" warnings and exits 0 | `run-and-operate` (compose matrix) |
@@ -68,7 +68,7 @@ CANDIDATE (not run in CI; each step was run locally on 2026-10-01 with the resul
 |---|---|---|
 | C0 docs/skills | nothing | the documented commands; `bash -n` + a run for skill scripts |
 | C1 tests | `go test -v ./...` if under `events-processor/` | `baseline.sh`, `race-shuffle.sh --isolation`, `sqlmock-strict.sh` |
-| C2/C3/C4 EP code | `go test -v ./...` | the C1 set + `fails-on-base.sh` (C3+) + kfake (C4) |
+| C2/C3/C4 EP code | `go test -v ./...` | the change-control N9 gate (validation-and-qa SKILL.md §3, REQUIRED steps) + the C1 set + `fails-on-base.sh` (C3+) + kfake test and one `GOFLAGS=-race` kfake run (C4) |
 | C5 workflows/pins | `go test -v ./...` only if a file under `events-processor/` changed | YAML parse, actionlint, pin-sync, full C2 set for bumps |
 | C6 compose/deploy | nothing | `docker compose -f <f> config --quiet`, `bash -n` |
 | C7 security | nothing | security-and-supply-chain scans, precommit-guard |

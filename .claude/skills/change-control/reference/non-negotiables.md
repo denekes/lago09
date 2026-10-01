@@ -1,7 +1,8 @@
 # Non-negotiables N1–N13: rule, why, incident, cost, check
 
 Read this when a gate fails, when someone asks "why is this rule here", or before you propose
-an exception. Every sha below was read in the full-history clone on 2026-10-01
+an exception. Code facts as of `5308258` (events-processor tree `83e012866f29`); the working
+branch may carry skills-only commits on top. Every sha below was read in the full-history clone on 2026-10-01
 (`H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`; `git -C "$H" show <sha>`).
 Dates are commit dates. "Body" means the commit message body. Where the message has no body,
 the cause is marked INFERRED or UNVERIFIED. The full narratives live in `failure-archaeology`.
@@ -24,7 +25,8 @@ Other skills cite these rules as "change-control N#".
   - `190aa81` (#596, 2025-09-18) moved front from `0a37bcf` (lago-front v1.33.4) back to
     `5a9f1a7` (v1.33.2). That is a downgrade, hidden in a connectors feature.
     Tags were mapped with `git ls-remote --tags https://github.com/getlago/lago-front`.
-  - Older case: `0ca6cdf` (#424, 2024-11-04), a topic-name fix, also moved the api pin.
+  - Older case: `0ca6cdf` (#424, 2024-11-04), titled "Fix dev events_raw topic" (it introduced
+    a per-service topic mismatch, N12), also moved the api pin.
 - **What it cost.**
   - The `12b8101` mistake took a second PR and a second review the same day.
   - The class keeps coming back. From 2025-01-01 to 2026-10-01, 77 commits moved a pin:
@@ -39,8 +41,9 @@ Other skills cite these rules as "change-control N#".
   - `diff.ignoreSubmodules=all` or `submodule.api.ignore=all` HIDE the ` M api` drift from
     `git status` and HIDE a staged move from `git diff --cached` (with or without
     `--submodule`/`--stat`). `git status` still lists a staged move as `M  api`.
-    Neither setting stops `git add -A`/`git add -u` from staging the move. This is why every
-    check here passes `--ignore-submodules=none`.
+    Neither setting stops `git add -A`/`git add -u` from staging the move. (`git commit -a`
+    skipped it under `diff.ignoreSubmodules=all` but staged it under
+    `submodule.api.ignore=all`.) This is why every check here passes `--ignore-submodules=none`.
 - **Doc conflict.** `docs/dev_environment.md:266-278` ("Updating a reference") tells you to move
   the pointer and `git push origin main`. Do not follow it. It contradicts N1, and in practice
   every pointer update since 2025 went through a PR. `docs-and-writing` tracks the correction.
@@ -76,19 +79,26 @@ Other skills cite these rules as "change-control N#".
     new enough for that ref.
   - **Go major.minor, 5 places:** `go.mod:3`, `mise.toml:2`, `Dockerfile:7`, `Dockerfile.dev:7`
     and the CI file at `:61`.
-  - **No floating tools:** no `@latest` in any Dockerfile, workflow or script.
+  - **No floating tools:** no `@latest` in any Dockerfile, workflow or script. Base images move
+    only at major.minor, together; patch drift is the accepted residual below.
   - **Do NOT "fix" `go.mod:10`** `expression-go v0.1.4`. No `expression-go/v0.2.0` tag exists
     (`git ls-remote --tags https://github.com/getlago/lago-expression`), and the wrapper is
     unchanged: between tags `expression-go/v0.1.4` and `v0.2.0` the only change under
     `expression-go/` is one line of `expression-go/Cargo.toml` (shallow fetch of both tags,
     `git diff --stat`, 2026-10-01). `build-and-env` documents this.
 - **Residual (as of 2026-10-01).**
-  - `docker/Dockerfile:12` still runs `corepack prepare pnpm@latest`. `18b26d0` (#617)
-    records that a pnpm update broke the v1.35.0 single-image build; the fix left `@latest`
-    in place.
+  - `docker/Dockerfile:12` still runs `corepack prepare pnpm@latest`. The v1.35.0 build failed
+    in the `corepack prepare pnpm@latest` / `pnpm prune` step (`18b26d0`, #617); which pnpm ran
+    is UNVERIFIED. lago-front pins `packageManager` to a pnpm version, which makes `pnpm@latest`
+    inert today; it stays a conditional risk if lago-front drops `packageManager`.
+  - Base images float at patch level: `golang:1.25` (the same digest as `golang:1.25.14` on
+    Docker Hub, as of 2026-10-01), `rust:1.85`, `debian:13-slim`. The shipped binary is built
+    with Go 1.25.14 while CI (`.github/workflows/events-processor-tests.yml:61`) and
+    `GOTOOLCHAIN` test 1.25.0. The pin set (PS2/PS3) is checked at the spelled value only.
+    Digest pins are a CANDIDATE (`security-and-supply-chain`, C5 + C7).
   - `events-processor/Dockerfile.staging:12-13` default to `:latest` base images
     (`precommit-guard.sh --commit 5308258` WARNs G3-latest-image on both).
-  - `pin-sync-check.sh` P5 covers only the events-processor Dockerfiles, and guard G3 flags
+  - `pin-sync-check.sh` PS5 covers only the events-processor Dockerfiles, and guard G3 flags
     only *added* lines, so neither reports these pre-existing cases.
 - **Incidents and cost.**
   - `07d1d4d` (#487, 2025-03-14, no body):
@@ -101,7 +111,7 @@ Other skills cite these rules as "change-control N#".
     existed then (`Dockerfile.staging` only arrived in `5308258`), but left the prod
     `Dockerfile` on `rust:1.82`. `e8bbd60` (#667, "Fix prod release", 16:23) moved
     `Dockerfile` to `rust:1.85` 81 minutes later. The exact build error is UNVERIFIED (no
-    body). `pin-sync-check.sh --rev 5077151` FAILs on P2.
+    body). `pin-sync-check.sh --rev 5077151` FAILs on PS2.
   - `d4e3665` (2026-01-08, no PR number, no body) added `git clone --tags`. INFERRED cause: a
     cached clone layer that predated the new tag.
   - `d589940` (#586, 2025-09-10): `air@latest` started requiring Go >= 1.25, and the dev
@@ -109,7 +119,7 @@ Other skills cite these rules as "change-control N#".
     `air@v1.62`.
   - `932c06c` (#724, dependabot, 2026-04-09 09:29) moved `go.mod` to `go 1.25.0` because of an
     otel bump. `50015b0` (#725, 10:19) realigned the two Dockerfiles and CI 50 minutes later.
-    `pin-sync-check.sh --rev 50015b0^` FAILs on P3.
+    `pin-sync-check.sh --rev 50015b0^` FAILs on PS3.
 - **Check.** `scripts/pin-sync-check.sh` checks the working tree. Use `--index` for staged
   changes and `--rev <sha>` for history. `precommit-guard.sh` runs it automatically whenever a
   pin file is touched.
@@ -121,7 +131,8 @@ Other skills cite these rules as "change-control N#".
     `Select(schema.DBNames)` or `StreamQueryConfig.SelectFields` both work.
   - Every query filters `deleted_at IS NULL` on soft-deletable (Discard) tables.
   - Every query filters `organization_id`.
-  - The sqlmock test pins the exact SQL text.
+  - The sqlmock test pins the exact SQL text, anchored (`"^" + regexp.QuoteMeta(sql) + "$"`):
+    the default matcher is an unanchored regexp, so a bare QuoteMeta pin is a "contains" pin.
 - **Incidents.**
   - `bd92069` (#634, 2025-11-18) removed a customers join. GORM then emitted `SELECT *` for
     `FetchSubscription`.
@@ -131,8 +142,9 @@ Other skills cite these rules as "change-control N#".
   - `3ac94a2` (#741, ING-143, 2026-05-21) applied the same fix to the `flat_filters` view.
   - `fff5858` (#639, 2026-04-27) swapped `gorm.DeletedAt` for `utils.NullTime`. That silently
     dropped GORM's soft-delete scope, so deleted billable metrics matched.
-  - `8ceca4b` (#740, 2026-05-15) added explicit `deleted_at IS NULL` and 101 test lines. The
-    bug sat on main for 18 days.
+  - `8ceca4b` (#740, 2026-05-15) added explicit `deleted_at IS NULL` and restored the 101-line
+    test file `fff5858` had deleted (it still pins `SELECT * FROM "billable_metrics"`). The bug
+    sat on main for 18 days.
   - `9ef876a` (#738, ING-123, 2026-05-18, no body) added the missing `organization_id` to
     `FetchFlatFilters`. Whether that was a tenant leak or a performance issue is
     UNVERIFIED: OPEN DECISION OD-9 (owner).
@@ -141,6 +153,9 @@ Other skills cite these rules as "change-control N#".
     (`events-processor/models/billable_metrics.go:59-66`).
   - Its tests pin that form: `models/billable_metrics_test.go:15` and
     `processors/events_processor/processor_test.go:91`.
+  - `HasPayInAdvanceCharge` (`events-processor/models/charges.go:47-66`) has no exact sqlmock pin,
+    only the wildcard `".* FROM \"charges\".*"` (`processors/events_processor/processor_test.go:108`).
+    A PR touching it adds an anchored QuoteMeta pin.
 - **Cross-repo corollary.** Explicit column lists mean a Rails column **drop** breaks Go. Follow
   the two-release drop rule in `$API/docs/dropping_columns_and_tables.md`: remove the column
   from the Go struct or select list in release N, before Rails drops it in N+1. See
@@ -150,10 +165,13 @@ Other skills cite these rules as "change-control N#".
   `subscriptions.go:42`. The last two are preceded by `Select(...)` at `:52` and `:37`.
   `architecture-contract` ships a fuller invariants grep.
 
-## N5. Per-record side effects use a per-record or background context, never the process context
+## N5. Per-record side effects never use the process (signal-cancelled) context
 
-- **Rule.** Redis writes and produces take the context of the record being processed. The
-  SIGTERM-cancelled process context is only for startup and connection setup.
+- **Rule.** Per-record side effects (Redis, produce) use the batch context that
+  `processRecordsAndCommit` creates (`context.Background()`,
+  `events-processor/config/kafka/consumer.go:83`) and passes to every record, never the
+  process/signal context that SIGTERM cancels. There is no per-record derived context. The
+  process context is only for startup and connection setup.
 - **Incident.**
   - `b6d3616` (#608, 2025-11-25) introduced a cancelable process context for graceful
     shutdown. The stores captured it at construction.
@@ -205,14 +223,22 @@ Other skills cite these rules as "change-control N#".
 
 - **Rule.** A change to commit, retry, DLQ or skip behaviour needs all three of:
   - (a) a test that drives `processRecordsAndCommit` through an in-process Kafka (the kfake
-    harness from `diagnostics-and-tooling`);
+    harness from `diagnostics-and-tooling`), plus one
+    `GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path` run.
+    The in-repo test adds kfake to `events-processor/go.mod` (absent today), so the PR is also
+    C5: run `pin-sync-check.sh`; the kfake version pin is in `diagnostics-and-tooling`;
   - (b) a design note or ADR in the PR (template in `docs-and-writing`);
   - (c) owner sign-off: OPEN DECISION OD-2 (owner).
 - **Incident chain.** It took 13 months and ended in a production segfault.
   - `cec0eb2` (#502, 2025-03-31) added retry semantics and `findMaxCommitableRecord`, with a
-    stray `return` in the consume loop.
+    stray `return` in the consume loop. "Commit every record" was the `4100da0` origin design
+    (every failure DLQ'd), which `cec0eb2` replaced on purpose; going back to it today turns
+    REDELIVERED into LOST (accounting-probe UNACCOUNTED 5 -> 7, `event-accounting-campaign`).
+  - `656c829` (#511, 2025-04-10) counted unparseable records as processed: committed, Sentry
+    only, no DLQ.
   - `600e195` (#628, 2025-11-07) extracted `processRecordsAndCommit`. The `return` now skipped
-    the commit instead.
+    the commit instead, and `poll()` looped forever after client close.
+  - `b604769` (#629, 2025-11-10) hotfixed that infinite poll loop 3 days later.
   - `b6d3616` (#608, 2025-11-25) removed the `return`. A nil record could now reach
     `CommitRecords`.
   - `9acd83e` (#735, 2026-05-06, Refs ING-15). Body: "segfaulting the pod inside franz-go".
@@ -225,7 +251,9 @@ Other skills cite these rules as "change-control N#".
     prints nothing.
   - The fix campaign is `event-accounting-campaign`.
 - **Check.** If the diff touches `config/kafka/consumer.go` or the disposition branches of
-  `processors/events_processor/processor.go:50-88`, it is C4 (see `change-classes.md`).
+  `processors/events_processor/processor.go:50-88`, it is C4 (see `change-classes.md`), unless
+  it is an observability-only edit under the precedence rule (`change-classes.md` §1 step 6:
+  no control-flow change, scoreboard `moved=0`), which is C3.
 
 ## N8. Go never re-implements Rails business resolution per event
 
@@ -251,10 +279,12 @@ Other skills cite these rules as "change-control N#".
   or a filters view per event, or that builds `charge-usage/...` style keys. Parity questions go
   to `rails-go-parity`.
 
-## N9. events-processor pre-PR gate: tests, vet, gofmt, no new lint; paste the evidence
+## N9. events-processor pre-PR gate: tests, -race, vet, gofmt, no new lint; paste the evidence
 
 - **Rule.**
-  - `ep-test.sh` full suite green.
+  - `ep-test.sh` full suite green; the PASS count does not drop below the baseline (235).
+  - `ep-test.sh -race -count=1 ./...` ok. This is the unit suite, which never runs
+    `processRecordsAndCommit`; real-pipeline race evidence for C4 is the kfake run (N7).
   - `go vet ./...` clean.
   - `gofmt -l` prints nothing on changed files.
   - golangci-lint shows no new issues against the base. The baseline is 21: errcheck 16,
@@ -262,7 +292,8 @@ Other skills cite these rules as "change-control N#".
   - Paste the output in the PR.
 - **Why.** CI (`.github/workflows/events-processor-tests.yml:63-64`) runs only `go test -v ./...`.
   It has no vet, lint, `-race`, gofmt or coverage step. Local gates are the only gates.
-- **Check.** The exact commands and expected outputs are in `change-classes.md` (C2).
+- **Check.** The one canonical block (numbered commands, expected outputs, `BASE` and its
+  shallow-clone fallback) is "Pre-PR gate for events-processor code" in SKILL.md §3.
 
 ## N10. Probes and experiments never write into the repo
 
@@ -279,10 +310,12 @@ Other skills cite these rules as "change-control N#".
 - **Rule.** Placeholders only: `${VAR}`, `changeme`, `***`. Never echo, grep-print or paste a
   value from history. Report counts and shas only.
 - **Incident.**
-  - `16c8b68` (2025-01-23) added a non-empty `LAGO_LICENSE` value to `.env.development.example`.
+  - `16c8b68` (2025-01-23, branch `feat/improv-dev-env`) added a non-empty `LAGO_LICENSE` value
+    to `.env.development.example`.
   - `84b6eef` renamed that file to `.env.development.default` 32 minutes later.
-  - `6dd7e56` (#477, 2025-03-07) "remove unintended lago license key". The value was public for
-    43 days and is still in history.
+  - Merge `0a67ac0` (#455, 2025-01-29) brought it to `main`; `6dd7e56` (#477, 2025-03-07)
+    "remove unintended lago license key" blanked it: 37 days on `main` (up to 43 days if the
+    branch was public from 2025-01-23: UNVERIFIED). It is still in history.
   - Whether it was rotated is UNVERIFIED: OPEN DECISION OD-9 (owner).
 - **Check.**
   - `precommit-guard.sh` G2 prints file:line only.
@@ -303,13 +336,15 @@ Other skills cite these rules as "change-control N#".
   - **Healthy infra edges.**
     - Every edge to an infrastructure service (db, redis, redis-replica, redpanda, clickhouse)
       uses `condition: service_healthy`.
-    - One-shot jobs use `service_completed_successfully`.
-    - Edges to `api` use `service_started` (11 such edges today).
-    - Known exception: `redpanda-console -> redpanda` (`docker-compose.dev.yml:426-427`).
+    - Edges to one-shot jobs (`migrate`, `redpandacreatetopics`) use
+      `service_completed_successfully`.
+    - Edges to `api` use `service_started` (11 such edges today, one in short form). This is
+      settled, not a residual.
+    - Known exception: `redpanda-console -> redpanda`, short form (`docker-compose.dev.yml:426-427`).
 - **Incidents.**
-  - `0ca6cdf` (#424, 2024-11-04): the raw topic name differed between services. Env was
-    duplicated per service.
-  - `16c8b68` and `84b6eef` (2025-01-23) consolidated env into one file.
+  - `0ca6cdf` (#424, 2024-11-04) INTRODUCED a raw-topic mismatch: only `api-worker` got
+    `events_raw`, every other service kept `events-raw` (env duplicated per service).
+  - `16c8b68` and `84b6eef` (2025-01-23) consolidated env into one file, which fixed it.
   - `3cd78f1` (#611, 2025-10-23). Body: the API used Redis DB 3 and the events-processor DB 0,
     so "the `charge-usage` cache [never expired] in development".
   - `c80a7b5` (#580, 2025-09-03). Body: random `lago up -d` failures. `migrate` could not reach

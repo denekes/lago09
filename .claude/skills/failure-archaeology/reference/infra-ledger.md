@@ -8,8 +8,8 @@ Scope: every non-dependabot commit outside `events-processor/` and `events_proce
 fix, revert, hotfix or removal, as found by
 `.claude/skills/failure-archaeology/scripts/incidents.sh --infra --list` (119 lines as of 2026-10-01,
 release bumps excluded), plus the feature commits that started a chain. Docs-only link and typo fixes
-are grouped in one row at the end. Facts verified 2026-10-01 against the history clone, the working
-tree at `5308258`, and the Docker Hub tag API. "Inferred" = read from code or subject, no commit body.
+are grouped in one row at the end. Facts verified 2026-10-01 against the history clone and the Docker
+Hub tag API; code facts as of `5308258` (the working branch may carry skills-only commits on top). "Inferred" = read from code or subject, no commit body.
 
 Kinds: FIX, HOTFIX, REVERT, REGRESSION, REMOVAL, FEAT, RELEASE-DEFECT (a release that shipped wrong
 content without a fixing commit). Status words: see SKILL.md Terms.
@@ -26,14 +26,16 @@ content without a fixing commit). Status words: see SKILL.md Terms.
 | 2025-05-13 | `d0099a9` | #528 | FIX | Ruby 3.4 gem build failed | `libyaml-dev` missing | add package | settled | X1 |
 | 2025-05-15 | `9eb8c3b` | #532 | FIX | redis install failed | `packages.redis.io` `redis` package | Debian `redis-server`, `service … start` | settled; `docker/redis.conf` dead since (residual) | X1 |
 | 2025-05-16 | `92b1af2` | #534 | FIX | app failed without encryption keys | `LAGO_ENCRYPTION_*` not generated | generate in `docker/runner.sh` | settled | X1 |
-| 2025-09-15 | `b6b98c8` | #592 | FIX | single-image build failed | inferred: base moved to Debian trixie (no `postgresql-15`, no `software-properties-common`) | `postgresql-17` | settled; PGDG line still broken (`docker/Dockerfile:43-44`) | X1 |
-| 2025-10-30 | `18b26d0` | #617 | FIX | v1.35.0 build: `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` | `corepack prepare pnpm@latest` | drop `pnpm prune --prod`; `.dockerignore` | settled; `pnpm@latest` remains (`docker/Dockerfile:12`) | X1 |
+| 2025-08-19 | `14fa1e0` | #571 | REGRESSION | – (latent until the v1.33.0 release, 2025-08-27) | Ruby 3.4.4 → 3.4.5: `ruby:3.4.5-slim` is Debian trixie (Docker Hub digests, see `release-and-images`), which has no `postgresql-15` | – | fixed by `b6b98c8` | X1 |
+| 2025-08-27..09-08 | – | – | RELEASE-DEFECT | `getlago/lago` has no `v1.33.0`, `v1.33.1`, `v1.33.2` (Docker Hub 404, 2026-10-01); `v1.33.3` exists | `14fa1e0` trixie base | `b6b98c8` | settled; tags never backfilled (OD-10) | X1 |
+| 2025-09-15 | `b6b98c8` | #592 | FIX | single-image build failed | base moved to Debian trixie with `14fa1e0` (no `postgresql-15`, no `software-properties-common`) | `postgresql-17` | settled; PGDG line still broken (`docker/Dockerfile:43-44`) | X1 |
+| 2025-10-30 | `18b26d0` | #617 | FIX | v1.35.0 build: `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` | failed in the `corepack prepare pnpm@latest` / `pnpm prune` step; a pnpm update (inferred from the body); which pnpm ran is UNVERIFIED (lago-front pinned `packageManager: pnpm@10.18.3`) | drop `pnpm prune --prod`; `.dockerignore` | settled; `pnpm@latest` remains (`docker/Dockerfile:12`), inert while lago-front pins `packageManager` (conditional risk) | X1 |
 | 2025-12-11 | `c6abc1e` | #659 | FIX | v1.37.0 image 2 days after the bump `9faa659` | runner labels `linux/amd64` / `lago-runner` (inferred: no longer served) | `ubuntu-latest` | settled | X1 X7 |
 | 2025-12-11 | `5439dd5` | #660 | FIX | same for `release-processors-image.yml` | same | same | settled | X7 |
 | 2026-02-03 | `fd77a74` | #687 | FIX | image seeding failed (inferred from title) | lago-api needs `roles:seed_predefined` first | `docker/runner.sh:90-91` | settled; `runner.sh` duplicates lago-api start logic (residual) | X1 |
 | 2026-03-23 | `57508c2` | #714 | REGRESSION | – (latent 15 days) | Ruby 4.0.2 + Bundler 4.0.4; Bundler 4 dropped `--without` | – | fixed by `558814a` | X1 |
 | 2026-04-07 | `558814a` | #722 | FIX | v1.45.0 build broke (20 min after bump `074fc9a`) | `bundle install --without` removed | `bundle config set without` | settled | X1 |
-| 2026-06-10..07-07 | – | – | RELEASE-DEFECT | `getlago/lago` has no `v1.48.0`, `v1.49.0`, `v1.50.0` (Docker Hub 404, 2026-10-01) | UNVERIFIED | none | open | X1 |
+| 2026-06-10..07-07 | – | – | RELEASE-DEFECT | `getlago/lago` has no `v1.48.0`, `v1.49.0`, `v1.50.0` (Docker Hub 404, 2026-10-01) | UNVERIFIED | none | open (backfill: OD-10) | X1 |
 | 2026-08-27 | `01cfbc6` | #784 | RELEASE-DEFECT | v1.52.1 bump changed only compose tags | gitlinks left at lago-api/front v1.52.0 | none | `getlago/lago:v1.52.1` built from v1.52.0 api/front (inferred) | X1 X6 |
 | 2026-09-08 | `b267320` | #793 | FIX | v1.53.0 image (33 min after bump `ba292b6`) | Node 20 too old for front (inferred) | Node 24 | settled | X1 |
 | 2026-09-08 | `f719ef1` | #794 | FIX | v1.53.0 image (+16 min) | Ruby 4.0.2 vs lago-api 4.0.6 (inferred) | Ruby 4.0.6 | settled; image pushed after it (15:26Z) | X1 |
@@ -49,7 +51,7 @@ content without a fixing commit). Status words: see SKILL.md Terms.
 | 2025-12-03 | `fd427a2` | – | FIX | multi-stage `target` broke default builds | `58ea88f` (previous day) defaulted `target` to `'default'` | default `''` | settled | X7 |
 | 2026-01-23 | `fdfeb91` | – | REGRESSION | – | refactor removed the `push` input | – | re-added `5070e24` | X7 |
 | 2026-02-10 | `6a595fb` | #683 | FIX | connectors base image floated | `FROM …/connect` unpinned | pin `4.78.0` | settled | X8 |
-| 2026-08-24 | `76159bd` → `2146a18` | – | REMOVAL | connectors image had no CI ("a person's local `docker push`") | n/a | dispatch to lago-deploy, replaced 13 min later by a direct reusable-workflow call | settled | X8 |
+| 2026-08-24 | `76159bd` → `2146a18` | – | REMOVAL | connectors image had no CI ("a person's local `docker push`") | n/a | dispatch to lago-deploy, replaced by a direct reusable-workflow call authored 13 min later; both landed on `main` together (committer 2026-08-25 10:59) | settled | X8 |
 | 2026-08-25 | `4955f79` | – | FIX | ECR EP image "carried only an amd64 manifest" | plain build-push step | reusable workflow, amd64+arm64 | settled | X7 |
 | 2026-08-25 | `5070e24` | – | FEAT | no build-only mode for PRs | `push` input removed in `fdfeb91` | re-added (default true) | residual: no in-repo caller uses `push: false` | X7 |
 | 2026-08-25 | `5ee8e98` | – | FEAT | – | n/a | OIDC `role-to-assume` | residual: no caller | X7 |
@@ -101,7 +103,7 @@ content without a fixing commit). Status words: see SKILL.md Terms.
 | 2025-01-23 | `16c8b68`, `84b6eef` | – | FIX | env duplicated per service | n/a | one env file `.env.development.default` (`events-raw`) — also carried a real `LAGO_LICENSE` value | settled; licence see §5 | X5 |
 | 2025-01-23 | `dfb7b73` | #454 | FIX | codegen path | external URL | `http://api:3000/graphql` | settled | X12 |
 | 2025-03-13 | `aecb8be` | #482 | FIX | dev EP service build path `./events_processors` (plural) | typo in `4100da0` | `./events_processor` | settled | – |
-| 2025-09-03 | `c80a7b5` | #580 | FIX | random `lago up -d` failures (Redis/ClickHouse refused, topic creation refused) | no health conditions | `condition: service_healthy` | settled; residual bare lists (`front`, `redpanda-console`) | X4 |
+| 2025-09-03 | `c80a7b5` | #580 | FIX | random `lago up -d` failures (Redis/ClickHouse refused, topic creation refused) | no health conditions | `condition: service_healthy` | settled; edges match change-control N12 (`front → api` bare = app→api; known exception `redpanda-console → redpanda`) | X4 |
 | 2025-09-04 | `5477e39` | #581 | FIX | re-running topic creation failed | `rpk topic create` not idempotent | `scripts/create-topics.sh` | settled | X4 |
 | 2025-10-14 | `39f77fc` | #604 | REMOVAL | compose required `$LAGO_PATH` | absolute paths | relative paths | settled (the `lago` alias still needs it, see `build-and-env`) | – |
 | 2025-10-23 | `3cd78f1` | #611 | FIX | dev charge-usage cache never expired | EP Redis cache DB 0 vs API DB 3 (since `3a6ed00`) | `LAGO_REDIS_CACHE_DB=3` | settled (EP expiry later removed) | F X5 |
@@ -118,7 +120,7 @@ content without a fixing commit). Status words: see SKILL.md Terms.
 |---|---|---|---|---|---|---|---|---|
 | 2022-07-26 | `efb1a61` | – | REMOVAL | `.DS_Store` committed | local file | removed | settled | – |
 | 2023-10-05 → 10-23 | `c8f4133` → `1035ffa` | #285 → #288 | REMOVAL | 269 files incl. 133 `:Zone.Identifier` + connector jars in a "sidekiq worker" PR | `git add` of a download dir | removed after 18 days | blobs remain in history | X11 |
-| 2025-01-23 → 03-07 | `16c8b68` → `6dd7e56` | → #477 | REMOVAL | real `LAGO_LICENSE` value in the public defaults file (43 days) | personal env copied into the versioned file | blanked | rotation OPEN DECISION OD-9 (owner); never print the value (change-control N11) | X5 X11 |
+| 2025-01-23 → 03-07 | `16c8b68` → `6dd7e56` | → #477 | REMOVAL | real `LAGO_LICENSE` value in the public defaults file (37 days on `main` via `0a67ac0`; 43 if the branch was public, UNVERIFIED) | personal env copied into the versioned file | blanked | rotation OPEN DECISION OD-9 (owner); never print the value (change-control N11) | X5 X11 |
 | 2025-01-28 → 02-13 | `16eb537` → `a41c6dc` | – | REMOVAL | `LAGO_LICENSE_URL` added, then "useless" | n/a | removed after 16 days | removed | – |
 | 2025-11-04 | `12b8101` → `647de3e` | #618 → #620 | REVERT | a Traefik PR moved api/front pins | `git commit -a` with drifted submodules (inferred) | pins reverted 3 h later | instance settled; 15 non-release pin moves since 2025 (residual) | X6 |
 | 2026-06-19 | `d13e62a` | – | REMOVAL | `FUNDING.yml` (added `4d0a612`, 2024-01-31) | n/a | removed | removed | – |
@@ -126,7 +128,7 @@ content without a fixing commit). Status words: see SKILL.md Terms.
 
 An AWS account id was added to two public workflows in `2146a18` and `4955f79`, while `5308258`'s
 message says the private copy existed to keep it out of a public repo. Counts and policy belong to
-`security-and-supply-chain`; this skill only records the contradiction.
+`security-and-supply-chain` (OPEN DECISION OD-18); this skill only records the contradiction.
 
 ## 6. Docs-only fixes (grouped)
 

@@ -6,10 +6,10 @@ description: Runbooks and output map for running the Lago umbrella repo - pickin
 
 How to start each runtime variant of this repo, what each one runs, where its output lands, and how to
 operate the Go events-processor, Postgres partitioning and monitoring. Commands assume the repo root
-(`cd "$(git rev-parse --show-toplevel)"`). Facts verified 2026-10-01 against HEAD 5308258 (the working
-tree HEAD `08065ef` only adds `.claude/skills/`) unless marked. `docker compose up/exec/logs` cannot run
-in a daemon-less sandbox: those lines are verified by reading the cited files; `docker compose config`
-works without a daemon and was run.
+(`cd "$(git rev-parse --show-toplevel)"`). Facts verified 2026-10-01 unless marked. Code facts as of
+5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on top.
+`docker compose up/exec/logs` cannot run in a daemon-less sandbox: those lines are verified by reading
+the cited files; `docker compose config` works without a daemon and was run.
 
 ## When to use / when NOT to use
 
@@ -26,7 +26,8 @@ Do NOT use it for:
 - commit/delivery algorithm, invariants, memory-cache internals → `architecture-contract`;
 - symptom → cause tables, DLQ error-code triage, log triage script → `debugging-playbook`;
 - probes (kfake, binary smoke, scratch Postgres, clickhouse local) → `diagnostics-and-tooling`;
-- local toolchain, CGO recipe, submodule HTTPS rewrite, `lago` alias setup → `build-and-env`;
+- local toolchain, CGO recipe, dev-stack prerequisites (submodule HTTPS rewrite, certs, hosts), `lago`
+  alias setup → `build-and-env`;
 - whether a change to compose/deploy files may merge (class C6) → `change-control`;
 - why a file looks the way it does (history) → `failure-archaeology`.
 
@@ -51,11 +52,11 @@ Do NOT use it for:
 | Variant | Entry | Runs (images as of 2026-10-01) | Use when | Status |
 |---|---|---|---|---|
 | Dev stack | `docker-compose.dev.yml` (project `lago_dev`) | 25 services: traefik:v3, postgres-partman:15.0, redis:7, front/api/migrate/clock/8 workers/Karafka consumer built from `./api` `./front`, events-processor built from `./events-processor` (air), redpanda v25.2.10 + topic creator + console + Kafka Connect, clickhouse 26.2, gotenberg 8, webhook tester, pghero; profiles `mailpit`, `redis-sentinel` (+4) | developing api/front/events-processor; the ONLY variant with Kafka, ClickHouse and the events-processor | maintained |
-| Root self-host | `docker-compose.yml` | 8 services: db (postgres-partman:15.0), redis, migrate, api, api-worker, api-clock (getlago/api:v1.53.0), front (getlago/front:v1.53.0), pdf (gotenberg 7.8.2). No Kafka/ClickHouse/events-processor; events use the Postgres store | small self-host, smoke-testing a release | maintained: bumped every release, CI `docker-ci.yml` brings it up on every push to main |
+| Root self-host | `docker-compose.yml` | 8 services: db (postgres-partman:15.0), redis, migrate, api, api-worker, api-clock (getlago/api:v1.53.0), front (getlago/front:v1.53.0), pdf (gotenberg 7.8.2). No Kafka/ClickHouse/events-processor; events use the Postgres store | small self-host, smoke-testing a release | maintained: bumped every release (`docker-compose.yml:7,11,13,338`), CI `docker-ci.yml` brings it up on every push to main |
 | deploy/ local, light, production | `deploy/docker-compose.{local,light,production}.yml`, `deploy/deploy.sh` | api/front **v1.27.1**, postgres:15 (no partman); light/production add Traefik v3.3 + Let's Encrypt; production adds 5 dedicated workers + Portainer; db/redis/rsa-keys only via profiles | only if you accept a release 26 minors old | STALE + broken (README syntax, missing pdf-worker script, idle workers, deploy.sh bugs) |
 | All-in-one | `getlago/lago` image (`docker/`) | one container: nginx+front, api, Sidekiq, clock, local Postgres 17, Redis; optional PDF sidecar via docker.sock | demos, testing, staging (docker/README.md:5) | maintained (release-built) with data-persistence doubts (UNVERIFIED) |
-| events-processor binary | `events-processor/` (`event_processors`) | the Go consumer only; needs Kafka, Postgres (DB mode), Redis | debugging the processor outside compose, smoke tests | first-party code; prod image `getlago/lago-events-processor` |
-| Connectors | `connectors/*.yml` (Redpanda Connect 4.83.0) | HTTP / SQS / Kinesis → raw topic | high-volume ingestion into Kafka | no public image or run recipe; a numeric `precise_total_amount_cents` they forward makes the events-processor drop the record (no DLQ) |
+| events-processor binary | `events-processor/` (`event_processors`) | the Go consumer only; needs Kafka, Postgres (DB mode), Redis | debugging the processor outside compose, smoke tests | first-party code; prod image `getlago/lago-events-processor` (entrypoint `events-processor/Dockerfile:24`) |
+| Connectors | `connectors/*.yml` (Redpanda Connect 4.83.0) | HTTP / SQS / Kinesis → raw topic | high-volume ingestion into Kafka | no public image or run recipe (`connectors/Dockerfile:6`); a JSON-number `precise_total_amount_cents` is passed through and the events-processor drops the record (no DLQ); any non-number becomes `"0"` (`connectors/http.yml:32-36`); no value-preserving workaround through the connectors |
 | Agentic AI demo | `examples/agentic-ai-demo/run.sh` | all-in-one image at the root compose's api tag (v1.53.0), 127.0.0.1:8080/3001, seeded org | showing usage-based billing locally | maintained |
 
 Full service/port/volume matrix, drift between variants and the deploy.sh defect ledger:
@@ -74,18 +75,20 @@ Full service/port/volume matrix, drift between variants and the deploy.sh defect
 Never use the `lago` alias in scripts or agent shells (non-interactive shells do not load it; the
 lago-cli binary of the same name has no `exec`). Use `docker compose -f docker-compose.dev.yml …`.
 
-**Dev stack** (R1):
-1. `git submodule update --init api front` (do not commit the gitlinks: change-control N1).
-2. Certs: `mkcert -install; mkdir -p traefik/certs && (cd traefik/certs && mkcert -cert-file lago.dev.pem -key-file lago.dev-key.pem lago.dev "*.lago.dev")`.
-3. `/etc/hosts`: `127.0.0.1` for `api app console mail pdf pghero traefik webhook` `.lago.dev`
-   (`lago.dev` is a public domain: a missing entry can resolve to the internet).
-4. `cp ./api/.env.dist ./api/.env && touch ./api/config/master.key`; `docker volume create lago_front_pnpm_store`.
+**Dev stack** (R1). Steps 1-4 are prerequisites, owned by `build-and-env` §2b steps 1-6: submodules
+over the HTTPS rewrite (`.gitmodules` uses `git@github.com:` URLs; never commit the gitlinks:
+change-control N1), mkcert certs, `/etc/hosts` (8 hosts; `lago.dev` is a public domain, so a missing
+entry can resolve to the internet), `api/.env` + `master.key`, the external volume
+`lago_front_pnpm_store`. Check them with `.claude/skills/run-and-operate/scripts/dev-preflight.sh` →
+`dev-preflight: 0 FAIL(s)`. Then:
 5. `docker compose -f docker-compose.dev.yml up -d --wait db redis traefik clickhouse webhook`
 6. `docker compose -f docker-compose.dev.yml up -d --wait front api api-worker api-clock`
 7. Event pipeline: `docker compose -f docker-compose.dev.yml up -d events-processor api-events-consumer`.
-Failure points: external volume missing; `LAGO_CLICKHOUSE_ENABLED=false` still enables ClickHouse;
-changing `POSTGRES_USER/PASSWORD/DB` breaks hard-coded copies; `SIDEKIQ_X=true` without starting the
-matching worker leaves jobs unprocessed.
+
+Failure points: external volume missing; `LAGO_CLICKHOUSE_ENABLED=false` is MIXED (the 12
+`.present?`/`.blank?` readers stay ON; only org creation and 2 seed files turn off:
+`config-and-flags` §4), so leave it empty to disable; changing `POSTGRES_USER/PASSWORD/DB` breaks
+hard-coded copies; `SIDEKIQ_X=true` without starting the matching worker leaves jobs unprocessed.
 
 **Root self-host** (R2): write `.env` with the RSA key AND real `SECRET_KEY_BASE`, `LAGO_ENCRYPTION_*`,
 `POSTGRES_PASSWORD` (README.md:225 only shows the RSA key), run `selfhost-preflight.sh .env`, then
@@ -117,11 +120,11 @@ export the env of §5.1, run. **Demo** (R6): `./examples/agentic-ai-demo/run.sh`
 
 | Component | Writes | Reads | Logs / errors |
 |---|---|---|---|
-| lago-api (Rails) | raw topic on every event when Kafka env is set (no key); `activity_logs`/`api_logs`/`security_logs` topics; Postgres `lago`; Redis (Sidekiq, cache, cable) | ZSET `subscription_refreshed_v2` (clock job, needs `LAGO_REDIS_STORE_URL` + `LAGO_CLICKHOUSE_ENABLED`); `events_charged_in_advance` (Karafka group `lago_events_charged_in_advance_consumer`, DLQ `unprocessed_events`) | stdout; Sentry if `SENTRY_DSN` |
-| events-processor | `events_enriched`, `events_charged_in_advance` (key `<org>-<transaction_id>`), `events_dead_letter` (no key), ZADD `subscription_refreshed_v2` in `LAGO_REDIS_STORE_DB` (dev 1) | raw topic, group `lago_dev_events-raw` (dev); Postgres `billable_metrics`, `subscriptions`, `charges` (never writes PG); CDC topics `lago_proc_cdc.public.*` in cache mode | JSON slog on stdout (`service=post_process`); Sentry (full event attached) |
+| lago-api (Rails) | raw topic on every event when Kafka env is set (no key; `$API/app/services/events/kafka_producer_service.rb:15-34`); `activity_logs`/`api_logs`/`security_logs` topics; Postgres `lago`; Redis (Sidekiq, cache, cable) | ZSET `subscription_refreshed_v2` (clock job, needs `LAGO_REDIS_STORE_URL` + `LAGO_CLICKHOUSE_ENABLED`, `$API/clock.rb:210-212`); `events_charged_in_advance` (Karafka group `lago_events_charged_in_advance_consumer`, DLQ `unprocessed_events`, `$API/karafka.rb:49-56`) | stdout; Sentry if `SENTRY_DSN` |
+| events-processor | `events_enriched`, `events_charged_in_advance` (key `<org>-<transaction_id>`), `events_dead_letter` (no key) (`events-processor/processors/events_processor/event_producer_service.go:30,41,66-68`), ZADD `subscription_refreshed_v2` in `LAGO_REDIS_STORE_DB` (dev 1; `events-processor/models/stores.go:54-69`) | raw topic, group `lago_dev_events-raw` (dev); Postgres `billable_metrics`, `subscriptions`, `charges` (never writes PG); CDC topics `lago_proc_cdc.public.*` in cache mode | JSON slog on stdout (`service=post_process`); Sentry (full event attached) |
 | ClickHouse (dev) | `events_raw`, `events_enriched` (ReplacingMergeTree), `events_dead_letter` (MergeTree), `activity_logs`, `api_logs`, `security_logs` | Kafka engine tables `<x>_queue`, group `clickhouse`; broker/topic baked into DDL at migration time | container stdout |
 | Redpanda (dev) | 7 topics from `scripts/create-topics.sh` (+ `_connectors_*`) | | console https://console.lago.dev |
-| Postgres `enriched_events` | written by lago-api only for orgs with flag `postgres_enriched_events` | | |
+| Postgres `enriched_events` | written by lago-api only for orgs with flag `postgres_enriched_events` (`$API/app/services/events/post_process_service.rb:94-99`) | | |
 
 Volumes: root `<dir>_lago_{postgres,redis,storage}_data`; dev `lago_dev_*` + external
 `lago_front_pnpm_store`; deploy `lago-<variant>_lago_{postgres,redis,storage,rsa}_data`; all-in-one `/data`.
@@ -130,22 +133,25 @@ Ports: dev 80/443/5432/6379/9000/9092/19092/8083; root 3000/80/5432/6379; light/
 
 ## 5. Operating the events-processor (detail: `reference/events-processor-ops.md`)
 
-### 5.1 Required environment and startup panics (fail-fast; exit 2)
-Required: `LAGO_KAFKA_BOOTSTRAP_SERVERS`, the three output topic vars, `LAGO_KAFKA_RAW_EVENTS_TOPIC`,
-`LAGO_KAFKA_CONSUMER_GROUP` (not validated), `DATABASE_URL` (DB mode and cache snapshot),
-`LAGO_REDIS_STORE_URL` (+ `_DB`, `_PASSWORD`, `_TLS`). Full registry: `config-and-flags`.
-Ran on 2026-10-01 against a freshly built binary:
+### 5.1 Required environment (startup is only partially fail-fast: `architecture-contract` I14)
+Required: `LAGO_KAFKA_BOOTSTRAP_SERVERS`, the three output topic vars, `LAGO_KAFKA_RAW_EVENTS_TOPIC` and
+`LAGO_KAFKA_CONSUMER_GROUP` (both NOT validated: empty is accepted, the group becomes `_<topic>`;
+`events-processor/processors/main_processor.go:168-176`, `events-processor/config/kafka/consumer.go:237`),
+`DATABASE_URL` (DB mode and cache snapshot), `LAGO_REDIS_STORE_URL` (+ `_DB`, `_PASSWORD`, `_TLS`).
+Full registry: `config-and-flags`.
 
-| Env given | Output |
-|---|---|
-| nothing | `{"level":"ERROR","msg":"brokers not found",…}` then `panic: brokers not found` |
-| only `LAGO_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:1` | `panic: LAGO_KAFKA_ENRICHED_EVENTS_TOPIC variable is required` |
-| + all three topics, broker down | `panic: unable to dial: dial tcp 127.0.0.1:1: connect: connection refused` (immediate) |
-| + `LAGO_KAFKA_SCRAM_ALGORITHM=sha512` | `panic: runtime error: invalid memory address or nil pointer dereference` in `kgo.validateCfg` (only `SCRAM-SHA-256`/`SCRAM-SHA-512` work) |
-| no `LD_LIBRARY_PATH` | `error while loading shared libraries: libexpression_go.so` (see build-and-env) |
+Checked failures panic (exit code 2). Startup order and each panic text: `architecture-contract` §2
+(captured from the binary by its `startup-contract.sh`); paste a panic into
+`.claude/skills/debugging-playbook/scripts/explain-error.sh` for cause and fix. Operator view with the
+outputs captured on 2026-10-01: `reference/events-processor-ops.md` §1. NOT caught at startup: empty raw
+topic/group, empty `LAGO_DEBEZIUM_TOPIC_PREFIX`, cache-snapshot query errors (swallowed),
+`LAGO_USE_MEMORY_CACHE=1` (= DB mode; only `true` enables, `events-processor/main.go:67`); the
+`brokers not found` panic and the bad-`LAGO_KAFKA_SCRAM_ALGORITHM` SIGSEGV send nothing to Sentry, and
+the SIGSEGV prints no log line first.
 
 `ENV=production` switches the Redis store to TLS unless `LAGO_REDIS_STORE_TLS=false`
-(main_processor.go:84-91). There is no health endpoint: liveness = process alive.
+(`events-processor/processors/main_processor.go:84-91`). There is no health endpoint: liveness =
+process alive.
 
 ### 5.2 Shutdown vs grace period
 SIGTERM → stop polling → each partition consumer FINISHES its in-hand batch on a background context and
@@ -153,31 +159,36 @@ commits → leave group → exit 0 (log: `Received shutdown signal` … `Consume
 … `Event processor stopped`; seen in the binary smoke on 2026-10-01). A poll returns up to 10,000 records
 (config/kafka/consumer.go:168). Grace periods in play: compose stop default 10 s (no
 `stop_grace_period` anywhere), dev `air` `kill_delay=10s`, Kubernetes default 30 s. SIGKILL before the
-commit → the batch is redelivered → duplicates (enriched rows collapse at ClickHouse merge; DLQ rows do
-not; pay-in-advance fees are guarded by unique indexes). Real drain time in production: UNVERIFIED;
-measure from log timestamps.
+commit → the batch is redelivered → duplicates (enriched rows collapse only at ClickHouse merge, and
+billing reads them with `FINAL` only for orgs with `clickhouse_deduplication_enabled`, default false:
+`architecture-contract` I12; DLQ rows never collapse; pay-in-advance fees are guarded by unique indexes
+and `already_processed?`). Real drain time in production: UNVERIFIED; measure from log timestamps.
 
 ### 5.3 Consumer-group reset = replay
 A group without committed offsets starts at the EARLIEST offset (franz-go default; smoke log shows
 `"At":-2`). So renaming `LAGO_KAFKA_CONSUMER_GROUP` or the raw topic replays the whole retained raw topic
 through enrichment, in-advance, DLQ and refresh flags (consequence table in the reference). Group naming
-is cross-repo contract K7 (change-control); the delivery contract is OPEN DECISION OD-2 (owner). Inspect
-and seek with `rpk group describe|seek` inside the redpanda container (commands in the reference; not
+is cross-repo contract K7 (change-control; renaming the group or topic is class C4); the delivery
+contract is OPEN DECISION OD-2 (owner). Inspect
+lag with `rpk group describe` inside the redpanda container. Seeking or deleting a group changes
+delivery (`--to end` skips every unconsumed record): dev only; on a shared or production cluster it
+needs owner sign-off (OD-1/OD-2). Commands and warnings: `reference/events-processor-ops.md` §3 (not
 run here).
 
 ### 5.4 DLQ and replay
 Inspect: `docker compose -f docker-compose.dev.yml exec clickhouse clickhouse-client --password default --query "SELECT error_code, count() FROM events_dead_letter GROUP BY error_code"`
 or `rpk topic consume events_dead_letter`. Unparseable records never reach the DLQ (Sentry + log only).
 **No DLQ replay tool exists** in this repo or lago-api @591ae90. lago-api's `events:reprocess` rake task
-re-feeds ClickHouse `events_raw` for flagged subscriptions: it is NOT a DLQ replay. A manual DLQ replay is
-CANDIDATE only and needs an owner decision (OPEN DECISION OD-2, owner); design lives in `event-accounting-campaign`.
+re-feeds ClickHouse `events_raw` for flagged subscriptions: it is re-enrichment, NOT a DLQ replay. A
+manual re-feed is CANDIDATE and needs OPEN DECISION OD-2 (owner); design lives in `event-accounting-campaign`.
 
 ### 5.5 Scaling
 Parallelism = raw-topic partitions per group; dev topics are created without `-p` (broker default, 1 on
 a default Redpanda: UNVERIFIED). docs/architecture.md:262 sizes it at 1 replica, 2 cores / 2 Gi; the
 public Helm chart hard-codes `replicas: 1`. DB mode opens up to `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS`
 Postgres connections per replica (code default 200; the Helm chart sets 10 via `eventsProcessor.databasePool`).
-A fetch error panics the process: rely on the restart policy.
+A non-context fetch error panics the process (`events-processor/config/kafka/consumer.go:175-183`):
+rely on the restart policy.
 
 ### 5.6 Memory-cache mode (OPEN DECISION OD-1 (owner): production use UNKNOWN)
 Needs `LAGO_USE_MEMORY_CACHE=true` (exact string), `LAGO_DEBEZIUM_TOPIC_PREFIX` matching the Debezium
@@ -186,16 +197,18 @@ registered connector (no script/doc). Startup blocks on a full table snapshot; s
 fatal (empty cache → every event DLQ'd `fetch_billable_metric`). CDC consumers take a new
 `lago_evp_<model>_<uuid>` group each start (full CDC replay, stale groups) and ignore SASL/TLS and comma
 broker lists. Dev runs DB mode; treat these as code-level defects with UNVERIFIED production impact.
+Hardening them is unowned: owner question OPEN DECISION OD-20 (owner), next to OD-1; candidate future
+campaign; as-is defects `architecture-contract` WP6-WP10.
 
 ## 6. Partition maintenance (`enriched_events`; detail: `reference/partitioning.md`)
 
 Right in `docs/database_partitioning.md`: monthly range partitions on `timestamp`, premake 3, retention 14
 months, migrations skip without pg_partman, maintenance must run periodically. Wrong: (1) "no additional
 setup with the default Docker Compose" — only the dev file preloads `pg_partman_bgw`
-(`scripts/postgresql.conf:81-88`); the root image (`getlago/postgres-partman:15.0-alpine` = postgres 15.0
-+ pg_partman v5.4.0, CMD `postgres`) has partman but no scheduler; deploy/ has no partman. (2) The
-retroactive DDL has 15 columns; the schema has 18 → step 5 fails (`INSERT has more expressions than
-target columns`, ran). (3) Step 4 re-creates index names still held by the renamed table → `relation
+(`scripts/postgresql.conf:81-88`); the root image (`getlago/postgres-partman:15.0-alpine` = postgres
+15.0 plus pg_partman v5.4.0, CMD `postgres`; `docker-compose.yml:7`) has partman but no scheduler;
+deploy/ has no partman. (2) The retroactive DDL has 15 columns; the schema has 18 → step 5 fails
+(`INSERT has more expressions than target columns`, ran). (3) Step 4 re-creates index names still held by the renamed table → `relation
 "idx_billing_on_enriched_events" already exists` (ran). Corrected SQL (CANDIDATE, ran on a throwaway DB)
 is in the reference. Only orgs with flag `postgres_enriched_events` write this table.
 
@@ -215,25 +228,27 @@ Check any database: `psql "<url>" -X -q -f .claude/skills/run-and-operate/script
 
 ## 8. If you see X → do Y
 
+<!-- evidence-check: off routing table: each row points to the section, reference or sibling that carries the evidence -->
 | You see | Cause | Do |
 |---|---|---|
 | `unknown flag: --profile` | profile after `up` (deploy/README.md) | `docker compose -f <file> --profile all up -d` |
 | `lago: command not found` / `unknown command "exec" for "lago"` | alias not loaded / lago-cli binary | `docker compose -f docker-compose.dev.yml …` |
 | front will not start, external volume error | `lago_front_pnpm_store` missing | `docker volume create lago_front_pnpm_store` |
-| browser cert error or wrong site on `*.lago.dev` | no mkcert certs / no hosts entry | `dev-preflight.sh`, then R1 steps 3-4 |
+| browser cert error or wrong site on `*.lago.dev` | no mkcert certs / no hosts entry | `dev-preflight.sh`, then `build-and-env` §2b steps 3-4 |
 | api/worker exit `Private key is blank` | no RSA key (root has no rsa-keys service) | add `LAGO_RSA_PRIVATE_KEY` (one-line base64) |
 | `Neither PUB key nor PRIV key` at boot | raw PEM, or base64 wrapped over unquoted lines, in `.env` | `selfhost-preflight.sh .env`, regenerate with `openssl base64 -A` |
-| dev: emails never arrive, delivery errors | pinned lago-api sends dev SMTP to `mailhog:1025` (`$API/config/environments/development.rb:70-73`); the service is `mailpit` since `8f8334e` (#777), no `mailhog` alias (inferred, not run) | runbooks R1 step 11 |
+| dev: emails never arrive, delivery errors | pinned lago-api sends dev SMTP to `mailhog:1025` (`$API/config/environments/development.rb:70-73`); the service is `mailpit` since `8f8334e` (#777), no `mailhog` alias (inferred, not run) | runbooks R1 step 8 |
 | db restarts: data files incompatible with server | PG 14 volume under PG 15 image (`97d1f0b`) | dump/restore, runbooks R2 |
 | compose: `line N: unexpected character` in `.env` | deploy.sh wrote status lines into `.env` | delete non `KEY=VALUE` lines (`selfhost-preflight.sh` lists them) |
 | production `pdf-worker` restart loop | `start.pdf.worker.sh` does not exist | point it at `./scripts/start.pdfs.worker.sh` (C6 change) |
 | production dedicated workers idle | no `SIDEKIQ_*=true` routing | set the flags on all backend services or drop the workers (owner call) |
-| `panic: brokers not found` / `… variable is required` | missing env | §5.1 table |
+| `panic: brokers not found` / `… variable is required` | missing env | env list §5.1; paste the panic into `debugging-playbook` `explain-error.sh` |
 | SIGSEGV in `kgo.validateCfg` | bad `LAGO_KAFKA_SCRAM_ALGORITHM` | use `SCRAM-SHA-256` or `SCRAM-SHA-512` |
-| events-processor restarts after `Fetch error` | non-context fetch error panics by design | fix broker connectivity; check restart policy |
+| events-processor restarts after `Fetch error` | non-context fetch error panics by design (`events-processor/config/kafka/consumer.go:175-183`) | fix broker connectivity; check restart policy |
 | events "disappear" | unmarshal error (no DLQ), skipped retryable, DLQ produce failure | `debugging-playbook`, `architecture-contract` |
 | `enriched_events_default` keeps growing | no partman scheduler (root/all-in-one) | `partman-check.sql`, reference/partitioning.md §4 |
 | need EP metrics/health | none exist | broker lag + DLQ query + restart count (monitoring.md §3) |
+<!-- evidence-check: on -->
 
 ## Scripts
 
@@ -281,5 +296,6 @@ into the repo or the skill directory.
 - Update triggers: a release bump (image tags, `docker/Dockerfile` ARGs); any edit to a compose file,
   `deploy/`, `docker/`, `scripts/`, `traefik/`, `.env.development.default`; a lago-api pin move (scripts,
   routes, migrations, `structure.sql`, Karafka routing); changes to events-processor startup, consumer or
-  cache code; owner decisions on OPEN DECISION OD-1 (memory cache) or OD-2 (delivery contract); edits to
+  cache code; owner decisions on OPEN DECISION OD-1 (memory cache), OD-2 (delivery contract) or OD-20 (memory-cache
+  hardening); edits to
   `docs/database_partitioning.md` or `docs/monitoring.md`.

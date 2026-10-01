@@ -12,10 +12,13 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
 
 ## T1. A retryable failure is silently skipped (Kafka commit path)
 
-- **Story.** `cec0eb2` (#502, 2025-03-31) added "do not commit retryable failures" with a stray `return`
-  that could end a partition goroutine; `600e195` (#628) turned it into a skipped commit; `b6d3616`
-  (#608) removed the `return`, which exposed `CommitRecords([nil])`; `9acd83e` (#735, 2026-05-06,
-  ING-15) fixed "segfaulting the pod inside franz-go". 401 days, 4 commits, a production segfault.
+- **Story.** `cec0eb2` (#502, 2025-03-31) replaced the origin design (`4100da0`: commit every batch)
+  with "do not commit retryable failures", plus a stray `return` that could end a partition goroutine;
+  `656c829` (#511) counted unparseable records as processed (committed, Sentry only); `600e195` (#628)
+  turned the `return` into a skipped commit and introduced an infinite poll loop, hotfixed 3 days later
+  by `b604769` (#629); `b6d3616` (#608) removed the `return`, which exposed `CommitRecords([nil])`;
+  `9acd83e` (#735, 2026-05-06, ING-15) fixed "segfaulting the pod inside franz-go". 401 days, 6 commits,
+  a production segfault (full chain: `failure-archaeology` chain A).
   The residual is still live: the commit takes the longest processed prefix, so a LATER batch on the
   same partition commits past a failed offset (`config/kafka/consumer.go:89-104`). Re-measured
   2026-10-01 with the real binary: offset 0 failed retryably, offset 2 committed, group offset 3,
@@ -54,8 +57,9 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
   `Received shutdown signal`. Do NOT confuse with the benign franz-go INFO `heartbeat errored ...
   context canceled` and cache INFO `Context canceled during fetch`, which every clean shutdown prints.
 - **Shortcut.** `explain-error.sh` separates them (`dlq-flag-ctx-canceled` vs `run-shutdown-ctx`).
-- **Rule.** change-control N5: per-record context for side effects; batches run on
-  `context.Background()` (`config/kafka/consumer.go:83`).
+- **Rule.** change-control N5: per-record side effects (Redis, produce) use the batch context that
+  `processRecordsAndCommit` creates (`context.Background()`, `config/kafka/consumer.go:83`) and passes to
+  every record, never the process/signal context that SIGTERM cancels.
 
 ## T4. "Everything DLQs as fetch_billable_metric" (empty memory cache)
 
@@ -66,9 +70,13 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
   `fetch_billable_metric` `Key not found`, offsets committed 9/9, process healthy-looking.
 - **Tell-tale.** `Key not found` for EVERY metric code; DLQ volume equals input volume.
 - **Shortcut.** `triage-ep-log.sh` prints `snapshot loads: started 6, completed 0` and a WARNING. Fix
-  `DATABASE_URL`, restart (the snapshot runs only at startup), then replay from the DLQ.
-- **Rule.** Production use of cache mode is OPEN DECISION OD-1 (owner). Hardening belongs to
-  `architecture-contract` (as-is) and the owner's decision, not to a debugging session.
+  `DATABASE_URL` and restart (the snapshot runs only at startup). Events already DLQ'd as `Key not found`
+  stay there: no DLQ replay tool exists (`run-and-operate` section 5.4); a manual re-feed is CANDIDATE and
+  needs OPEN DECISION OD-2 (owner). Count them with the E3 query (`events-processor.md`) and escalate
+  (SKILL.md section 9).
+- **Rule.** Production use of cache mode is OPEN DECISION OD-1 (owner). Memory-cache hardening is
+  unowned: owner question OPEN DECISION OD-20 (owner), candidate future campaign; the as-is defects are
+  `architecture-contract` WP6-WP10. Not a debugging-session fix.
 
 ## T5. Comma-separated brokers: the CDC consumers are silently dead
 
@@ -79,9 +87,9 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
 - **Tell-tale.** Nothing. The CDC loops log no error; edits made in the app never reach the cache;
   DEBUG `Cache updated from stream` never appears. Verified 2026-10-01: comma list -> 6 CDC consumers
   "Starting consumer", zero WARN/ERROR lines.
-- **Shortcut.** `env | grep LAGO_KAFKA_BOOTSTRAP_SERVERS` contains a comma + cache mode on = this trap.
+- **Shortcut.** `printenv LAGO_KAFKA_BOOTSTRAP_SERVERS` contains a comma + cache mode on = this trap.
   Measure with `diagnostics-and-tooling` (`cdc-brokers` scenario: visible=false).
-- **Rule.** OPEN DECISION OD-1 (owner).
+- **Rule.** OPEN DECISION OD-1 (owner); hardening: OPEN DECISION OD-20 (owner).
 
 ## T6. Pay-in-advance silently stops after a charge edit (memory-cache mode)
 
@@ -100,9 +108,15 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
 - **Story.** The connectors (`190aa81`, #596, 2025-09-18) pass a numeric `precise_total_amount_cents`
   through (`connectors/http.yml:32-36`, `kinesis.yml:38-39`, `sqs.yml:34-35`), their README uses a
   number (`connectors/README.md:20`), and EP declares the field `string` (`models/event.go:18`). Every such
-  event fails `json.Unmarshal`, is committed and never DLQ'd. Open 378 days as of 2026-10-01.
+  event fails `json.Unmarshal`, is committed and never DLQ'd. Open 378 days as of 2026-10-01. Evidence:
+  the EP half is VERIFIED (probe: `json.Unmarshal` into `models.Event`); the connector half is code-read,
+  not runnable here (the connector image is Docker-only; only `connectors/sqs.yml` has a `tests:` block).
 - **Tell-tale.** `Error unmarshalling message` with `json: cannot unmarshal number into Go struct field
-  Event.precise_total_amount_cents of type string` (Sentry has the error; the payload is gone).
+  Event.precise_total_amount_cents of type string`. Sentry has the error; the payload is still in
+  ClickHouse `events_raw` (its own Kafka engine parses the number into `Decimal(40,15)`; VERIFIED with
+  `clickhouse local` JSONEachRow on the same column types, production ClickHouse UNVERIFIED), but connectors
+  send `ingested_at` as integer seconds, which ClickHouse reads as ms (1970-01-2x): only the
+  connector-aware query in `events-processor.md` E4.1 finds these rows.
 - **Shortcut.** `explain-error.sh` -> `loss-ptac-number`. Direct producers can send it as a string. Through
   the connectors there is no value-preserving workaround: they map every non-number (a string, or the
   field absent) to `"0"` (`connectors/http.yml:32-37`, `kinesis.yml:38-43`, `sqs.yml:34-39`), so the event
@@ -113,9 +127,11 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
 ## T8. `"1e+06"`, `"<nil>"`, and sums that become 0
 
 - **Story.** Since the first commit (`4100da0`, 2025-03-11) `value = fmt.Sprintf("%v", ...)` on a
-  float64 (`enrichment_service.go:114`). ClickHouse parses `"1e+06"` fine but `toDecimal128OrZero`
-  zeroes `"<nil>"` and anything >= 1e12 (Decimal(38,26)); unique_count compares raw strings.
-  Re-measured 2026-10-01 with `clickhouse local` 26.2.
+  float64 (`enrichment_service.go:114`). ClickHouse parses `"1e+06"` fine (1000000), but
+  `toDecimal128OrZero(value, 26)` into `Decimal(38,26)` zeroes `"<nil>"`, any |x| >= 1e12 (negatives
+  too) and any non-numeric `%v` string (`true`, `map[x:1]`); unique_count compares raw strings.
+  Re-measured 2026-10-01 with `clickhouse local` 26.2.19.43 (`diagnostics-and-tooling` `ch-local.sh`).
+  A Go-only formatting fix does not cure |x| >= 1e12: the column holds 12 integer digits.
 - **Tell-tale.** A customer's sum is 0 or far too low for large quantities; unique_count higher than
   the number of distinct business values.
 - **Shortcut.** The `events_enriched` string query in `events-processor.md` E5.
@@ -142,14 +158,16 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
 - **Tell-tale.** `panic: runtime error: invalid memory address or nil pointer dereference` with frame
   `database_test.go:24`.
 - **Shortcut.** Scroll UP: the real line is `dial tcp ...: connect: connection refused` (or `password
-  authentication failed`). `pg_isready -d "$DATABASE_URL"`; `pg_ctlcluster 16 main start`.
+  authentication failed`). `pg_isready -d "$DATABASE_URL"`; `pg_ctlcluster 16 main start` (owner row:
+  `build-and-env` B6).
 
 ## T11. A single subtest fails, the whole test passes
 
 - **Story.** `TestEvaluateExpression` subtests share and mutate `bm`/`event`/`result`
   (`enrichment_service_test.go:256-258`); narrowing `-run` to one subtest (the habit `$API/AGENTS.md:218`
   encourages: "Run as minimum number of tests as possible") fails with `expected: string("36") actual: <nil>`.
-- **Shortcut.** Run the parent test. Fixing the test is a change-class C1 change (`validation-and-qa`).
+- **Shortcut.** Run the parent test. Two subtests fail alone: `With_an_expression_and_with_required_fields`
+  and `With_a_float_timestamp` (owner: `validation-and-qa` HD3). Fixing the test is a change-class C1 change.
 
 ## T12. Traefik `ws` entrypoint, and the fix that moved the submodules
 
@@ -159,34 +177,43 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
   That fix PR ALSO moved the `api`/`front` gitlinks by accident (`git commit -a` with drifted
   submodules); reverted by `647de3e` (#620) the same day.
 - **Tell-tale.** `EntryPoint doesn't exist`; a `Subproject commit` line in a non-release diff.
-- **Shortcut.** Only `web` and `websecure` exist. Before any commit: `git diff --cached --submodule`.
+- **Shortcut.** Only `web` and `websecure` exist. Before any commit run
+  `.claude/skills/change-control/scripts/precommit-guard.sh` (expect `0 FAIL`). It checks
+  `git diff --cached --submodule=short --ignore-submodules=none -- api front`; the plain
+  `--submodule` form is blind when `diff.ignoreSubmodules` or `submodule.<name>.ignore` is `all`.
 - **Rule.** change-control N1.
 
 ## T13. Dev compose startup races and init scripts that never ran
 
-- **Story.** `lago up -d` failed randomly (`RedisClient::CannotConnectError` in `migrate`, `unable to
-  create topics ... connection refused`) until health conditions were added (`c80a7b5`, #580,
+- **Story.** `lago up -d` (the docs' alias for `docker compose -f docker-compose.dev.yml up -d`)
+  failed randomly (`RedisClient::CannotConnectError` in `migrate`, `unable to create topics ...
+  connection refused`) until health conditions were added (`c80a7b5`, #580,
   2025-09-03); re-running topic creation failed until `scripts/create-topics.sh` made it idempotent
   (`5477e39`, #581). The `lago_test` database was never created for 774 days because of an init-script
   path typo (`2747b04` 2023-09-22 -> `e5392e9` #621 2025-11-04).
-- **Tell-tale.** Failures that disappear on a second `lago up`; a database missing although a script
+- **Tell-tale.** Failures that disappear on a second `up`; a database missing although a script
   "creates" it.
 - **Shortcut.** `docker compose -f docker-compose.dev.yml config --format json | jq '.services.<svc>.depends_on'`
-  (works without a daemon). Init scripts run only on an empty PGDATA.
-- **Rule.** change-control N12.
+  (works without a daemon). Init scripts run only on an empty PGDATA; creating `lago_test` by hand
+  beats `down -v` (which destroys every dev volume; `dev-ci-release.md` DEV13).
+- **Rule.** change-control N12 (infra dependencies `service_healthy`, one-shot jobs
+  `service_completed_successfully`); a dependency edge change is change class C6.
 
 ## T14. The all-in-one image breaks on release day
 
 - **Story.** `docker/Dockerfile` is built only by `release-docker-image.yml` (on `release`), so drift
-  surfaces when the release is cut: `pnpm@latest` TTY abort at v1.35.0 (`18b26d0`, #617); Bundler 4
+  surfaces when the release is cut: the v1.35.0 build failed in the `corepack prepare pnpm@latest` /
+  `pnpm prune` step (`18b26d0`, #617; which pnpm ran is UNVERIFIED); Bundler 4
   removed `--without`, latent for 15 days, broke v1.45.0 (`558814a`, #722, v1.45.1 cut); Node and Ruby
   ARGs lagged api/front on the v1.53.0 bump, fixed 33 and 49 minutes later (`b267320`, `f719ef1`);
-  Debian trixie roll (`b6b98c8`, #592). Docker Hub has no `getlago/lago` v1.48.0, v1.49.0 or v1.50.0
-  (v1.48.1 exists; as of 2026-10-01). In all, 10 `fix` commits touch `docker/` since 2025-05.
-- **Tell-tale.** Red `Release Single Docker Image` run; strings in `dev-ci-release.md` REL1-REL4.
+  Debian trixie roll after the Ruby 3.4.5 bump (`14fa1e0`, fixed `b6b98c8`, #592). `getlago/lago`
+  v1.33.0-v1.33.2 and v1.48.0-v1.50.0 were never published on Docker Hub (as of 2026-10-01; list:
+  `release-and-images`). In all, 10 `fix` commits touch `docker/` since 2025-05.
+- **Tell-tale.** Red `Release Single Docker Image` run; strings in `dev-ci-release.md` RD1-RD4.
 - **Shortcut.** Before tagging: compare `docker/Dockerfile:1-2` with `$API/.ruby-version` and front
   `engines.node`; dispatch the workflow (`workflow_dispatch`) on the release commit first
-  (`release-and-images` owns the procedure). `pnpm@latest` is still at `docker/Dockerfile:12`.
+  (`release-and-images` owns the procedure). `pnpm@latest` is still at `docker/Dockerfile:12`; lago-front's
+  `packageManager` pin makes it inert today, a conditional risk if front drops that pin.
 - **Rule.** change-control N3 (no floating tools).
 
 ## T15. Dev email: Mailpit is up, delivery still fails (CANDIDATE, found 2026-10-01)

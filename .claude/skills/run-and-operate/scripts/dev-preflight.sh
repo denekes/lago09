@@ -53,7 +53,7 @@ for sm in api front; do
   if [ -f "$repo/$sm/Dockerfile.dev" ]; then
     ok "$sm/ populated ($sm/Dockerfile.dev present; gitlink $(git -C "$repo" ls-tree HEAD "$sm" 2>/dev/null | awk '{print substr($3,1,12)}'))"
   else
-    fail "$sm/ is empty: build context ./$sm has no Dockerfile.dev. Run: git submodule update --init $sm (SSH URLs in .gitmodules; see build-and-env for the HTTPS rewrite)"
+    fail "$sm/ is empty: build context ./$sm has no Dockerfile.dev. .gitmodules uses SSH URLs; without an SSH key run: git -c url.\"https://github.com/\".insteadOf=\"git@github.com:\" submodule update --init --depth 1 $sm (build-and-env section 2b step 1)"
   fi
 done
 [ -f "$repo/events-processor/Dockerfile.dev" ] && ok "events-processor/Dockerfile.dev present"
@@ -100,7 +100,7 @@ ed="$repo/.env.development"
 if [ -f "$ed" ]; then
   info ".env.development present ($(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$ed") assignments; it overrides .env.development.default for every env_file service)"
   if grep -qE '^LAGO_CLICKHOUSE_ENABLED=["'\'']?false' "$ed"; then
-    warn ".env.development sets LAGO_CLICKHOUSE_ENABLED=false: lago-api tests .present?, so this still ENABLES ClickHouse; set it empty instead (see config-and-flags)"
+    warn ".env.development sets LAGO_CLICKHOUSE_ENABLED=false: MIXED in lago-api (the 12 .present?/.blank? readers stay ON; only org creation and 2 seed files turn off); set it empty to disable (see config-and-flags)"
   fi
   if grep -qE '^POSTGRES_PASSWORD=' "$ed"; then
     warn ".env.development overrides POSTGRES_PASSWORD: 'changeme' is hard-coded in lago-api config/database.yml (development direct/events roles) and extra/debezium_config.json (inferred breakage)"

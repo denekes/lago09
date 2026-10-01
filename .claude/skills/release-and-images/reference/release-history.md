@@ -35,11 +35,16 @@ v1.45.1, v1.45.2, v1.46.0, v1.48.1..v1.52.0 tag the PR merge commit.
 Branch names are not standardized (`misc-v1-50-0` #759, `misc-v-52-0` #782,
 `chore/bump-version-v1.51.0` #770, `release-v1.48.1` #753, `misc/release-v1-46-0` #739,
 `bump-version` #698/#705/#675/#560, `release/1.34.2` #602). Subjects of the 63 bump commits on main
-since 2025-01-01: `chore(release): bump version to vX.Y.Z` 20, `misc(version): Bump version to X` 7,
+since 2025-01-01 (definition in §3): `chore(release): bump version to vX.Y.Z` 20, `misc(version): Bump version to X` 7,
 `misc: Bump version to X` 5, `release: Bump to vX version` 4, others 27 (typos included:
 `chore(releasae)` `ba596c0`, `v.1.41.0` `12d0579`). Convention questions: OPEN DECISION OD-7 (owner), via change-control.
 
 ## 3. Who has run releases (bump commits on main since 2025-01-01, 63 total)
+
+Here a "bump commit" is a non-merge commit that changes the compose api image tag (`-G` below).
+Two of the 63 move no gitlink: `01cfbc6` (v1.52.1, compose-only bump) and `456bec7` (a compose
+refactor, not a bump). change-control counts 60 release bumps among 77 gitlink-moving commits
+(`git -C "$H" log --no-merges --since=2025-01-01 --format=%h 5308258 -- api front | wc -l` -> 77).
 
 `git -C "$H" log --no-merges --since=2025-01-01 --format='%an' -G'image: getlago/api:v' -- docker-compose.yml | sort | uniq -c | sort -rn`
 -> Vincent Pochet 12, Ancor Cruz 8, Toon Willems 6, Jérémy Denquin 5, Anna Velentsevich 5,

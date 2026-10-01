@@ -48,7 +48,7 @@ lifecycle: starts=5 shutdown_signals=5 stopped=5
   dlq-fetch-subscription       1  subscription lookup failed with a DB/badger error (not "not found": a missing subscription is NOT an error, the event is enriched with subscription_id "") -> retryable
   dlq-pay-in-advance           1  charges lookup failed after the enriched event was ALREADY produced -> retryable; a redelivery duplicates the enriched event
   dlq-flag-refresh             1  ZADD to the Redis ZSET subscription_refreshed_v2 failed -> retryable (enriched already produced)
-  dlq-empty-code               1  produce to events_enriched / events_charged_in_advance failed -> DLQ row with error_code "" and the record is COMMITTED (no per-event ERROR line)
+  dlq-empty-code               1  produce to events_enriched / events_charged_in_advance failed -> DLQ row with error_code "" and the record is COMMITTED (no per-event ERROR line); after a failed ENRICHED push the in-advance event is still produced
   loss-unmarshal               1  raw record is not valid JSON for models.Event: committed, NO DLQ, Sentry only = LOST
   loss-retryable-skip          1  the FIRST record of a batch failed retryably, so nothing was committed; if any later batch on that partition commits, the failed offset is skipped forever (no DLQ, no retry)
   run-unknown-topic            1  a topic EP produces to (or consumes) does not exist on the cluster

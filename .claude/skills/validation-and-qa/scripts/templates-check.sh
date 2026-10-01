@@ -8,6 +8,7 @@
 #   --keep keeps the temp dir (overlay JSON) and prints its path.
 # Package mapping (from the template's `package` clause):
 #   events_processor -> processors/events_processor   models -> models   cache -> cache
+#   kafka -> config/kafka
 # Needs: the CGO env from build-and-env/scripts/ep-env.sh (sourced here; the events_processor
 #   package links libexpression_go). No Postgres needed.
 # Exit: 0 all templates pass; 1 a template failed to compile or a test failed; 2 setup error.
@@ -35,7 +36,7 @@ source "$repo/.claude/skills/build-and-env/scripts/ep-env.sh" || { echo "templat
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/vqa-templates.XXXXXX")"
 if [ "$keep" = 0 ]; then trap 'rm -rf "$tmp"' EXIT; else echo "templates-check: keeping $tmp" >&2; fi
 
-declare -A pkgdir=( [events_processor]=processors/events_processor [models]=models [cache]=cache )
+declare -A pkgdir=( [events_processor]=processors/events_processor [models]=models [cache]=cache [kafka]=config/kafka )
 declare -A pkgs_used=()
 json='{"Replace":{'
 sep=''

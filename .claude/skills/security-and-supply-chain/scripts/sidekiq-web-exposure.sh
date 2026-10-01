@@ -15,10 +15,11 @@
 set -euo pipefail
 
 REPO=""; API=""
+need() { [ -n "$2" ] || { echo "$1" >&2; exit 2; }; }   # missing option value = usage (exit 2)
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo) REPO="${2:?}"; shift 2 ;;
-    --api) API="${2:?}"; shift 2 ;;
+    --repo) need "--repo needs a directory" "${2:-}"; REPO="$2"; shift 2 ;;
+    --api) need "--api needs a lago-api directory" "${2:-}"; API="$2"; shift 2 ;;
     -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac

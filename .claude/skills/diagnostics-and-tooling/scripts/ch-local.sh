@@ -23,6 +23,11 @@
 # Cache: ${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/clickhouse/<ver>/clickhouse
 # (~211 MB download, ~724 MB on disk; the .tgz is deleted after extraction).
 #
+# The cache layout above is the ONE shared layout for every skill: callers get
+# the binary with `ch-local.sh --path` instead of hardcoding a versioned path.
+# Query mode reads stdin from /dev/null (an inherited open stdin pipe must never
+# stall `clickhouse local`); `-` mode reads SQL from stdin until EOF.
+#
 # Exit codes: 0 ok; 1 usage; 2 download/verification/resolution failure
 # (network blocked: say so, do not guess ClickHouse semantics); otherwise the
 # exit code of clickhouse local (e.g. a SQL error).
@@ -96,4 +101,4 @@ if [ "$mode" = path ]; then echo "$bin"; exit 0; fi
 if [ "$1" = "-" ]; then
   exec "$bin" local --multiquery
 fi
-exec "$bin" local --query "$1"
+exec "$bin" local --query "$1" </dev/null

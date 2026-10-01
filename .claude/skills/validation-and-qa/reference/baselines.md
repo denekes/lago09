@@ -1,10 +1,10 @@
 # Baselines (measured 2026-10-01) and how they were measured
 
 Read this when a number in a PR does not match, when you refresh `scripts/baseline.json`, or when
-you need the zero-coverage list. Every number below was re-measured on 2026-10-01 on the code of
-`5308258` (events-processor tree `83e012866f29`; the working HEAD `08065ef` only adds
-`.claude/skills/`, `git rev-parse 5308258:events-processor HEAD:events-processor` prints the same
-tree twice). Environment: go1.25.0 (fetched by `GOTOOLCHAIN=auto`; local Go is 1.24.7),
+you need the zero-coverage list. Every number below was re-measured on 2026-10-01. Code facts as of
+5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on
+top (`git rev-parse 5308258:events-processor HEAD:events-processor` prints the same tree twice).
+Environment: go1.25.0 (fetched by `GOTOOLCHAIN=auto`; local Go is 1.24.7),
 4 vCPU, Postgres 16 on localhost with role/db `lago`, golangci-lint 2.5.0, lago-expression v0.2.0.
 
 Path convention: code cites are relative to `events-processor/`; bare `processor_test.go`,
@@ -47,7 +47,7 @@ grep -c -- '--- FAIL\|--- SKIP' "${TMPDIR:-/tmp}/v.txt"   # 0
 | Number | Command (cwd `events-processor/`, after `source .claude/skills/build-and-env/scripts/ep-env.sh`) | Meaning |
 |---|---|---|
 | 47.4% | `PKGS=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...); go test -count=1 -coverprofile="${TMPDIR:-/tmp}/c.out" $PKGS; go tool cover -func="${TMPDIR:-/tmp}/c.out" \| tail -1` | statements of the 6 tested packages, each covered by its own tests. **The gated number.** |
-| 44.9% | same with `-coverpkg=./...` | statements of every package linked into a test binary, covered by any test. `main` and `processors` are missing: no test binary links them. |
+| 44.9% | same with `-coverpkg=./...` | statements of every package linked into a test binary, covered by any test. `main` and `processors` are missing: no test binary links them. Informational (`baseline.sh` WARNs on a drop, never FAILs). |
 | 42.0% (563/1342) | the overlay snippet below | whole module including `main` (0/34) and `processors` (0/55). Informational. |
 
 - **Trap:** `go test -coverprofile=... ./...` exits **1** on go1.25.0 with
@@ -99,7 +99,8 @@ So the staticcheck count is 5 issues but 4 distinct findings. Per-linter counts 
 
 | Check | Command | Result 2026-10-01 | Wall time (warm) |
 |---|---|---|---|
-| race | `ep-test.sh -race -count=1 ./...` | 6 ok, 0 `WARNING: DATA RACE` | ~8 s (cache 5.4 s) |
+| race (unit suite only: never runs `ProcessEvents` / `processRecordsAndCommit`) | `ep-test.sh -race -count=1 ./...` | 6 ok, 0 `WARNING: DATA RACE` | ~7-8 s (cache 5.4 s) |
+| race on the real consumer path | `GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4` | `RESULT: PASS`, exit 0 (66 = data race) | ~5 s |
 | shuffle | `ep-test.sh -shuffle=on -count=10 ./...` | 6 ok | ~31 s (cache 29 s: `TestDeleteWithTTL_Success` sleeps 1.5 s per round) |
 | isolation | `scripts/race-shuffle.sh --isolation` | 202 leaves run alone, 2 fail (both known, `TestEvaluateExpression`) | ~25-31 s |
 | strict sqlmock | `scripts/sqlmock-strict.sh` | 4 subtests with unmet expectations (all known) | ~6 s |
@@ -112,7 +113,8 @@ it cannot find the `TestEvaluateExpression` dependency. Only isolation does.
 | What | Time | How measured |
 |---|---|---|
 | full suite, warm build cache | 4-5 s | `time ep-test.sh` |
-| full suite, empty `GOCACHE`, warm module cache | 74 s and 123 s on 4 vCPU (two runs on 2026-10-01; the slower one on a loaded machine) | `GOCACHE=<empty dir> ep-test.sh` (the build-and-env skill reports ~62 s on another run) |
+| full suite, empty `GOCACHE`, warm module cache | 60-75 s typical on 4 vCPU, up to ~120 s under load (runs on 2026-10-01: 74 s, 123 s loaded; build-and-env measured ~62 s) | `GOCACHE=<empty dir> ep-test.sh` |
+| full suite with `-race`, warm | ~7-8 s | `time ep-test.sh -race -count=1 ./...` |
 | `baseline.sh` | ~12 s with a warm lint cache, ~29 s cold | `time scripts/baseline.sh` |
 | `race-shuffle.sh` (default x10) | ~40 s; `--isolation` ~60-75 s; `--isolation --count 3` ~43 s | `time` |
 | slowest tests | `TestDeleteWithTTL_Success` 1.52 s (`cache/cache_test.go:362` sleep), `TestProcessEvent` 0.50 s, `TestEnrichEvent` 0.15 s | `-v` output |
@@ -129,12 +131,12 @@ a gap, not a target to fix in passing: delivery code changes are C4 (change-cont
 | enrichment error branch | `enrichment_service.go:62-64` (`fetch_subscription`, capturable) | 0% (`EnrichEvent` 92.9%) | `MockDataStore.ExpectSubscriptionError` exists (`processor_test.go:115-117`) but nothing calls it |
 | produce failures | `event_producer_service.go:34-37,45-48,61-64,70-73,78-80,87-89` | `ProduceEnrichedEvent` 60%, `ProduceChargedInAdvanceEvent` 60%, `ProduceToDeadLetterQueue` 55.6% | `tests.MockMessageProducer.Produce` always returns true (`tests/mocked_producer.go:20`) |
 | Kafka consumer group | `processRecordsAndCommit` (`config/kafka/consumer.go:82`), `assigned` (:111), `lost` (:132), `poll` (:152), `pollRecords` (:167), `gracefulShutdown` (:207), `NewConsumerGroup` (:227) | 0% (package 10.9%; only `findMaxCommitableRecord` :278 is 100%) | the commit algorithm; change-control N7 requires a kfake test before changing it |
-| Kafka client/producer | `NewKafkaClient` (`config/kafka/kafka.go:27`), `NewProducer`/`Produce`/`Ping` (`producer.go:33,52,72`) | 0% | SASL/TLS options; an unknown SCRAM algorithm panics (`debugging-playbook`) |
+| Kafka client/producer | `NewKafkaClient` (`config/kafka/kafka.go:27`), `NewProducer`/`Produce`/`Ping` (`config/kafka/producer.go:33,52,72`) | 0% | SASL/TLS options; an unknown SCRAM algorithm panics (`debugging-playbook`). Option plumbing needs no broker: `templates/producer_option_template_test.go.tmpl` |
 | memory cache load | `LoadInitialSnapshot` (`cache/cache.go:63`), `ConsumeChanges` (:109), `startGenericConsumer` (`cache/consumer.go:26`), every `Load*Snapshot` / `Start*Consumer` | 0% | snapshot failures are swallowed (`architecture-contract`); OPEN DECISION OD-1 (owner) decides how much this matters |
 | cache subscription tie-break | `SearchSubscriptions` (`cache/subscriptions.go:45`), blocks `:49-51`, `:56-57`, `:78-101` | 56.8% | must mirror `ORDER BY terminated_at DESC NULLS FIRST, started_at DESC` (`models/subscriptions.go:40`); no test has two candidates (the cache template adds them) |
 | snapshot SQL | `GetAll*` in `models/*.go`, `StreamRows` / `GetAllWithStreaming` (`models/query_streaming.go:19,95`) | 0% | the snapshot SQL never runs against sqlmock or Postgres |
 | pay-in-advance SQL | `ApiStore.HasPayInAdvanceCharge` (`models/charges.go:47`) | 80%, via a loose regex only (`processor_test.go:108`) | its WHERE clause is unpinned (the model-query template pins it) |
-| wiring | `StartProcessingEvents` (`processors/main_processor.go:102`), `main` (`main.go:27`), `config/tracing` (0/189), `config/redis` (0/14) | 0% | startup order and fail-fast panics are only checked by binary smoke (`diagnostics-and-tooling`) |
+| wiring | `StartProcessingEvents` (`processors/main_processor.go:102`), `main` (`main.go:27`), `config/tracing` (0/189), `config/redis` (0/14) | 0% | startup is only partially fail-fast (`architecture-contract` I14); startup order and its panics are only checked by binary smoke (`diagnostics-and-tooling`) |
 
 Re-derive the full list (116 functions at 0.0%) with the overlay snippet of §2, then:
 `go tool cover -func="$W/all.out" | awk '$NF=="0.0%"'`.

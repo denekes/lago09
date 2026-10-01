@@ -47,9 +47,9 @@ getv(){ git -C "$H" show --format= "$1" -- .env.development.example .env.develop
 a=$(getv 16c8b68 +); b=$(getv 6dd7e56 -); [ "$a" = "$b" ] && echo SAME || echo DIFFERENT; unset a b
 ```
 
-- On `main` for 37 days (2025-01-29 `0a67ac0` -> 2025-03-07 `6dd7e56`). The feature branch lived in
-  the public repository and may have been visible from 2025-01-23 (43 days); its push date is
-  UNVERIFIED (not recorded in git). Still readable in history today.
+- 37 days on `main` (merge `0a67ac0` 2025-01-29 -> `6dd7e56` 2025-03-07); up to 43 days if the
+  feature branch was public from 2025-01-23 (UNVERIFIED: push dates are not recorded in git).
+  Still readable in history today.
 - Rotation: UNVERIFIED. OD-9 asks the owner for a rotation record (date only).
 - Treat as leaked until the owner confirms rotation. History rewriting is forbidden
   (change-control N2) and would not help: forks and clones keep the value.
@@ -74,8 +74,8 @@ Wide-scan leads (`--history-wide`, all paths), 5 LITERAL rows on 2026-10-01:
 - The `5308258` commit message says the staging Dockerfile copy "sat in the private lago-deploy repo
   specifically to keep ECR URLs and the AWS account id out of a public repository". Policy and
   practice disagree. An account id is not a credential, but the project itself treats it as
-  sensitive. OPEN question for the owner: keep it public, or move it to a repository variable such
-  as `vars.ECR_REGISTRY`?
+  sensitive. OPEN DECISION OD-18 (owner): keep it public, or move it to a repository variable such
+  as `vars.ECR_REGISTRY`? Until decided, add no new account ids or ECR URLs to public files.
 - Both ECR callers pass long-lived keys: `secrets.AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
   (`build-processors-image.yaml:21-23`, `build-connectors-image.yaml:26-28`).
 - OIDC is plumbed but unused: `5ee8e98` (2026-08-25) added the `role-to-assume` input

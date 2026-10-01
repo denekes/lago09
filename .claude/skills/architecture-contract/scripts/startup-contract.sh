@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# startup-contract.sh — prove the events-processor fail-fast startup contract by running the REAL binary
-# with environment variables added one step at a time, and checking each panic / log line.
+# startup-contract.sh — prove the events-processor startup contract (only partially fail-fast: architecture-contract
+# I14) by running the REAL binary with environment variables added one step at a time, and checking each panic /
+# log line. Step ids: S0-S7 (default run) and SK1-SK9 (need --broker; SK5-SK9 also Postgres, SK7-SK9 --redis);
+# architecture-contract SKILL.md section 2 and reference/startup-and-shutdown.md map them to startup steps.
 #
 # Usage (from anywhere inside the lago repo):
 #   .claude/skills/architecture-contract/scripts/startup-contract.sh [options]
@@ -26,8 +28,8 @@ set -euo pipefail
 #   SUMMARY steps=<n> fails=<n> logs=<dir>
 # Exit code: 0 = no FAIL (the startup contract documented in the architecture-contract skill still holds),
 # 1 = at least one FAIL (count in the SUMMARY line), 2 = setup error (cannot build, bad arguments).
-# Expected as of 2026-10-01 (HEAD 5308258): default run "SUMMARY steps=9 fails=0" (S6 SKIP without Postgres);
-# with --broker + --redis + reachable Postgres "SUMMARY steps=17 fails=0".
+# Expected as of 2026-10-01 (code as of 5308258): default run "SUMMARY steps=9 fails=0" (S6 SKIP without Postgres;
+# SK1-SK9 one SKIP line); with --broker + --redis + reachable Postgres "SUMMARY steps=17 fails=0".
 
 BIN=""; PG="${DATABASE_URL:-postgres://lago:lago@localhost:5432/lago}"; BROKER=""; REDIS=""; WAIT=6; OUTDIR=""; VERBOSE=0
 while [ $# -gt 0 ]; do
@@ -133,45 +135,45 @@ run_step S7 "LAGO_USE_MEMORY_CACHE=1 is NOT cache mode (literal \"true\" only, m
 
 echo "== broker steps (need --broker; Redis steps also need --redis)"
 if [ -z "$BROKER" ]; then
-  skip K1-K9 "steps after the producer Ping" "no --broker given"
+  skip SK1-SK9 "steps after the producer Ping" "no --broker given"
 else
   B="LAGO_KAFKA_BOOTSTRAP_SERVERS=$BROKER"
-  run_step K1 "+ reachable broker -> in-advance topic required (main_processor.go:123-126)" \
+  run_step SK1 "+ reachable broker -> in-advance topic required (main_processor.go:123-126)" \
     'panic: LAGO_KAFKA_EVENTS_CHARGED_IN_ADVANCE_TOPIC variable is required' 20 0 "$B" "$T_ENR"
-  run_step K2 "+ in-advance topic -> DLQ topic required (main_processor.go:128-131)" \
+  run_step SK2 "+ in-advance topic -> DLQ topic required (main_processor.go:128-131)" \
     'panic: LAGO_KAFKA_EVENTS_DEAD_LETTER_TOPIC variable is required' 20 0 "$B" "$T_ENR" "$T_CIA"
-  run_step K3 "+ DLQ topic, bad max connections -> int parse panic (main_processor.go:134-137)" \
+  run_step SK3 "+ DLQ topic, bad max connections -> int parse panic (main_processor.go:134-137)" \
     '"msg":"Error converting max connections into integer"|||panic: strconv.Atoi: parsing "abc"' 20 0 \
     "$B" "$T_ENR" "$T_CIA" "$T_DLQ" "LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS=abc"
-  run_step K4 "DB mode, Postgres unreachable (main_processor.go:144-147)" \
+  run_step SK4 "DB mode, Postgres unreachable (main_processor.go:144-147)" \
     '"msg":"Error connecting to the database"|||processors.StartProcessingEvents' 20 0 \
     "$B" "$T_ENR" "$T_CIA" "$T_DLQ" "DATABASE_URL=$UNREACH_PG"
   if pg_ok; then
-    run_step K5 "+ Postgres OK, LAGO_REDIS_STORE_DB=x -> flag store panic (main_processor.go:79-82,152-155)" \
+    run_step SK5 "+ Postgres OK, LAGO_REDIS_STORE_DB=x -> flag store panic (main_processor.go:79-82,152-155)" \
       '"msg":"Error connecting to the flag store"|||panic: strconv.Atoi: parsing "x"' 20 0 \
       "$B" "$T_ENR" "$T_CIA" "$T_DLQ" "DATABASE_URL=$PG" "LAGO_REDIS_STORE_DB=x"
-    run_step K6 "+ Redis unreachable -> Ping fails after go-redis dial retries (config/redis/redis.go:50-53)" \
+    run_step SK6 "+ Redis unreachable -> Ping fails after go-redis dial retries (config/redis/redis.go:50-53)" \
       '"msg":"Error connecting to the flag store"|||connect: connection refused' 30 0 \
       "$B" "$T_ENR" "$T_CIA" "$T_DLQ" "DATABASE_URL=$PG" "LAGO_REDIS_STORE_URL=127.0.0.1:1"
     if [ -z "$REDIS" ]; then
-      skip K7-K9 "Redis-dependent steps" "no --redis given"
+      skip SK7-SK9 "Redis-dependent steps" "no --redis given"
     else
       R="LAGO_REDIS_STORE_URL=$REDIS"
-      run_step K7 "ENV=production turns Redis TLS on (legacy default, main_processor.go:85,91) -> plaintext Redis fails" \
+      run_step SK7 "ENV=production turns Redis TLS on (legacy default, main_processor.go:85,91) -> plaintext Redis fails" \
         '"msg":"Error connecting to the flag store"' 30 0 \
         "$B" "$T_ENR" "$T_CIA" "$T_DLQ" "DATABASE_URL=$PG" "$R" "ENV=production"
       TOPIC="startup-contract-probe-$$-$RANDOM"
-      run_step K8 "full start + SIGTERM after ${WAIT}s -> group <group>_<topic>, graceful shutdown" \
+      run_step SK8 "full start + SIGTERM after ${WAIT}s -> group <group>_<topic>, graceful shutdown" \
         "\"msg\":\"Starting event consumer\"|||\"msg\":\"Received shutdown signal\"|||\"msg\":\"Gracefully shutting down consumer group\"|||\"msg\":\"Consumer group shutdown is complete\"|||\"msg\":\"Event processor stopped\"|||!panic:" \
         "$WAIT" 0 "$B" "$T_ENR" "$T_CIA" "$T_DLQ" "DATABASE_URL=$PG" "$R" \
         "LAGO_KAFKA_RAW_EVENTS_TOPIC=$TOPIC" "LAGO_KAFKA_CONSUMER_GROUP=startup-contract"
-      echo "     group id seen in log: $(grep -m1 -oE '"group":"[^"]*"' "$LOGS/K8.log" || echo '<none logged>') (expected startup-contract_$TOPIC)"
-      run_step K9 "empty LAGO_KAFKA_RAW_EVENTS_TOPIC / LAGO_KAFKA_CONSUMER_GROUP are NOT validated -> starts and idles" \
+      echo "     group id seen in log: $(grep -m1 -oE '"group":"[^"]*"' "$LOGS/SK8.log" || echo '<none logged>') (expected startup-contract_$TOPIC)"
+      run_step SK9 "empty LAGO_KAFKA_RAW_EVENTS_TOPIC / LAGO_KAFKA_CONSUMER_GROUP are NOT validated -> starts and idles" \
         '"msg":"Starting event consumer"|||!panic:' "$WAIT" 0 \
         "$B" "$T_ENR" "$T_CIA" "$T_DLQ" "DATABASE_URL=$PG" "$R"
     fi
   else
-    skip K5-K9 "steps after the DB connection" "Postgres at $PG not reachable (pg_isready)"
+    skip SK5-SK9 "steps after the DB connection" "Postgres at $PG not reachable (pg_isready)"
   fi
 fi
 

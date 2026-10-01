@@ -23,6 +23,9 @@
 # Exit: 0 every audited row OK; 1 at least one non-OK row; 2 usage error; 3 network / ls-remote failure.
 set -euo pipefail
 export GIT_TERMINAL_PROMPT="${GIT_TERMINAL_PROMPT:-0}"
+# No auto-gc / auto-maintenance in the shared history clone while lazy blob fetches add objects
+# (other agents may be reading it): every git call on a clone goes through gitc.
+gitc() { git -c gc.auto=0 -c maintenance.auto=false -C "$@"; }
 
 from="v1.24.0"; one=""; cand_ref=""; cand_ver=""; compose=1; all=0
 need() { [ -n "$2" ] || { echo "release-pin-audit: $1" >&2; exit 2; }; }   # missing option value = usage error
@@ -44,7 +47,7 @@ for v in "$from" ${one:+"$one"} ${cand_ver:+"$cand_ver"}; do
 done
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo="$(git rev-parse --show-toplevel 2>/dev/null || git -C "$here" rev-parse --show-toplevel)"
+repo="$(git rev-parse --show-toplevel 2>/dev/null || gitc "$here" rev-parse --show-toplevel)"
 # Foundation script next to THIS script first (works on a release branch cut from a main
 # that does not carry .claude/skills), else in the checkout being audited.
 rm_dir="$(cd "$here/../.." && pwd)/research-methodology/scripts"
@@ -70,18 +73,18 @@ has_tag() { awk -v t="$2" -F'\t' '$1==t {f=1} END {exit !f}' "$1"; }
 
 audit_one() {  # audit_one <tag/version> <commit40> <gitdir>
   local t="$1" c="$2" g="$3" a f at ft br cv verdict date
-  if ! git -C "$g" cat-file -e "$c^{commit}" 2>/dev/null; then
+  if ! gitc "$g" cat-file -e "$c^{commit}" 2>/dev/null; then
     printf '%s\t%s\t-\t-\t-\t-\t-\tNOT-IN-HISTORY\n' "$t" "${c:0:7}"; return 1
   fi
-  date="$(git -C "$g" log -1 --format=%ad --date=short "$c")"
+  date="$(gitc "$g" log -1 --format=%ad --date=short "$c")"
   if [ "$g" = "$repo" ]; then br=candidate
-  elif git -C "$H" merge-base --is-ancestor "$c" HEAD 2>/dev/null; then br=main; else br=off-main; fi
-  a="$(git -C "$g" rev-parse -q --verify "$c:api" 2>/dev/null || echo -)"
-  f="$(git -C "$g" rev-parse -q --verify "$c:front" 2>/dev/null || echo -)"
+  elif gitc "$H" merge-base --is-ancestor "$c" HEAD 2>/dev/null; then br=main; else br=off-main; fi
+  a="$(gitc "$g" rev-parse -q --verify "$c:api" 2>/dev/null || echo -)"
+  f="$(gitc "$g" rev-parse -q --verify "$c:front" 2>/dev/null || echo -)"
   at="$(tags_at "$tmp/api.map" "$a")"; ft="$(tags_at "$tmp/front.map" "$f")"
   cv="skipped"
   if [ "$compose" = 1 ]; then
-    cv="$(git -C "$g" show "$c:docker-compose.yml" 2>/dev/null \
+    cv="$(gitc "$g" show "$c:docker-compose.yml" 2>/dev/null \
           | sed -n -E 's#^[[:space:]]*image:[[:space:]]*getlago/(api|front):([^[:space:]]+).*#\2#p' | paste -sd/ -)"
     cv="${cv:--}"
   fi
@@ -102,8 +105,8 @@ header() { printf '# tag\tsha7\tdate\tbranch\tapi-gitlink(lago-api tags)\tfront-
 n=0; bad=0
 if [ -n "$cand_ref" ]; then
   # Candidate: resolve in the working clone first (it has the newest commits), else the history clone.
-  if c="$(git -C "$repo" rev-parse -q --verify "$cand_ref^{commit}")"; then g="$repo"
-  elif c="$(git -C "$H" rev-parse -q --verify "$cand_ref^{commit}")"; then g="$H"
+  if c="$(gitc "$repo" rev-parse -q --verify "$cand_ref^{commit}")"; then g="$repo"
+  elif c="$(gitc "$H" rev-parse -q --verify "$cand_ref^{commit}")"; then g="$H"
   else echo "release-pin-audit: cannot resolve $cand_ref" >&2; exit 2; fi
   header; n=1; audit_one "$cand_ver" "$c" "$g" || bad=1
   if has_tag "$tmp/lago.map" "$cand_ver"; then

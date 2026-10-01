@@ -2,7 +2,8 @@
 
 Read this when you add, rename, retype or stop sending a field on any of the four topics, when a
 consumer "silently ignores" data, or when you write a producer other than Rails. Facts verified
-2026-10-01 at events-processor `5308258` and `$API` = lago-api `591ae90`
+2026-10-01. Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
+skills-only commits on top. `$API` = lago-api at the pin `591ae90` (2026-09-08)
 (`API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)`).
 Wire samples below are real output of `scripts/run-probe.sh value` (section "wire").
 ClickHouse behaviour is from `scripts/ch-decimal-probe.sh` on ClickHouse 26.2.9.9 with default
@@ -31,10 +32,10 @@ Consumers: Go `models.Event` (`events-processor/models/event.go:12-27`, unmarsha
 | Field | Rails API producer | Rails re-enrichment | connectors/*.yml | Go `models.Event` | CH `events_raw_queue` | Notes |
 |---|---|---|---|---|---|---|
 | `organization_id` | `organization.id` | `event.organization_id` | `this.event.organization_id` (http) or env `${ORGANIZATION_ID}` (kinesis, sqs) | `string` | `String` | |
-| `external_customer_id` | `event.external_customer_id` | same | absent | **not modelled** | `String` NOT NULL (absent → `''`) | Go drops it; the DLQ copy loses it too |
+| `external_customer_id` | `event.external_customer_id`: always null (not permitted by `$API/app/controllers/api/v1/events_controller.rb:172-196`) | same | absent | **not modelled** | `String` NOT NULL (absent → `''`) | Go drops it; nothing is lost from API events (the value is null) |
 | `external_subscription_id` | yes | yes | yes | `string` | `String` | |
 | `transaction_id` | yes | yes | yes | `string` | `String` | |
-| `timestamp` | `event.timestamp.to_f.to_s` (`"1741007009.123"`) | `strftime("%s.%3N")` (`:82`) | client value as sent (string or number; may be RFC3339) | `any`; parsed by `utils.ToFloat64Timestamp` + `utils.ToTime` (`events-processor/models/event.go:70-81`) | `String` → MV `toDateTime64(timestamp, 3)` | RFC3339 with `Z`/offset: Go accepts (since `76c1b3b`), the CH raw MV raises `CANNOT_PARSE_TEXT` (probe R) |
+| `timestamp` | `event.timestamp.to_f.to_s` (`"1741007009.123"`; Ruby may print `"1727787600.1230001"`: contract P22) | `strftime("%s.%3N")` (`:82`) | client value as sent (string or number; may be RFC3339) | `any`; parsed by `utils.ToFloat64Timestamp` + `utils.ToTime` (`events-processor/models/event.go:70-81`) | `String` → MV `toDateTime64(timestamp, 3)` | RFC3339 with `Z`/offset: Go accepts (since `76c1b3b`), the CH raw MV raises `CANNOT_PARSE_TEXT` (probe R) |
 | `code` | yes | yes | yes | `string` | `String` | |
 | `precise_total_amount_cents` | `.to_s`, default `"0.0"` (`:46`) | same | JSON number passed through; anything else becomes `"0"` | `string` | `Nullable(Decimal(40,15))` | A JSON **number** fails Go unmarshal → record committed, no DLQ (probe: `json: cannot unmarshal number into Go struct field Event.precise_total_amount_cents of type string`). A string amount from a connector client becomes `"0"` |
 | `properties` | `event.properties` (expression already applied) | `JSON.parse` of `events_raw.properties` → every value is a **string** | client JSON | `map[string]any` (numbers → `float64`) | `String` → MV `JSONExtract(properties, 'Map(String, String)')` | Number fidelity lost above 2^53 in Go |
@@ -77,7 +78,9 @@ Wire sample (BM sum on `amount`, no subscription):
 <!-- evidence-check: on -->
 
 Engine: `ReplacingMergeTree(timestamp)`, ORDER BY `(organization_id, code, external_subscription_id, toDate(timestamp), timestamp, transaction_id)`:
-Go redeliveries of the same event collapse at merge / `FINAL`. A redelivery whose `value` string differs
+Go redeliveries of the same event collapse at merge, or at read time via `FINAL`, which Rails uses only for orgs
+with `clickhouse_deduplication_enabled` (default false; `$API/app/services/billable_metrics/aggregations/base_service.rb:161-169`).
+A redelivery whose `value` string differs
 (e.g. original `"1e+06"` vs re-enriched `"1000000"`) is still one row after merge, but which `value` wins
 is the ReplacingMergeTree rule, not "the newest enrichment" (UNVERIFIED end to end).
 

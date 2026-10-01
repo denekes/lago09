@@ -8,9 +8,9 @@
 #   FRONT=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh front)
 #   .../pinned-checkout.sh api <40-hex-sha>   # any other lago-api commit (full sha only)
 #
-# The pin is read with `git ls-tree HEAD <api|front>` (the gitlink) of the current checkout
-# (outside any checkout: of the repo this script lives in), not from the (possibly empty
-# or drifted) working-tree directory.
+# The pin is read with `git ls-tree HEAD <api|front>` (the gitlink) of the repo this script
+# lives in (if the script is not inside a git repo: of the current checkout), not from the
+# (possibly empty or drifted) working-tree directory.
 # Writes only under ${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/lago-<name>@<sha12>
 # Exit: 0 path printed; 1 no gitlink / fetch failed; 2 usage error (bad name or short sha).
 set -euo pipefail
@@ -26,7 +26,7 @@ if [ $# -ge 2 ]; then
   sha="$2"   # explicit: an EMPTY value is an error, never a silent fallback to the pin
   [ -n "$sha" ] || { echo "pinned-checkout: empty sha argument (unset variable?)" >&2; exit 2; }
 else
-  repo="$(git rev-parse --show-toplevel 2>/dev/null || git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+  repo="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || git rev-parse --show-toplevel)"
   sha="$(git -C "$repo" ls-tree HEAD "$name" | awk '{print $3}')"
 fi
 [ -n "$sha" ] || { echo "pinned-checkout: no gitlink for $name at HEAD" >&2; exit 1; }

@@ -3,7 +3,8 @@
 Read this when you need to see, concretely, what each layer does to an event: which fields survive,
 what `value` becomes, which topics and Redis keys are written, and what ClickHouse stores. The Go and
 ClickHouse stages below were EXECUTED with `scripts/worked-example.sh` (2026-10-01, events-processor
-`08065ef`, ClickHouse local 26.2.9.9). The Rails stage is read from code (no Rails runtime here).
+`5308258`, ClickHouse local 26.2.19.43; identical output on 26.2.9.9). The Rails stage is read from code
+(no Rails runtime here).
 
 ## Setup (what the script seeds)
 
@@ -114,7 +115,7 @@ Aggregate over E1+E3+E4 (CH-store org, code `storage`): `count() = 3`, `sum(deci
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-.claude/skills/domain-reference/scripts/worked-example.sh          # ~3-5 s warm; 20 CHECK lines
+.claude/skills/domain-reference/scripts/worked-example.sh          # ~3-5 s warm (~20 s on a cold Go cache); 20 CHECK lines
 .claude/skills/domain-reference/scripts/worked-example.sh --raw    # keep real ingested_at / bucket / failed_at
 ```
 Expected tail: `RESULT: all checks matched`, exit 0. A `CHECK MISMATCH` means events-processor or the

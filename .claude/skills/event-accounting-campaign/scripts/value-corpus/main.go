@@ -22,10 +22,16 @@
 //
 // Usage (CGO env required for mode value; use ../run.sh value-corpus [flags]):
 //
-//	value-corpus [-mode all|value|time] [-ruby] [-ch-bin PATH] [-fail-on-mismatch] [-v]
+//	value-corpus [-mode all|value|time] [-ruby] [-ch-bin PATH] [-value JSON]... [-fail-on-mismatch] [-v]
+//
+// -value (repeatable) triages one customer value instead of corpus.tsv: each JSON text
+// (e.g. 2000000000000, '"1e6"', null, MISSING) becomes an ad hoc row whose want columns
+// are derived with Ruby (rails_semantics.rb), so ruby must be on PATH.
 //
 // Last line: SUMMARY corpus_rows=.. value_mismatches=.. go_decimal_mismatches=..
 // ch_zeroed=.. end_to_end_decimal_mismatches=.. totime_mismatches=../1000 rfc3339_utc_ms=true|false
+// (with -value: adhoc_rows=.. instead of corpus_rows=..; not comparable with the baseline).
+// ch_zeroed counts rows whose Go string is numerically exact but ClickHouse stores 0.
 //
 // Exit codes: 0 done (mismatches are data); 1 -fail-on-mismatch and any mismatch;
 // 2 setup error (corpus unreadable, cache, ruby or clickhouse failure).
@@ -131,8 +137,14 @@ func ratEq(a *big.Rat, s string) bool {
 	return ok && a.Cmp(b) == 0
 }
 
-func runValue(useRuby bool, chBin string) (rows, valueMis, goDecMis, chZero, e2e int, err error) {
-	corpus, err := parseCorpus()
+func runValue(useRuby bool, chBin string, adhoc []string) (rows, valueMis, goDecMis, chZero, e2e int, err error) {
+	var corpus []entry
+	if len(adhoc) > 0 {
+		corpus, err = adhocCorpus(adhoc)
+		useRuby = false // want columns already come from Ruby
+	} else {
+		corpus, err = parseCorpus()
+	}
 	if err != nil {
 		return
 	}
@@ -140,7 +152,7 @@ func runValue(useRuby bool, chBin string) (rows, valueMis, goDecMis, chZero, e2e
 	if err != nil {
 		return
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	if err = fixture.SeedCache(c); err != nil {
 		return
 	}
@@ -239,7 +251,9 @@ func runValue(useRuby bool, chBin string) (rows, valueMis, goDecMis, chZero, e2e
 			b = r.goValue
 		}
 	}
-	fmt.Printf("unique_count pair: number 1000000 -> %q, string \"1000000\" -> %q, same unique: %v (want true)\n", a, b, a == b)
+	if len(adhoc) == 0 {
+		fmt.Printf("unique_count pair: number 1000000 -> %q, string \"1000000\" -> %q, same unique: %v (want true)\n", a, b, a == b)
+	}
 
 	if useRuby {
 		bad := 0
@@ -263,6 +277,35 @@ func runValue(useRuby bool, chBin string) (rows, valueMis, goDecMis, chZero, e2e
 	}
 	return
 }
+
+// adhocCorpus turns -value arguments into corpus entries whose want columns are
+// derived with Ruby (the same rails_semantics.rb that checks corpus.tsv).
+func adhocCorpus(values []string) ([]entry, error) {
+	var out []entry
+	for i, v := range values {
+		if v != "MISSING" && !json.Valid([]byte(v)) {
+			return nil, fmt.Errorf("-value %q is not valid JSON (quote strings: -value '\"1e6\"'; MISSING = absent property)", v)
+		}
+		out = append(out, entry{id: fmt.Sprintf("adhoc_%d", i+1), jsonText: v, note: "ad hoc -value"})
+	}
+	want, err := rubyDerive(out)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		w, ok := want[out[i].id]
+		if !ok {
+			return nil, fmt.Errorf("ruby derived nothing for -value %q (valid JSON? use MISSING for an absent property)", out[i].jsonText)
+		}
+		out[i].wantValue, out[i].wantDecimal = w[0], w[1]
+	}
+	return out, nil
+}
+
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, " ") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
 func rubyDerive(corpus []entry) (map[string][2]string, error) {
 	var in strings.Builder
@@ -367,6 +410,8 @@ func main() {
 	chBin := flag.String("ch-bin", "", "path to a clickhouse binary: cross-check the Decimal(38,26) emulation")
 	failOn := flag.Bool("fail-on-mismatch", false, "exit 1 when any mismatch is found")
 	verbose := flag.Bool("v", false, "show events-processor logs")
+	var adhoc multiFlag
+	flag.Var(&adhoc, "value", "repeatable: properties.amount JSON text to triage instead of corpus.tsv (want columns from Ruby)")
 	flag.Parse()
 	if !*verbose {
 		slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -375,12 +420,16 @@ func main() {
 	summary := []string{}
 	anyMis := false
 	if *mode == "all" || *mode == "value" {
-		rows, vm, gm, cz, e2e, err := runValue(*useRuby, *chBin)
+		rows, vm, gm, cz, e2e, err := runValue(*useRuby, *chBin, adhoc)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "value-corpus: setup error:", err)
 			os.Exit(2)
 		}
-		summary = append(summary, fmt.Sprintf("corpus_rows=%d value_mismatches=%d go_decimal_mismatches=%d ch_zeroed=%d end_to_end_decimal_mismatches=%d", rows, vm, gm, cz, e2e))
+		rowsKey := "corpus_rows"
+		if len(adhoc) > 0 {
+			rowsKey = "adhoc_rows"
+		}
+		summary = append(summary, fmt.Sprintf("%s=%d value_mismatches=%d go_decimal_mismatches=%d ch_zeroed=%d end_to_end_decimal_mismatches=%d", rowsKey, rows, vm, gm, cz, e2e))
 		anyMis = anyMis || vm+gm+e2e > 0
 		fmt.Println()
 	}

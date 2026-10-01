@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # ep-test.sh — run the events-processor Go tests without Docker.
-# Mirrors .github/workflows/events-processor-tests.yml (which builds libexpression_go.so
-# and runs `go test -v ./...` against a Postgres service).
+# Same shape as .github/workflows/events-processor-tests.yml (host-built libexpression_go.so,
+# plain `go test ./...` against Postgres), not identical: CI builds the whole lago-expression
+# workspace with the runner's unpinned Rust and uses a postgres:14 service; this builds only
+# expression-go/ with local cargo and uses the local Postgres.
 #
 # Usage:
 #   ep-test.sh                      # go test -count=1 ./...   (full suite, needs Postgres)
 #   ep-test.sh -v -run TestFoo ./processors/...   # any `go test` args are passed through
+#   ep-test.sh -race -count=1       # flags but NO package: ./... is added (with a note on
+#                                   # stderr); plain `go test -race` would test only the root
+#                                   # package, which has no tests, and exit 0
 #   ep-test.sh --no-cgo [flags]     # only packages that do NOT link libexpression_go
 #                                   # (no Rust/cargo needed; skips processors/events_processor)
 #                                   # The 5 package paths are always appended: pass go test
@@ -47,4 +52,27 @@ fi
 # shellcheck source=ep-env.sh
 source "$here/ep-env.sh"
 [ $# -eq 0 ] && set -- -count=1 ./...
+# Is any argument a package pattern? Skip the value of go test flags that take one
+# (`-run X`, `-count 1`, ...); `-flag=value` is a single token. Stop at -args.
+has_pkg=0; skip=0
+for a in "$@"; do
+  if [ "$skip" = 1 ]; then skip=0; continue; fi
+  case "$a" in
+    -args|--args) break ;;
+    -*=*) ;;
+    -run|--run|-skip|--skip|-count|--count|-timeout|--timeout|-cpu|--cpu|-parallel|--parallel|\
+    -coverprofile|--coverprofile|-coverpkg|--coverpkg|-covermode|--covermode|-bench|--bench|\
+    -benchtime|--benchtime|-blockprofile|--blockprofile|-cpuprofile|--cpuprofile|\
+    -memprofile|--memprofile|-mutexprofile|--mutexprofile|-outputdir|--outputdir|-trace|--trace|\
+    -tags|--tags|-shuffle|--shuffle|-o|--o|-exec|--exec|-fuzz|--fuzz|-fuzztime|--fuzztime|\
+    -list|--list|-vet|--vet|-p|--p|-gcflags|--gcflags|-ldflags|--ldflags|-mod|--mod|\
+    -overlay|--overlay|-modfile|--modfile|-toolexec|--toolexec|-pkgdir|--pkgdir|-C|--C) skip=1 ;;
+    -*) ;;
+    *) has_pkg=1; break ;;
+  esac
+done
+if [ "$has_pkg" = 0 ]; then
+  echo "ep-test: no package pattern given; testing ./..." >&2
+  set -- ./... "$@"
+fi
 exec go test "$@"

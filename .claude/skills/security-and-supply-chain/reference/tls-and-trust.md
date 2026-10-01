@@ -1,8 +1,10 @@
 # TLS verification and trust boundaries
 
 Read this when a change touches a TLS option, a Redis/Kafka/OTEL client, a connector pipeline, or
-anything that decides which organization an event belongs to. Facts checked 2026-10-01 at HEAD
-(code `5308258`) and `$API` = lago-api `591ae90`.
+anything that decides which organization an event belongs to.
+Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
+skills-only commits on top. `$API` = lago-api at the pinned SHA `591ae90` (2026-09-08).
+Checked 2026-10-01.
 
 ## 1. Certificate verification matrix
 
@@ -15,7 +17,7 @@ anything that decides which organization an event belongs to. Facts checked 2026
 | lago-api outbound HTTP session client | `$API/lib/lago_http_client/lago_http_client/session_client.rb:52-55` | https URLs | Yes in production; `VERIFY_NONE` only in development/test | positive control |
 | lago-api S3 | `$API/config/storage.yml:9-24` (`amazon`, and `amazon_compatible_endpoint` when `LAGO_AWS_S3_ENDPOINT` is set) | https endpoints | Yes by default: AWS SDK default for `amazon`; `ssl_verify_peer` from `LAGO_AWS_S3_SSL_VERIFY` (default true, `:24`) for the custom endpoint | `LAGO_AWS_S3_SSL_VERIFY` is not passed by any compose anchor |
 | events-processor -> Kafka (main consumer + producers) | `events-processor/config/kafka/kafka.go:66-69` | `LAGO_KAFKA_TLS=true` | Yes: `kgo.DialTLS()` with the default `tls.Config` | positive control |
-| events-processor memory-cache consumers (Debezium CDC) | `events-processor/cache/consumer.go:27-35` | never | n/a: no TLS, no SASL, `SeedBrokers` with the raw unsplit string | only with `LAGO_USE_MEMORY_CACHE=true`; production use is OPEN DECISION OD-1 (owner). Forces a plaintext, unauthenticated broker path for CDC rows |
+| events-processor memory-cache consumers (Debezium CDC) | `events-processor/cache/consumer.go:27-35` | never | n/a: no TLS, no SASL, `SeedBrokers` with the raw unsplit string | only with `LAGO_USE_MEMORY_CACHE=true`; production use is OPEN DECISION OD-1 (owner), hardening is unowned (OPEN DECISION OD-20; this is `architecture-contract` WP10). Forces a plaintext, unauthenticated broker path for CDC rows |
 | events-processor OTEL exporter | `events-processor/config/tracing/otel_tracer.go:219-223,238-242`; `tracer.go:128-129` | unless `OTEL_INSECURE=true` | Yes (system roots) by default | positive control |
 | Gotenberg (PDF) Chromium | `deploy/docker-compose.local.yml:243`, `light.yml:304`, `production.yml:452` | always | **No**: `--chromium-ignore-certificate-errors=true` | affects assets fetched while rendering invoices |
 | Traefik -> Let's Encrypt | `deploy/docker-compose.light.yml:87`, `production.yml:87` | always | n/a: issues certificates from the **staging** CA, which browsers reject | see selfhost-defaults.md section 5 |
@@ -28,7 +30,8 @@ Hardening (CANDIDATE, C7 + C3/C4 per change-control):
   self-signed managed Redis. Adding a variable is a config-and-flags checklist item. Test with
   miniredis over TLS (see the `diagnostics-and-tooling` skill). Not done here.
 - lago-api `VERIFY_NONE` is lago-api code: a paired lago-api PR (change-control N6 / OD-4).
-- Gotenberg: drop the flag unless invoices embed self-signed assets (owner question).
+- Gotenberg: drop the flag unless invoices embed self-signed assets (CANDIDATE; not in the OD
+  register: raise it with OD-16, the self-host exposure defaults).
 
 ## 2. Trust boundary: who decides `organization_id`
 
@@ -57,12 +60,14 @@ Tenant risk of the HTTP connector (inferred from `connectors/http.yml:1-7,25,43`
 Recommended fix (CANDIDATE): either `root.organization_id = "${ORGANIZATION_ID}"` like SQS/Kinesis
 (one deployment per tenant), or put the endpoint behind an authenticating gateway that maps
 credentials to an org. Changing the mapping is a C4 cross-repo payload change (change-control N6)
-plus C7. OPEN question for the owner: is the HTTP connector ever deployed reachable from outside a
-private network?
+plus C7. OPEN DECISION OD-17 (owner): is the HTTP connector ever deployed reachable from outside a
+private network, and may it trust a client-sent `organization_id`?
 
-Also in `http.yml:32-36`: a numeric `precise_total_amount_cents` passes through as a JSON number and
-the events-processor then fails to unmarshal it (`models/event.go:18` declares a string). That is an
-accounting defect, not a security one: see the `event-accounting-campaign` skill.
+Also in `http.yml:32-36`: any non-number `precise_total_amount_cents` becomes `"0"`, and a JSON
+number passes through, which the events-processor then fails to unmarshal (`models/event.go:18`
+declares a string; the record is committed, Sentry only). There is no value-preserving workaround
+through the connectors. That is an accounting defect, not a security one: see the
+`event-accounting-campaign` skill (W2).
 
 ## 3. Cross-tenant history
 

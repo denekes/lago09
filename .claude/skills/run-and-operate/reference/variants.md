@@ -1,9 +1,9 @@
 # Runtime variants: full service matrix, drift, deploy.sh defects
 
 Read when you need the exact service list, image tag, port or volume of a variant, or when a
-deploy/ or all-in-one install misbehaves. Facts verified 2026-10-01 against HEAD 5308258 (non-skill
-content; the working tree HEAD 08065ef only adds `.claude/skills/`). Regenerate the tables with
-`.claude/skills/run-and-operate/scripts/compose-matrix.sh` (daemon-less).
+deploy/ or all-in-one install misbehaves. Facts verified 2026-10-01. Code facts as of 5308258
+(events-processor tree 83e012866f29); the working branch may carry skills-only commits on top.
+Regenerate the tables with `.claude/skills/run-and-operate/scripts/compose-matrix.sh` (daemon-less).
 
 ## 1. Compose files tracked in git (6)
 
@@ -74,8 +74,14 @@ see `partitioning.md`.
 | redis-replica, redis-sentinel-1..3 (profile) | `redis:7-alpine` | - | - | `redis_replica_data_dev` |
 
 Every app service reads `env_file: .env.development.default` then optional `.env.development`.
-Dependency edges use `condition: service_healthy` (change-control N12). `events-processor` waits for db,
-redpanda and redis healthy (:326-332) but has no healthcheck itself (it has no endpoint).
+Dependency edges follow change-control N12: infrastructure deps (db, redis, clickhouse, redpanda)
+`condition: service_healthy`; one-shot jobs (migrate, redpandacreatetopics)
+`service_completed_successfully`; app->api edges `service_started`; known exception redpanda-console ->
+redpanda (short form). Counted 2026-10-01 with
+`docker compose -f docker-compose.dev.yml --profile '*' config --format json`: 20 `service_healthy`,
+12 `service_started` (11 app->api + redpanda-console), 2 `service_completed_successfully`.
+`events-processor` waits for db, redpanda and redis healthy (:326-332) but has no healthcheck itself
+(it has no endpoint).
 
 ## 4. deploy/ variants (STALE: images pinned v1.27.1 since `cd9f0fa` 2025-05-20)
 
@@ -93,7 +99,7 @@ Release bumps touch only the root file; `git log -S v1.27.1 -- deploy/` in the h
 | `all-no-db` | drops db and redis | same | same |
 | `all-no-keys` | drops rsa-keys | same | same |
 
-Known breakages (all verified by reading the file at HEAD unless marked):
+Known breakages (all verified by reading the file at 5308258 unless marked):
 
 | # | Defect | Evidence |
 |---|---|---|
@@ -167,10 +173,13 @@ ECR (`.github/workflows/build-connectors-image.yaml`). No public image, no run i
 | `sqs.yml` | SQS `${SQS_ENDPOINT}` | raw topic, TLS hard-coded true (:47); errored → SQS DLQ if `SQS_DLQ_ENDPOINT` set | org from `${ORGANIZATION_ID}` |
 | `kinesis.yml` | Kinesis `${KINESIS_STREAM}`, DynamoDB checkpoints, `start_from_oldest` | raw topic | org from `${ORGANIZATION_ID}` (missing from README table) |
 
-All three keep a NUMERIC `precise_total_amount_cents` as a number (http.yml:32-36), but the Go
-`Event.PreciseTotalAmountCents` is a `string` (events-processor/models/event.go:18): such records fail
-`json.Unmarshal` in the events-processor and are committed without a DLQ entry (Sentry + log only). See
-`architecture-contract` / `event-accounting-campaign`. A run command would look like
+All three pass a JSON-number `precise_total_amount_cents` through and turn ANY non-number (string or
+absent) into `"0"` (http.yml:32-36, kinesis.yml:38-43, sqs.yml:34-39). The Go
+`Event.PreciseTotalAmountCents` is a `string` (events-processor/models/event.go:18): number records fail
+`json.Unmarshal` in the events-processor and are committed without a DLQ entry (Sentry + log only). There
+is no value-preserving workaround through the connectors ("send it as a string" only helps direct
+producers); the fix is `event-accounting-campaign` W2. They also set `ingested_at = timestamp_unix()`
+(integer seconds, http.yml:31), which ClickHouse reads as milliseconds (1970-01-2x): `rails-go-parity`. A run command would look like
 `docker run --rm -e KAFKA_BROKERS=... -v "$PWD/connectors/http.yml:/connect.yaml" docker.io/redpandadata/connect:4.83.0 run /connect.yaml`
 (UNVERIFIED: image entrypoint not inspected).
 
