@@ -9,7 +9,7 @@ below is UNVERIFIED and routed to the owner.
 
 | Signal | Where | What it does NOT tell you |
 |---|---|---|
-| JSON log to stdout, level Info (Debug when `ENV=development`) | `events-processor/main.go:30-40` | — |
+| JSON log to stdout, level Debug when `ENV` is `development` (also the default when `ENV` is unset), otherwise Info | `events-processor/main.go:31-41` | — |
 | `Error unmarshalling message` | `processors/events_processor/processor.go:52` | that the record was committed with no DLQ (case 4/5 SENTRY_ONLY) |
 | `<error message>` with `error_code` | `processor.go:64-68` | whether the record went to the DLQ or was withheld for retry (both log the same line) |
 | `No commitable record in batch, skipping commit…` (Warn) | `config/kafka/consumer.go:98` | only fires when the FIRST record of a batch is withheld; a withheld record later in a batch, and the later commit that skips it (case 1), log nothing |
@@ -70,13 +70,28 @@ GROUP BY r.organization_id ORDER BY r.organization_id;
   output `o1 1 ['c']` and `o2 1 ['a']`. Re-run: create the three tables and rows in a `--queries-file`
   and run `clickhouse local --multiquery --queries-file <file> </dev/null` (without `</dev/null` it waits on stdin).
 - Not run against production. Cost on large tables UNVERIFIED: start with one organization and one hour.
-- Blind spots: records ClickHouse cannot parse either (invalid JSON, ledger case 4) are presumably absent from
-  `events_raw` too (UNVERIFIED: the raw queue migration sets no `kafka_skip_broken_messages`, so what the Kafka
-  engine does with such a message depends on ClickHouse defaults); numeric `precise_total_amount_cents` (case 5) IS parsed by ClickHouse, so it shows up
-  here. Leave a lag margin (rows enriched after `t` are still found because the subqueries only bound below).
+- Connector blind spot (VERIFIED 2026-10-01 on `clickhouse local` 26.2.19.43 and 26.2.9.9, JSONEachRow
+  with the `events_raw_queue` column types): connectors send `ingested_at` as an integer of Unix seconds
+  (`root.ingested_at = timestamp_unix()`, `connectors/http.yml:31`, `sqs.yml:33`, `kinesis.yml:37`), and
+  ClickHouse reads that JSON number into `DateTime64(3)` as milliseconds: `1727800000` -> `1970-01-20
+  23:56:40.000`. Connector rows therefore fall outside any `ingested_at` window and the query above never
+  counts them (Go parses the same field correctly, `utils/time.go:82-101`). To include them, use this WHERE
+  clause (same synthetic test plus a connector row: `o3 1 ['x']` is reported, the query above misses it):
+  ```sql
+  WHERE ((r.ingested_at >= f AND r.ingested_at < t)
+         OR (r.ingested_at < toDateTime64('1971-01-01 00:00:00', 3) AND r.timestamp >= f AND r.timestamp < t))
+  ```
+  Production ClickHouse version and settings are UNVERIFIED (owner), so re-check the parse there first.
+- Other blind spots: records ClickHouse cannot parse either (invalid JSON, ledger case 4) are presumably
+  absent from `events_raw` too (UNVERIFIED: the raw queue migration sets no `kafka_skip_broken_messages`, so
+  what the Kafka engine does with such a message depends on ClickHouse defaults); RFC3339 `timestamp`s from
+  non-Rails producers break the raw MV's `toDateTime64(timestamp, 3)` (`rails-go-parity`, contract row P5).
+  Numeric `precise_total_amount_cents` (case 5) IS parsed by ClickHouse (`Decimal(40,15)`, same test), so
+  case-5 events reach `events_raw`, but they come from connectors: only the connector-aware WHERE clause
+  finds them. Leave a lag margin (rows enriched after `t` are still found because the subqueries only bound below).
 - A non-zero answer on today's code is expected for every transient DB/Redis error followed by traffic
-  (case 1) and every connector event with a numeric amount (case 5). The size of that number is the
-  owner's first production fact for OD-2.
+  (case 1) and, with the connector-aware WHERE clause, every connector event with a numeric amount
+  (case 5). The size of that number is the owner's first production fact for OD-2.
 
 ## 4. Phase 6 rollout checklist (per merged campaign change)
 

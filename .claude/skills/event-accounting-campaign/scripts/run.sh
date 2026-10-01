@@ -5,7 +5,7 @@
 #
 # Usage (from anywhere inside the lago repo):
 #   .claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe [-case A,B] [-list] [-db-url URL] [-timeout 20s] [-v]
-#   .claude/skills/event-accounting-campaign/scripts/run.sh value-corpus [-mode value|time|all] [-ch-bin PATH] [-v]
+#   .claude/skills/event-accounting-campaign/scripts/run.sh value-corpus [-mode all|value|time] [-ruby] [-ch-bin PATH] [-fail-on-mismatch] [-v]
 #   .claude/skills/event-accounting-campaign/scripts/run.sh --check      # go vet + gofmt -l + franz-go pin check
 #
 #   accounting-probe  kfake fault matrix through the REAL consumer group + processor (DB mode,
@@ -30,8 +30,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 probe="${1:-}"
 case "$probe" in
   accounting-probe|value-corpus|--check) ;;
-  -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
-  "") sed -n '2,27p' "$0" >&2; exit 2 ;;
+  -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+  "") sed -n '2,26p' "$0" >&2; exit 2 ;;
   *) echo "run.sh: unknown probe '$probe' (accounting-probe|value-corpus|--check)" >&2; exit 2 ;;
 esac
 shift

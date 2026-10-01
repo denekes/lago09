@@ -30,8 +30,8 @@ for a in "$@"; do
     --no-coverage) do_cov=0 ;;
     --check-baseline) chk_base=1 ;;
     --check-targets) chk_tgt=1 ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
-    *) echo "scoreboard: unknown flag $a" >&2; sed -n '2,22p' "$0" >&2; exit 2 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    *) echo "scoreboard: unknown flag $a" >&2; sed -n '2,21p' "$0" >&2; exit 2 ;;
   esac
 done
 

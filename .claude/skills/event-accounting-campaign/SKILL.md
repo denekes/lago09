@@ -68,7 +68,7 @@ cov_processRecordsAndCommit_pct          0.0        0.0        gt 0.0     baseli
 cov_total_tested_pkgs_pct                47.4       47.4       gt 47.4    baseline
 scoreboard: moved=0 targets_missed=12 (baseline 2026-10-01; targets are campaign TARGETS, not current state)
 ```
-(~14 s warm; exit 0.) What the 5 unaccounted records are (fault rows of the ledger):
+(~15-25 s warm, depending on host load; exit 0.) What the 5 unaccounted records are (fault rows of the ledger):
 
 | Case | What happens today | Code |
 |---|---|---|
@@ -86,7 +86,7 @@ start with `connectors/`. Value and time: `reference/value-and-time.md`.
 | Phase | Workstream | Class (change-control) | Blocks on | Exit gate (scoreboard unless stated) |
 |---|---|---|---|---|
 | 0 Measure | all | C1 (read-only) | nothing | table == baseline, or every moved metric explained |
-| 1 Signals | W5 | C3 (path also in C4 row: prove moved=0) | Phase 0 | `--check-baseline` exit 0 + disposition lines in every case |
+| 1 Signals | W5 | C3 by behaviour test; its paths also trip change-control's C4 path row (see Phase 1) | Phase 0 | `--check-baseline` exit 0 + disposition lines in every case |
 | 2 Value fidelity | W2 | C3 + C4 (`value` is a cross-repo contract, change-control N6) | Phase 1; OD-3 for the CH part; OD-4 | value metrics at target or owner-approved exceptions |
 | 3 Time semantics | W3 | C3 | Phase 0 (coordinate with Phase 2: see Phase 3 entry) | `totime 0`, `rfc3339 true`, nothing else moved |
 | 4 Delivery semantics | W1 | C4 + ADR + change-control N7 | Phase 1; **OD-2**; in-repo kfake test (Phase 5a) | lost 0, skipped_retry 0, then unaccounted 0 |
@@ -112,15 +112,16 @@ $S/run.sh value-corpus -ruby -ch-bin "${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-ski
 ```
 `-ch-bin` needs a ClickHouse binary; `diagnostics-and-tooling` (ch-local) downloads one into
 `$LAGO_SKILLS_CACHE/clickhouse/<version>/`; drop the flag if you have none. Expected full outputs:
-`reference/ledger-and-matrix.md` s.4 and `reference/value-and-time.md` s.2-3.
+`reference/ledger-and-matrix.md` s.4 and `reference/value-and-time.md` s.2-3. The command blocks of later
+phases reuse `S`.
 
 If you see X instead, branch to Y:
 
 | You see | It means | Do |
 |---|---|---|
-| exit 2, `postgres unreachable` / `NOT MEASURED` rows | Postgres down or no CREATEDB | `build-and-env` (start PG), re-run; `--no-accounting --no-coverage` gives the corpus metrics alone |
+| probe exit 100 + `postgres unreachable` (or `CREATE DATABASE … role needs CREATEDB`); scoreboard exit 2 + `NOT MEASURED` rows | Postgres down or no CREATEDB | `build-and-env` (start PG), re-run; `--no-accounting --no-coverage` gives the corpus metrics alone |
 | exit 2, `building accounting-probe failed` | your events-processor tree does not compile, or no CGO env | fix the build; `build-and-env` for `-lexpression_go` |
-| `missing diagnostics-and-tooling/scripts/kfake-harness` | the sibling harness moved | `diagnostics-and-tooling`; fix the `replace` in `scripts/go.mod` |
+| exit 2, `missing diagnostics-and-tooling/scripts/kfake-harness` | the sibling harness moved (this module depends on it by relative path) | `diagnostics-and-tooling`; fix the `replace` in `scripts/go.mod` |
 | `--check` prints different franz-go versions | events-processor bumped franz-go | re-pin kfake per `diagnostics-and-tooling` (kfake technique, version trap), then `go mod tidy` in `scripts/` |
 | UNACCOUNTED or a fault row differs on unchanged code | flake or a behaviour change you did not expect | run 3 times; if stable, `git log --oneline 5308258..HEAD -- events-processor`, compare per case with `reference/ledger-and-matrix.md` s.3 |
 | `NOTE: sentinel not committed within timeout` | the partition is blocked (PENDING) | expected only under Phase 4 option 3; otherwise a regression |
@@ -133,9 +134,11 @@ scoreboard table and the ledger `TOTALS` line. Rollback: none (writes only to mk
 database it drops; `git status --porcelain --ignored -- events-processor` stays empty).
 
 Optional, owner only: the production reconciliation query (`reference/observability-and-production.md` s.3)
-turns the ledger into a production number. Its result is the best input for OD-2.
+turns the ledger into a production number. Its result is the best input for OD-2. Use its connector-aware
+WHERE clause: ClickHouse stores a connector's integer `ingested_at` as a 1970 date (VERIFIED on
+`clickhouse local`), so the plain `ingested_at` window misses every connector event, case 5 included.
 
-## Phase 1 - Signals for every disposition (W5, C3)
+## Phase 1 - Signals for every disposition (W5, C3; reviewer may rule C4)
 
 Entry: Phase 0 done. Today a withheld record and a DLQ'd record log the same line (`processor.go:64-68`), and
 a later commit that skips a withheld record logs nothing (`consumer.go:98` only fires when the first record
@@ -144,6 +147,12 @@ fails). There is no metrics endpoint (`grep -rn ListenAndServe --include=*.go ev
 CANDIDATE change: one disposition per record (`enriched`, `dlq`, `withheld`, `undecodable`,
 `dlq_push_failed`, `enriched_push_failed`) and one batch line per commit decision; fields and rules in
 `reference/observability-and-production.md` s.2. No event JSON in logs (`security-and-supply-chain`).
+
+Class: change-control's behaviour test says C3 (new tests pin new log/counter output; no commit, retry,
+DLQ or skip change). But the touched paths (`processor.go:50-88`, `consumer.go`, `event_producer_service.go`)
+are in change-control's C4 path row, and its "contract files touched => C4" quick check fires. Say so in
+the PR, prove "no behaviour change" with `--check-baseline` moved=0, and let the reviewer decide C3 vs C4.
+If C4: the N7 kfake test (Phase 5a) comes first.
 
 Commands and expected after the change:
 ```bash
@@ -162,7 +171,7 @@ per OPEN DECISION OD-4 (owner), default YES.
 
 Problem (corpus, 27 rows): 13 string mismatches (`1e+06`, `<nil>`, `1e-07`…), 2 decimal mismatches in Go
 itself (integers > 2^53 through `float64`), 6 rows billed 0 end to end: all have |x| >= 1e12, which
-`decimal_value Decimal(38,26)` cannot hold (in 4 of them Go's string is already exact) (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`).
+`decimal_value Decimal(38,26)` cannot hold (in 4 of them Go's string already carries the exact value) (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`).
 
 CANDIDATE change (details, trap and rollout note: `reference/value-and-time.md` s.4-5):
 1. exact numbers inside `properties` only (NOT a global `UseNumber`: it breaks numeric timestamps, VERIFIED);
@@ -178,7 +187,10 @@ $S/scoreboard.sh                      # only corpus metrics (and sentry_only/una
 ```
 Branch: `end_to_end_decimal_mismatches` stays 6 after items 1-2 -> expected (CH rows): either OD-3 answered
 and implemented, or those rows get an owner-approved exception in `corpus.tsv` (`want_value` = the new DLQ
-cause, owner answer quoted in the PR). Any other row moved -> stop, explain it.
+cause, owner answer quoted in the PR). Caveat: `-ruby` exits 2 on any row whose want columns differ from
+what Ruby derives, so an exception row first needs an exception marker that both `value-corpus/main.go`
+and `rails_semantics.rb` honour (not built; CANDIDATE, C1 change to this skill). Any other row moved ->
+stop, explain it.
 Exit gate: value metrics at target or approved exceptions; `rails-go-parity` value rows and its EXPECTED
 block updated in the same PR; change-control N9 gate; before/after corpus in the PR (change-control C3). Rollback: revert;
 rows written meanwhile keep the new format (unique_count transition: write it in the PR).
@@ -270,7 +282,7 @@ change what you must check: OPEN DECISION OD-1 (owner) (memory-cache mode) and O
 | Raise or remove the 12 h horizon | the horizon only applies to a record that is re-polled; case 1 is never re-polled | ledger case 1 vs 3; `processor.go:74` | Phase 4; the horizon itself is OD-2 |
 | Sleep/retry inside `processRecordsAndCommit`, or `SetOffsets` from the partition goroutine | blocks rebalances (`BlockRebalanceOnPoll`, 60 s timeout); franz-go warns against `SetOffsets` inside the poll loop | `consumer.go:203,245`; `franz-go@v1.20.5/pkg/kgo/consumer.go:665-681`; chain `cec0eb2` -> `9acd83e` (ING-15 segfault) | `reference/delivery-options.md` option 1 or 2 |
 | Change commit/disposition code without a ledger + kfake test | 13 months of fix-after-fix ended in a production segfault | change-control N7; `9acd83e` | Phase 5a first |
-| "Fix" `go.mod` `expression-go v0.1.4` -> v0.2.0 | no `expression-go/v0.2.0` tag exists; ABI identical; unrelated to accounting | change-control N3; `git ls-remote --tags https://github.com/getlago/lago-expression` lists `expression-go/v0.1.0`, `expression-go/v0.1.4` only | leave it |
+| "Fix" `go.mod` `expression-go v0.1.4` -> v0.2.0 | no `expression-go/v0.2.0` tag exists; ABI identical; unrelated to accounting | change-control N3; `git ls-remote --tags https://github.com/getlago/lago-expression \| grep expression-go/` -> only `expression-go/v0.1.0` and `expression-go/v0.1.4` (plain `v0.1.0`..`v0.2.0` tags are the Rust crate; as of 2026-10-01) | leave it |
 | Re-implement charge/filter resolution in Go to make enrichment "complete" | per-event Rails resolution was removed as the main DB load | change-control N8; `d9c32b6` (#797), `2fd8e8b` (#766) | Rails stays authoritative |
 | Make ClickHouse parse `<nil>` | CH already turns it into 0; the defects are the Go string and unique_count; a CH change is lago-api work | corpus rows `null`, `missing`; `$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32` | Phase 2 item 2 |
 | Change `Decimal(38,26)` without OD-3 | huge tables, cloud DDL edited in place, PG side is `numeric(40,15)` | `$API/AGENTS.md:176`; `$API/db/structure.sql:3059` | OD-3; meanwhile detect-and-DLQ (CANDIDATE) |
@@ -282,8 +294,10 @@ change what you must check: OPEN DECISION OD-1 (owner) (memory-cache mode) and O
 
 ## Validation protocol (every campaign change routes through change-control)
 
-1. Classify with `change-control` (union of path rows). Campaign default: Phase 0/5 tests C1; Phase 1 C3;
-   Phase 2 C3 + C4; Phase 3 C3; Phase 4 C4; workflow and `go.mod` edits C5; topic lists C6.
+1. Classify with `change-control` (path rows, then its behaviour test; union of the matching rows' gates).
+   Campaign default: Phase 0/5 tests C1; Phase 1 C3 (reviewer may rule C4, see Phase 1); Phase 2 C3 + C4;
+   Phase 3 C3; Phase 4 C4; workflow and `go.mod` edits C5; topic lists C4 + C6 (the dev topic list is in
+   both change-control rows).
 2. Before coding, write the predicted scoreboard after the change (which metrics move, to what), as
    `research-methodology` asks.
 3. Gates: change-control N9 (`ep-test.sh` green, `go vet`, `gofmt -l` empty on changed files, no new golangci-lint issues vs
@@ -303,7 +317,7 @@ change what you must check: OPEN DECISION OD-1 (owner) (memory-cache mode) and O
 | `scripts/run.sh` | builds a probe with a temp `-modfile` into a temp dir (CGO env from `ep-env.sh`), runs it, passes its exit code; `--check` = vet + gofmt + franz-go pin | `run.sh --check` | `run.sh: check OK`, exit 0 |
 | `scripts/accounting-probe/` | fault-matrix ledger: 10 cases, real consumer group + processor, DB mode, kfake + miniredis + scratch Postgres | `run.sh accounting-probe [-case A,B] [-list] [-v]` | `TOTALS rows=36 … LOST=1 SKIPPED_RETRY=1 SENTRY_ONLY=3 … UNACCOUNTED=5`, exit 5 (exit = UNACCOUNTED, 100 = setup error) |
 | `scripts/value-corpus/` | `corpus.tsv` through real unmarshal + `EnrichEvent`; Rails-derived expectations; CH emulation; `ToTime` count | `run.sh value-corpus [-mode value\|time] [-ruby] [-ch-bin PATH] [-fail-on-mismatch]` | `SUMMARY corpus_rows=27 value_mismatches=13 go_decimal_mismatches=2 ch_zeroed=4 end_to_end_decimal_mismatches=6 totime_mismatches=496/1000 rfc3339_utc_ms=false`, exit 0 (1 with `-fail-on-mismatch`) |
-| `scripts/scoreboard.sh` | all gate metrics in one table | `scoreboard.sh [--no-accounting] [--no-coverage] [--check-baseline] [--check-targets]` | table above, exit 0; `--check-targets` exit 4 today |
+| `scripts/scoreboard.sh` | all gate metrics in one table | `scoreboard.sh [--no-accounting] [--no-coverage] [--check-baseline] [--check-targets]` | table above, exit 0 (~15-25 s warm); `--check-baseline` exit 0 today (3 when a metric moved); `--check-targets` exit 4 today; 2 = a measurement could not run (`NOT MEASURED` rows) or bad flag |
 | `scripts/go.mod`, `go.sum` | probe module: `replace` onto `../../../../events-processor` and `../../diagnostics-and-tooling/scripts/kfake-harness`; kfake pinned at `v0.0.0-20251123185109-2b5c574e9ddd` so franz-go stays v1.20.5 | — | never `go get -u` here |
 
 All scripts are read-only on the repo; outputs go to `mktemp -d` dirs and a scratch database the probe drops.

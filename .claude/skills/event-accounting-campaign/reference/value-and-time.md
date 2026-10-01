@@ -43,6 +43,7 @@ dec_18_sig         0.123456789012345678   0.12345678901234568      0.12345678901
 unique_count pair: number 1000000 -> "1e+06", string "1000000" -> "1000000", same unique: false (want true)
 ruby cross-check of want columns: 27/27 rows agree
 ch cross-check (toDecimal128OrZero(v, 26) on ClickHouse 26.2.19.43): 27/27 values agree with the emulation
+...(time section: see s.3)
 SUMMARY corpus_rows=27 value_mismatches=13 go_decimal_mismatches=2 ch_zeroed=4 end_to_end_decimal_mismatches=6 totime_mismatches=496/1000 rfc3339_utc_ms=false
 ```
 
@@ -71,8 +72,10 @@ ToTime("2025-03-03T15:03:29.123456+02:00") = 2025-03-03T15:03:29.123456+02:00 (u
 - Rails sends `timestamp: event.timestamp.to_f.to_s` (`$API/app/services/events/kafka_producer_service.rb:43`)
   and matches subscriptions with `date_trunc('millisecond', started_at) <= ts`
   (`$API/app/services/events/post_process_service.rb:50-53`); Go DB mode uses the same SQL
-  (`events-processor/models/subscriptions.go:29-34`). So a 1 ms-early `ToTime` only matters for events within
-  the first millisecond of a subscription window. Boundary-parity scenarios (DB vs cache vs Rails SQL) are
+  (`events-processor/models/subscriptions.go:29-34`). So a 1 ms-early `ToTime` only matters at a window
+  boundary: an event in the `started_at` millisecond misses its subscription (measured by `rails-go-parity`,
+  its sub-probe B), and, by the same SQL, an event in the millisecond right after `terminated_at` would still
+  match (inference, not probed here). Boundary-parity scenarios (DB vs cache vs Rails SQL) are
   measured by `rails-go-parity` (its subscription probe); this skill only counts `ToTime`.
 
 ## 4. The UseNumber trap (VERIFIED 2026-10-01)
@@ -116,8 +119,9 @@ W2 value (Phase 2):
    `strconv.FormatFloat(f, 'f', -1, 64)` (shortest round-trip, plain decimal, same as Ruby `Float`);
    `float64` (expression results) -> same; `nil` -> `"0"` (`enrich_service.rb:59`); `string` -> as is;
    bool/object/array -> keep today's text (decimal 0 either way) unless the owner wants a DLQ cause.
-   Expected corpus result after the change: value_mismatches 0, go_decimal_mismatches 0, CH-zeroed rows
-   still 6 (needs OD-3 or the overflow policy below).
+   Expected corpus result after the change (prediction, not run): value_mismatches 0,
+   go_decimal_mismatches 0, ch_zeroed 4 -> 6 (the 2 PRECISION rows become exact but are still >= 1e12),
+   end_to_end_decimal_mismatches still 6 (needs OD-3 or the overflow policy below).
 2. Overflow policy (needs an owner answer, routed through change-control; part of OD-3): when the exact
    value has `|x| >= 1e12` or more than 26 decimals, either (a) DLQ with a new cause such as
    `value_out_of_range` (a new DLQ code is a C3/C4 change), or (b) accept and document, or (c) change the CH
