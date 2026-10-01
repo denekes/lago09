@@ -71,6 +71,7 @@ for d in . config/redis config/tracing processors tests; do
 done; printf '}}\n' >> "$W/o.json"
 go test -count=1 -overlay="$W/o.json" -coverpkg=./... -coverprofile="$W/all.out" ./... > /dev/null
 go tool cover -func="$W/all.out" | tail -1        # total: (statements) 42.0%
+echo "$W"                                          # outside the repo; delete it when done
 ```
 
 ## 3. Static checks

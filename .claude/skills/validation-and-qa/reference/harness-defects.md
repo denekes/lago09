@@ -107,6 +107,7 @@ and `scripts/race-shuffle.sh --isolation` before and after.
   printf '{"Replace":{"%s":"%s"}}' "$PWD/processors/events_processor/processor_test.go" "$W/p_test.go" > "$W/o.json"
   go test -race -count=30 -overlay="$W/o.json" -run TestProcessEvent ./processors/events_processor/
   # ok ... (about 10 s): 30 race-checked runs without the sleeps
+  echo "$W"   # temp dir outside the repo; delete it when done
   ```
 
 - **Avoid copying.** Never add a sleep to wait for `processEvent`. If you test code that really
