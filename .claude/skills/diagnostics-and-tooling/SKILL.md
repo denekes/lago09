@@ -43,7 +43,7 @@ Do NOT use it for:
 | scratch DB | A Postgres database created and tagged by `scratch-pg.sh`, dropped after the probe. |
 | expected-today | The output recorded on 2026-10-01, defects included. A diff is a measurement, not automatically a regression. |
 | CGO env | `source .claude/skills/build-and-env/scripts/ep-env.sh`: needed to build anything importing `processors/events_processor` (links `libexpression_go`). |
-| DB mode / memory-cache mode | events-processor reads Postgres per event (default) vs an in-memory badger cache fed by a snapshot + Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`, `events-processor/main.go:67`). Production use of the latter is OPEN DECISION OD-1 (owner). |
+| DB mode / memory-cache mode | events-processor reads Postgres per event (default) vs an in-memory badger cache fed by a snapshot + Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`, checked `== "true"` at `events-processor/main.go:66`). Production use of the latter is OPEN DECISION OD-1 (owner). |
 
 ## 1. The measurement rule
 
@@ -241,7 +241,7 @@ All compose files and bring-up: `run-and-operate`.
 
 | Goal | Command | Observed 2026-10-01 |
 |---|---|---|
-| Race on the unit suite | `.claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 ./...` | 6 packages ok, ~8-11 s |
+| Race on the unit suite (never runs `processRecordsAndCommit`) | `.claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 ./...` | 6 packages ok, ~7-9 s warm (more under load) |
 | Race on the REAL consumer path (the unit suite never runs it; change-control C4 requires one such run) | `GOFLAGS=-race $S/kfake-run.sh happy-path -n 5000 -partitions 4` | PASS, 0 races (x3; DB mode too) |
 | Order dependence | `.claude/skills/build-and-env/scripts/ep-test.sh -count=1 -shuffle=on -v ./utils/`; replay with `-shuffle=<seed>` | prints `-test.shuffle <seed>` |
 | CPU through the pipeline | `T=$(mktemp -d); $S/kfake-run.sh happy-path -n 50000 -partitions 4 -cpuprofile $T/cpu.out; go tool pprof -top $T/cpu.out` | 8 batches, elapsed 3.0-3.5 s; relative use only |

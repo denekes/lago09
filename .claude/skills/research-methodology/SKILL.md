@@ -136,7 +136,7 @@ Both refutations came from the **control** and the **boundary cases**, not from 
 | What code does at runtime (delivery, ordering, parsing, concurrency) | Probe or test output with exit status and a control; the command published | A code read alone ("should"). The comment "It will be consumed again" (`events-processor/processors/events_processor/processor.go:76`) is refuted by Example A. |
 | A baseline number (PASS count, coverage, lint count) | Command + output + **exit status** + denominator | "47.4%" from `go test -coverprofile ./...`, which exits 1 (`reference/conflict-cases.md` CC6) |
 | History (introduced, removed, reverted, by whom) | Sha(s) from `H`, with a rename-aware pathspec or `-S`/`-G` | The shallow clone: `git blame` there attributes all 308 lines of `consumer.go` to `^8ceca4b`. A subject line alone: `449bf5b` "Bump version to 7" is a Redis 6 to 7 change. |
-| Counts over history | The command over `H` + an exact definition of what is counted | Subject-regex classification. Of the 77 pin moves since 2025 (command (1) below), regexes call 18 or 20 "non-release"; by data it is 15 (worked-examples Example D). |
+| Counts over history | The command over `H` + an exact definition of what is counted | Subject-regex classification. Of the 77 pin moves since 2025 (`git -C "$H" log --since=2025-01-01 --format=%h -- api front`; count with (1) below), regexes call 18 or 20 "non-release"; by data it is 15 (worked-examples Example D). |
 | A cross-repo contract (Go vs Rails vs ClickHouse) | `path:line` on BOTH sides at stated pins; a probe if semantics matter | One side only; a commit body in the other repo (lago-api `6341824` body about this repo was already stale) |
 | A version or pin | Every pin location `path:line`; the gitlink via `git ls-tree HEAD api front` | A comment that lists fewer locations (`events-processor/Dockerfile.staging:20-22` says two; there are four) |
 | An artifact exists or was published | A registry API response (HTTP status, `last_updated`/digest), dated | A workflow file existing (`.github/workflows/release-docker-image.yml:11` builds `getlago/lago`); a release note. Yet `curl -s -o /dev/null -w '%{http_code}' https://hub.docker.com/v2/repositories/getlago/lago/tags/v1.48.0` gives 404. |
@@ -163,7 +163,7 @@ unlabelled, unverified claim is a defect.
 
 | If you see | Do | Verified case |
 |---|---|---|
-| Two counts that differ | Pin the scope first (paths, dates, remote). Both may be right. | 88 vs 96 events-processor commits: the path `events-processor` alone vs with `events_processor` added (commands below the table; CC4) |
+| Two counts that differ | Pin the scope first (paths, dates, remote). Both may be right. | 88 vs 96 events-processor commits: `git -C "$H" log --format=%h -- events-processor` vs the same with `events_processor` added (counts below the table; CC4) |
 | A doc vs a run or code read | The run or code read wins. Log the doc in `docs-and-writing`. | `docs/dev_environment.md:154` says `LAGO_CLICKHOUSE_ENABLED=false` disables ClickHouse; `.present?` at `$API/app/services/events/stores/store_factory.rb:10` keeps the store on (MIXED overall: see `config-and-flags`) (CD2) |
 | A comment vs the code | The code wins | Example C in `reference/worked-examples.md` |
 | A speculation vs a probe | The probe wins, with its version scope | `clickhouse local` 25.8.2.29 parses `'1e+06'` as 1000000 (Example B, CC2) |
@@ -221,7 +221,7 @@ Traps in `H`:
 | When was it pushed, for which archs? | `curl -s https://hub.docker.com/v2/repositories/getlago/lago/tags/v1.53.0` (fields `last_updated`, `images[].architecture`) | `2026-09-08T15:26:52Z`, amd64 + arm64 |
 | GHCR tags | `curl -s "https://ghcr.io/token?scope=repository:getlago/api:pull"`, then `GET https://ghcr.io/v2/getlago/api/tags/list` with a Bearer token | 38 tags, `v1.44.0`…`v1.53.0`, `sha-591ae90` |
 | Go module versions | `curl -s https://proxy.golang.org/github.com/getlago/lago-expression/expression-go/@v/list` | `v0.1.4`, `v0.1.0` (no v0.2.0; change-control N3) |
-| Go toolchains | toolchain list (command below the table) | `go1.27.0`, `go1.27.1` |
+| Go toolchains | `curl -s https://proxy.golang.org/golang.org/toolchain/@v/list`, filtered (command below the table) | `go1.27.0`, `go1.27.1` |
 | Does a repo exist or is it public? | `GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/getlago/<repo> HEAD` | lago-deploy, lago-sidekiqs, lago-license: auth wall (private OR absent) |
 
 ```bash
@@ -234,7 +234,7 @@ Registries are mutable. Record the date, digest and `last_updated`, and re-probe
 
 | Invisible from this sandbox | How you can tell (2026-10-01) | Route |
 |---|---|---|
-| Lago Cloud production config: memory-cache mode, Debezium columns, Kafka auth, partitions | No Cloud deploy config in this repo or the public Helm chart; the pipeline is in private lago-deploy (`events-processor/Dockerfile.staging:8`) | OPEN DECISION OD-1 |
+| Lago Cloud production config: memory-cache mode, Debezium columns, Kafka auth, partitions | No Cloud deploy config in this repo or the public Helm chart; the pipeline is in private lago-deploy (`events-processor/Dockerfile.staging:8`) | OPEN DECISION OD-1 (hardening owner: OD-20) |
 | Production lago-api flags | DB rows per organization; code only at `$API` | OPEN DECISION OD-8 |
 | Production ClickHouse, Postgres, Kafka versions | Only dev pins exist, e.g. `docker-compose.dev.yml:460` | UNVERIFIED; ask |
 | Private repos: lago-deploy, lago-sidekiqs, lago-license | `GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/getlago/lago-deploy HEAD` asks for credentials | UNVERIFIED |
@@ -247,7 +247,7 @@ When you hit one:
 1. Name the nearest **proxy** and label it as one. Example: the public Helm chart (`getlago/lago-helm-charts` at `d473b1e`) has `replicas: 1` and no memory cache, which describes Helm self-hosters, not Cloud.
 2. Keep the claim UNVERIFIED or OPEN DECISION OD-n. Never resolve it by assumption.
 3. Ask with the template in `reference/owner-questions.md`: one decision per question, the evidence inside the question, options with a CANDIDATE recommendation, the default meanwhile, and what it blocks.
-4. Route the decision through change-control's OD gate. Route review to the area's top recent author: events-processor has a bus factor of one, with 55 of 72 non-dependabot commits by one author (`git -C "$H" log --no-merges --format=%an -- events-processor | grep -v dependabot | sort | uniq -c | sort -rn | head -1`). Record every answer in the repo; an answer that is only remembered is lost.
+4. Route the decision through change-control §9, the one register (OD-1..OD-20); raise a new one as a GitHub issue titled "OD-n: <topic>" with the evidence block. Route review to the area's top recent author: events-processor has a bus factor of one, with 55 of 72 non-dependabot commits by one author (`git -C "$H" log --no-merges --format=%an -- events-processor | grep -v dependabot | sort | uniq -c | sort -rn | head -1`). Record every answer in the repo; an answer that is only remembered is lost.
 
 ## 9. Acceptance: when a result is "accepted" here
 

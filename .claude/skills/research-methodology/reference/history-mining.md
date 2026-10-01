@@ -42,8 +42,8 @@ git -C "$H" log --format='%h %ad %s' --date=short -- events-processor/main.go | 
 git -C "$H" log --follow --format='%h %ad %s' --date=short -- events-processor/main.go | tail -1   # 4100da0 2025-03-11 feat(events): Add events post-processor (#474)
 ```
 
-- `--follow` works for one file only. For directories, list both names.
-- `--follow --reverse` prints a single commit (1 instead of 10 for `events-processor/main.go`). Reverse with `| tac` instead.
+- `git log --follow` works for one file only. For directories, list both names.
+- `git -C "$H" log --follow --reverse --format=%h -- events-processor/main.go` prints a single commit (10 without `--reverse`). Reverse with `| tac` instead.
 - At commits before `d5bce86`, `git show <sha>:<path>` and `git ls-tree` need the old path: `git -C "$H" show 4100da0:events_processor/main.go` works; `4100da0:events-processor/main.go` exits 128.
 - Other moves: `.env.development.example` became `.env.development.default` in `84b6eef`.
 
