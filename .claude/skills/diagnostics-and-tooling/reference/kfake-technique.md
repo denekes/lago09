@@ -29,7 +29,7 @@ kfake has **no tags**; you depend on a pseudo-version. events-processor pins fra
 
 | What you do | What happens |
 |---|---|
-| `go get github.com/twmb/franz-go/pkg/kfake@latest` | resolves `v0.0.0-20260927204940-b5a45ccfdf7e`, which requires franz-go v1.21.7 and `go 1.26.0`. Go upgrades franz-go to v1.21.7 and kmsg to v1.14.0 (one `go: upgraded` line each, easy to miss) and switches to a go1.26.x toolchain: **you are now testing events-processor against a franz-go it does not ship with**. |
+| `go get github.com/twmb/franz-go/pkg/kfake@latest` | resolves `v0.0.0-20260927204940-b5a45ccfdf7e`, which requires franz-go v1.21.7 and `go 1.26.0`. Go upgrades franz-go to v1.21.7 and kmsg to v1.14.0 (plus klauspost/compress, pierrec/lz4 and the `go` line to 1.26.0; one `go: upgraded` line each, easy to miss) and switches to a go1.26.x toolchain: **you are now testing events-processor against a franz-go it does not ship with**. |
 | same, plus `replace github.com/twmb/franz-go => github.com/twmb/franz-go v1.20.5` | compile error: `18_api_versions.go:122:5: vs.EachSupportedFeature undefined (type *kversion.Versions has no field or method EachSupportedFeature)` (also `EachFinalizedFeature`). |
 | `go get github.com/twmb/franz-go/pkg/kfake@latest github.com/twmb/franz-go@v1.20.5` (both in one command) | refused, exit 1: `kfake@latest (v0.0.0-20260927204940-b5a45ccfdf7e) requires github.com/twmb/franz-go@v1.21.7, not github.com/twmb/franz-go@v1.20.5`. All three behaviours are current (re-run 2026-10-01). |
 | pin `github.com/twmb/franz-go/pkg/kfake v0.0.0-20251123185109-2b5c574e9ddd` (franz-go commit `2b5c574e9ddd`) | its go.mod requires franz-go v1.20.4, kadm v1.17.1, kmsg v1.12.0, `go 1.24.0`; minimal version selection keeps franz-go **v1.20.5**. No replace needed. **This is what `scripts/kfake-harness/go.mod` pins.** |
@@ -92,7 +92,7 @@ elapsed: 130ms
 RESULT: PASS (every record enriched + in-advance, 0 DLQ, offsets committed)
 ```
 `-store db` prints the same counts (elapsed ~160 ms). `-n 5000 -partitions 3`: 3 batches, committed 5000,
-sum 12502500, PASS. `-n 50000 -partitions 4`: 8 batches, PASS, elapsed 3.0-3.5 s (kfake and miniredis
+sum 12502500, PASS. `-n 50000 -partitions 4`: 8 batches, PASS, elapsed 2.9-3.5 s (kfake and miniredis
 share the process: use it for relative comparisons only, never as a production throughput figure).
 Exit codes: 0 PASS, 1 FAIL, 2 setup error; `kfake-run.sh` passes them through (VERIFIED: `-store bogus`
 -> 2, `-n 10 -timeout 1ns` -> `RESULT: FAIL`, 1). Flags: `-n -partitions -store -db-url -timeout -cpuprofile -v`.
@@ -159,8 +159,8 @@ Fault-injection hooks (building blocks only; the matrix is `event-accounting-cam
 
 - **DEPENDENT (structural build dependency).** `event-accounting-campaign/scripts/go.mod` requires
   `lagoskills/kfakeharness v0.0.0` through
-  `replace lagoskills/kfakeharness => ../../diagnostics-and-tooling/scripts/kfake-harness`, and its
-  `accounting-probe` and `value-corpus` import `kfx`, `fixture` (and `pipeline`). Renaming the module
+  `replace lagoskills/kfakeharness => ../../diagnostics-and-tooling/scripts/kfake-harness`, its
+  `accounting-probe` imports `kfx`, `fixture` and `pipeline`, its `value-corpus` imports `fixture`. Renaming the module
   `lagoskills/kfakeharness`, moving `scripts/kfake-harness/` or changing the exported API of
   `kfx`/`fixture`/`pipeline` breaks them. After any such change, in the same PR run
   `.claude/skills/event-accounting-campaign/scripts/run.sh --check` (go vet + gofmt + franz-go pin of that

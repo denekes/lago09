@@ -1,4 +1,4 @@
-# smoke-expected-db.txt — result block observed by `smoke-binary.sh db` (verified 2026-10-01, HEAD 5308258).
+# smoke-expected-db.txt — result block observed by `smoke-binary.sh db` (verified 2026-10-01; code as of 5308258, events-processor tree 83e012866f29).
 # This is TODAY's behaviour, known defects included; it is a measurement baseline, not a spec.
 # A diff means behaviour changed: if your PR intends that change, update this file in the same PR.
 # Lines are compared in order; '#' lines and blank lines are ignored.

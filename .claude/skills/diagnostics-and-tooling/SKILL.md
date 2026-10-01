@@ -47,6 +47,7 @@ Do NOT use it for:
 
 ## 1. The measurement rule
 
+<!-- evidence-check: off normative measurement rules; the evidence bar itself is research-methodology section 3 -->
 1. A claim about runtime behaviour is accepted only with a probe output: the exact command, its
    output and its exit status, run at a stated sha. A code read is evidence for what code SAYS, not
    for what it DOES. The full evidence bar is in `research-methodology` (section "The evidence bar");
@@ -62,6 +63,7 @@ Do NOT use it for:
    "ClickHouse does".
 6. Publish the measurement where the reader will look: the owning skill, the PR body, or the
    expected-today file of the harness.
+<!-- evidence-check: on -->
 
 ## 2. Chooser: question -> harness
 
@@ -116,11 +118,14 @@ so v1.20.5 stays). Never run `go get -u` in the harness; re-pin per `reference/k
 
 Packages (details and API: `reference/kfake-technique.md` s.3):
 
+<!-- evidence-check: off index of the shipped packages; each package's doc comment and reference/kfake-technique.md s.3 hold the details -->
 | Package | CGO | Use it for |
 |---|---|---|
 | `kfx` | no | start kfake with topics, produce, read to high watermark, committed offsets, groups; embeds `*kfake.Cluster` (`Control` for broker-level fault injection) |
 | `fixture` | no | one deterministic tenant; `SeedCache` for memory-cache mode; same rows as `scripts/fixtures/smoke-schema.sql` for DB mode |
 | `pipeline` | yes | `pipeline.New(ctx, Config{...})` + `Run(ctx)`; `Config.Wrap` wraps the real `ProcessEvents` (observe batches, drop a record = retryable path, panic = crash) |
+
+<!-- evidence-check: on -->
 
 Demo scenarios (expected outputs: `reference/kfake-technique.md` s.4):
 
@@ -141,7 +146,7 @@ do not duplicate it here.
 
 **Structural dependency (DEPENDENT: `event-accounting-campaign`).** Its `scripts/go.mod` requires
 `lagoskills/kfakeharness` through `replace lagoskills/kfakeharness => ../../diagnostics-and-tooling/scripts/kfake-harness`,
-and its `accounting-probe` and `value-corpus` import `kfx`, `fixture` and `pipeline`. Renaming the module,
+and its `accounting-probe` (`kfx`, `fixture`, `pipeline`) and `value-corpus` (`fixture`) import them. Renaming the module,
 moving `scripts/kfake-harness/` or changing the exported API of those packages breaks them. After any such
 change run, in the same PR, `.claude/skills/event-accounting-campaign/scripts/run.sh --check` (expect
 `run.sh: check OK`).
@@ -164,8 +169,9 @@ $S/smoke-binary.sh db --no-expected --env LAGO_KAFKA_ENRICHED_EVENTS_TOPIC=  # e
 (`K=` sets it empty): the no-daemon end-to-end check that a new or changed events-processor variable is
 wired (and that a bad value panics at startup). Add `--no-expected` when the variable changes the result.
 
-Observed 2026-10-01 (identical on 3 runs):
+Observed 2026-10-01 (identical on 3 runs; re-run by `smoke-binary.sh all`, rows = `fixtures/smoke-expected-*.txt`):
 
+<!-- evidence-check: off observed-today table; evidence = smoke-binary.sh all output and the fixtures/smoke-expected-*.txt it matches -->
 | Event | db | cache | cache-cdc |
 |---|---|---|---|
 | A sum metric, `amount: 0.0000001`, pay-in-advance charge | enriched `value="1e-07"` + in-advance | same | enriched, **in_advance=no** |
@@ -178,6 +184,8 @@ Observed 2026-10-01 (identical on 3 runs):
 | H event at the ms the sub started (+500 us) | enriched, sub matched | enriched, **sub NOT matched** | same as cache |
 | I expression OK | enriched `value="4"` | same | same |
 | totals | committed 9/9, ZSET 1 member, clean SIGTERM exit | + 6 `lago_evp_<model>_<uuid>` groups | same |
+
+<!-- evidence-check: on -->
 
 What these mean (defects, contracts) is owned by `architecture-contract`, `rails-go-parity` and
 `event-accounting-campaign`; memory-cache rows depend on OPEN DECISION OD-1 (owner). If your PR
@@ -194,7 +202,8 @@ $S/overlay-run.sh --no-cgo config/kafka/zz_commit_prefix_test.go=$S/overlay-exam
 - `<target>=<source>` adds (target missing) or replaces (target exists); `<target>=` deletes from the
   build view. Targets are relative to `events-processor/`. Omit `--no-cgo` for
   `processors/events_processor`. Default go test args: `-count=1 ./...`.
-- An overlaid `_test.go` in the same package can call unexported functions (white-box probes).
+- An overlaid `_test.go` in the same package can call unexported functions (white-box probes; the demo
+  calls `findMaxCommitableRecord` at `scripts/overlay-examples/commit_prefix_test.go:44`).
 - Limits: compile-time only (runtime file reads see the real disk); no new module dependencies (use a
   scratch copy or a separate module). `go test` runs in `events-processor/`: pass ABSOLUTE output
   paths (`-coverprofile="$T/c.out"`); a relative one lands in the repo, hidden by `.gitignore`, and
@@ -244,11 +253,12 @@ All compose files and bring-up: `run-and-operate`.
 | Race on the unit suite (never runs `processRecordsAndCommit`) | `.claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 ./...` | 6 packages ok, ~7-9 s warm (more under load) |
 | Race on the REAL consumer path (the unit suite never runs it; change-control C4 requires one such run) | `GOFLAGS=-race $S/kfake-run.sh happy-path -n 5000 -partitions 4` | PASS, 0 races (x3; DB mode too) |
 | Order dependence | `.claude/skills/build-and-env/scripts/ep-test.sh -count=1 -shuffle=on -v ./utils/`; replay with `-shuffle=<seed>` | prints `-test.shuffle <seed>` |
-| CPU through the pipeline | `T=$(mktemp -d); $S/kfake-run.sh happy-path -n 50000 -partitions 4 -cpuprofile $T/cpu.out; go tool pprof -top $T/cpu.out` | 8 batches, elapsed 3.0-3.5 s; relative use only |
+| CPU through the pipeline | `$S/kfake-run.sh happy-path -n 50000 -partitions 4 -cpuprofile $T/cpu.out` (with `T=$(mktemp -d)`), then `go tool pprof -top $T/cpu.out` | 8 batches, elapsed 2.9-3.5 s; relative use only |
 | CPU of a unit test | `go test -run X -cpuprofile $T/cpu.out -o $T/x.test ./pkg/` (CGO env; full command: `reference/harness-catalogue.md` H9) | always pass `-o` (Traps) |
 
 ## 11. Traps that cost time when measuring
 
+<!-- evidence-check: off trap index; each row's evidence is in the section or reference entry it points to -->
 | If you see / do | It is | Do |
 |---|---|---|
 | `vs.EachSupportedFeature undefined` | latest kfake vs franz-go forced back to v1.20.5 (`replace`) | use the pinned kfake (section 4) |
@@ -262,9 +272,11 @@ All compose files and bring-up: `run-and-operate`.
 | overlay change not visible to a test reading a file | overlays are compile-time only | scratch copy (`reference/harness-catalogue.md` H11) |
 | CDC consumer silently receives nothing | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS` (`events-processor/cache/consumer.go:28-31`) | measure with `cdc-brokers`; meaning: `architecture-contract` WP10; fix owner: none (OPEN DECISION OD-20) |
 | scratch DB left behind after a crash | the trap did not run | `scratch-pg.sh list`, then `drop` each |
+<!-- evidence-check: on -->
 
 ## Scripts
 
+<!-- evidence-check: off index of shipped scripts; every example was re-run 2026-10-01 (outputs in the sections above) -->
 | Script | Purpose | Example | Expected output (2026-10-01) |
 |---|---|---|---|
 | `scripts/kfake-run.sh` | build (to `$LAGO_SKILLS_CACHE/kfake-harness-bin/`) and run a kfake scenario with the CGO env, passing its exit code through; `--check` = vet + gofmt + franz-go pin | `kfake-run.sh happy-path` | `RESULT: PASS ...`, exit 0; `--check` -> `kfake-run: check OK` |
@@ -276,6 +288,7 @@ All compose files and bring-up: `run-and-operate`.
 | `scripts/fixtures/smoke-schema.sql` | minimal Lago-shaped schema + fixture tenant (same ids as `fixture.go`) | `$S/scratch-pg.sh create x $S/fixtures/smoke-schema.sql` | 3 BMs, 1 sub, 2 charges |
 | `scripts/fixtures/smoke-expected-{db,cache,cache-cdc}.txt` | expected-today result blocks | used by `smoke-binary.sh` | — |
 | `scripts/overlay-examples/commit_prefix_test.go` | white-box overlay demo for `findMaxCommitableRecord` | section 6 | 3 logged decisions, PASS |
+<!-- evidence-check: on -->
 
 Exit codes are documented in each script header (`<script> --help` prints it). All scripts write only
 to mktemp dirs, scratch DBs, `$LAGO_SKILLS_CACHE` or output paths you pass explicitly.

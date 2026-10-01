@@ -56,6 +56,9 @@ C3 or C4 for an edit to a C4 file (`config/kafka/consumer.go`, `config/kafka/pro
 log line, span attribute or counter that changes no control flow, return value, commit/DLQ/produce
 call or payload field is C3 when `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline`
 prints `moved=0` (paste it). Anything that alters commit, retry, DLQ or skip behaviour is C4.
+A change to the enriched `value` string format (`enrichment_service.go:114`) is C3 + C4 (contract
+K4 under change-control N6: paired lago-api PR, OD-4); time parsing (`utils/time.go`) is C3 unless
+the enriched `timestamp` payload format changes. A new DLQ cause or `error_code` is C4.
 
 ### C1 detail: a new test
 

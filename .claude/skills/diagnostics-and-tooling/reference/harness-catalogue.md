@@ -225,7 +225,7 @@ H10 log triage · H11 scratch copy
 ## H9. CPU profiles
 
 - Real pipeline: `T=$(mktemp -d); $S/kfake-run.sh happy-path -n 50000 -partitions 4 -cpuprofile $T/cpu.out;
-  go tool pprof -top -nodecount=12 $T/cpu.out; rm -rf $T` -> `elapsed:` ~3.0-3.5 s, top nodes are syscalls,
+  go tool pprof -top -nodecount=12 $T/cpu.out; rm -rf $T` -> `elapsed:` ~2.9-3.5 s, top nodes are syscalls,
   memmove, `encoding/json.checkValid` (kfake and miniredis share the process; compare runs, not absolutes).
 - Unit test: `T=$(mktemp -d); (source .claude/skills/build-and-env/scripts/ep-env.sh; cd events-processor &&
   go test -count=1 -run TestProcessEvent -cpuprofile $T/cpu.out -o $T/ep.test ./processors/events_processor/ &&
