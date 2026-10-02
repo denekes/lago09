@@ -31,7 +31,8 @@ Hardening (CANDIDATE, C7 + C3/C4 per change-control):
   miniredis over TLS (see the `diagnostics-and-tooling` skill). Not done here.
 - lago-api `VERIFY_NONE` is lago-api code: a paired lago-api PR (change-control N6 / OD-4).
 - Gotenberg: drop the flag unless invoices embed self-signed assets (CANDIDATE; not in the OD
-  register: raise it with OD-16, the self-host exposure defaults).
+  register: raise a new owner decision as a GitHub issue titled "OD-n: Gotenberg ignores TLS errors",
+  per change-control Terms "owner").
 
 ## 2. Trust boundary: who decides `organization_id`
 

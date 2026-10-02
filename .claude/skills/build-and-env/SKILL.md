@@ -113,7 +113,7 @@ Any FAIL, or a different result: follow section 2a for the failing item, then se
    `ep-env.sh` sourced from inside it (the script uses the lago checkout of the current directory
    first, else the checkout that contains the script).
 2. **C compiler.** `gcc` must be on PATH (Debian/Ubuntu: `build-essential`). Check:
-   `(cd events-processor && go env CGO_ENABLED)` → `1`. A `0` means trap 5.3.
+   `go -C events-processor env CGO_ENABLED` → `1`. A `0` means trap 5.3.
 3. **Go.** Any Go >= 1.21 on PATH with the default `GOTOOLCHAIN=auto`. The first `go` command in
    `events-processor/` downloads exactly go1.25.0 (about 214 MB on disk, from `proxy.golang.org`) because
    `events-processor/go.mod:3` says `go 1.25.0`. Check: `(cd events-processor && go version)` →
@@ -121,7 +121,8 @@ Any FAIL, or a different result: follow section 2a for the failing item, then se
 4. **Rust** (only to build the `.so` once; skip it with `ep-test.sh --no-cgo`).
    `curl https://sh.rustup.rs -sSf | bash -s -- -y` (as `docker/Dockerfile:25` does). Rust stable
    1.97.0 builds lago-expression v0.2.0 here; production images use `rust:1.85`.
-5. **Postgres** for the one DB test: section "Postgres for tests" below.
+5. **Postgres** for the one DB test: section "Postgres for tests" below; check with
+   `pg_isready -d postgres://lago:lago@localhost:5432/lago` → `accepting connections`.
 6. **CGO env.** `source .claude/skills/build-and-env/scripts/ep-env.sh` (by absolute path it works
    from any cwd). On first use it clones lago-expression at the ref in `events-processor/Dockerfile:5`
    into `$LAGO_SKILLS_CACHE` and runs `cargo build --release`. It exports `CGO_LDFLAGS`,
@@ -178,7 +179,7 @@ Only `config/database` `TestNewConnection` needs Postgres, and only a login (no 
 | Install (fresh host) | `apt-get install -y postgresql` (Ubuntu 24.04: `apt-cache policy postgresql` → candidate `16+257build1.1`, i.e. PostgreSQL 16; the install itself was not re-run here, PG is preinstalled) | — |
 | Cluster state | `pg_lsclusters` | `16  main 5432 online postgres …` |
 | Start after a sandbox/container restart | `pg_ctlcluster 16 main start` | silent; if already up: `Cluster is already running.` (exit 2, harmless) |
-| Role + db (idempotent, verified) | see block below | no output |
+| Role + db (idempotent, verified) | the `psql` heredoc below (run through `su postgres`) | no output |
 | Check reachability | `pg_isready -d postgres://lago:lago@localhost:5432/lago` | `localhost:5432 - accepting connections` |
 | Check login (pg_isready does not) | `psql postgres://lago:lago@localhost:5432/lago -XAtc 'select 1'` | `1` |
 
@@ -285,6 +286,7 @@ the dev stack: `docker compose -f docker-compose.dev.yml exec -T events-processo
 
 Exact text as captured 2026-10-01. Reproductions with full output: `reference/traps.md` (B-numbers).
 
+<!-- evidence-check: off trap index; each row's reproduction is its (B#) block in reference/traps.md -->
 | # | Symptom (exact text) | Cause | Fix |
 |---|---|---|---|
 | 5.1 | `/usr/bin/ld: cannot find -lexpression_go: No such file or directory` (B1) | `CGO_LDFLAGS` has no `-L` to the `.so`; the wrapper only says `#cgo LDFLAGS: -lexpression_go` | `source .claude/skills/build-and-env/scripts/ep-env.sh`; it also exports `DATABASE_URL`, so plain `go test ./...` without it fails `config/database` too (5.7) |
@@ -307,6 +309,7 @@ Exact text as captured 2026-10-01. Reproductions with full output: `reference/tr
 | 5.18 | `front` will not start in the dev stack (exact text UNVERIFIED, no daemon) (B15) | `lago_front_pnpm_store` is `external: true`, nobody creates it | `docker volume create lago_front_pnpm_store` |
 | 5.19 | `panic: brokers not found` when running a freshly built binary | expected with no runtime env: link and load are fine | startup panics: `debugging-playbook` §2; required env: `run-and-operate` §5.1 |
 | 5.20 | `Error: parallel golangci-lint is running` (exit 3, after a wait) (B14) | another golangci-lint holds `${TMPDIR:-/tmp}/golangci-lint.lock` (e.g. a parallel agent) | `golangci-lint run --allow-serial-runners ./...` (waits for the other run instead of exiting 3) |
+<!-- evidence-check: on -->
 
 ## 6. Non-negotiables that bite during environment work
 
@@ -356,7 +359,7 @@ prompts), and with a lago-cli binary on PATH. `dc.sh` was exercised with `config
   - `ls "$(cd events-processor && go env GOTOOLDIR)" | grep -c covdata` → `0`
   - `.claude/skills/build-and-env/scripts/ep-test.sh -count=1 -v ./... 2>&1 | grep -c -- '--- PASS'` → `235`
   - `.claude/skills/build-and-env/scripts/doctor.sh >/dev/null; echo $?` → `0` (prepared sandbox)
-  - `R=$PWD; (cd /tmp && bash -c "source $R/.claude/skills/build-and-env/scripts/ep-env.sh 2>/dev/null; echo rc=\$?")` → `rc=0`
+  - `bash -c 'cd /tmp && source "$0"/.claude/skills/build-and-env/scripts/ep-env.sh >/dev/null 2>&1; echo rc=$?' "$PWD"` → `rc=0`
   - `.claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 2>&1 | grep -c '^ok'` → `6` (flags only: `./...` added)
   - `.claude/skills/build-and-env/scripts/dc.sh --profile '*' config --services | wc -l` → `30`
   - `git check-ignore -q events-processor/event_processors || echo not-ignored` → `not-ignored`

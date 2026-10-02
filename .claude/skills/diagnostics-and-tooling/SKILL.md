@@ -43,7 +43,7 @@ Do NOT use it for:
 | scratch DB | A Postgres database created and tagged by `scratch-pg.sh`, dropped after the probe. |
 | expected-today | The output recorded on 2026-10-01, defects included. A diff is a measurement, not automatically a regression. |
 | CGO env | `source .claude/skills/build-and-env/scripts/ep-env.sh`: needed to build anything importing `processors/events_processor` (links `libexpression_go`). |
-| DB mode / memory-cache mode | events-processor reads Postgres per event (default) vs an in-memory badger cache fed by a snapshot + Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`, checked `== "true"` at `events-processor/main.go:66`). Production use of the latter is OPEN DECISION OD-1 (owner). |
+| DB mode / memory-cache mode | events-processor reads Postgres per event (default) vs an in-memory badger cache fed by a snapshot + Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`, checked `== "true"` at `events-processor/main.go:67`). Production use of the latter is OPEN DECISION OD-1 (owner). |
 
 ## 1. The measurement rule
 

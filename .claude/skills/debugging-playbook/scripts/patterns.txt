@@ -766,6 +766,17 @@ see: SKILL.md section 7
 evidence: VERIFIED 2026-10-01
 example: unknown flag: --profile
 
+id: selfhost-rsa-key
+area: selfhost
+match: Neither PUB key nor PRIV key
+title: LAGO_RSA_PRIVATE_KEY is not one line of base64 of a PEM (raw PEM, or base64 wrapped over unquoted lines; compose keeps only the first line), so lago-api cannot parse it at boot
+cause: raw PEM pasted into .env; base64 wrapped over several unquoted lines; key truncated by an env tool
+confirm: .claude/skills/run-and-operate/scripts/selfhost-preflight.sh .env  -> FAIL on the RSA key check ($API/config/initializers/rsa_keys.rb:10,13-17)
+fix: regenerate as one line: openssl genrsa 2048 | openssl base64 -A ; put it in .env unquoted on one line (or base64 wrapped INSIDE double quotes); owner: run-and-operate
+see: SKILL.md section 7
+evidence: VERIFIED 2026-10-01 (ruby on the value docker compose config passes; run-and-operate SKILL.md section 3)
+example: OpenSSL::PKey::RSAError: Neither PUB key nor PRIV key:: nested asn1 error
+
 id: selfhost-env-escape
 area: selfhost
 match: unexpected character "\\x1b" in variable name

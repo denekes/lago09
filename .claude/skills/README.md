@@ -15,7 +15,8 @@ index for people and agents.
 - Run every command from the repo root: `cd "$(git rev-parse --show-toplevel)"`.
 - **Postgres after a restart.** The sandbox Postgres 16 does not survive a container restart. Run
   `pg_isready -d postgres://lago:lago@localhost:5432/lago`. If it fails, run `pg_ctlcluster 16 main start`.
-  Role and database `lago`/`lago` must exist (`build-and-env` B6). Until Postgres is back,
+  Role and database `lago`/`lago` must exist (`build-and-env` "Postgres for tests"; the symptom when they
+  are missing is `build-and-env` B6). Until Postgres is back,
   `config/database` tests panic in `TestNewConnection`, and `baseline.sh` and `scoreboard.sh` cannot
   run.
 
@@ -143,7 +144,8 @@ and debugging-playbook). The skill prefix in a citation tells them apart.
 
 ## Maintaining the library
 
-Skill edits are change class C0 (`change-control`). The per-skill checklist is `docs-and-writing`
+Skill docs (`.claude/skills/**/*.md`) are change class C0; skill scripts (`.claude/skills/**/scripts/**`)
+are C1 (`change-control` §2). The per-skill checklist is `docs-and-writing`
 `reference/templates.md` §6.
 
 Update triggers. Re-verify the owning skills when one of these happens:
@@ -190,9 +192,10 @@ To add a skill:
 1. Create `.claude/skills/<name>/SKILL.md` with the skeleton in `docs-and-writing`
    `reference/templates.md` §6. Put long tables in `reference/` and scripts in `scripts/`. Scripts are
    read-only on the repo and write only to the cache directory or a temp dir.
-2. Write a description of 600 characters or fewer: what the skill is, "Use when ...", then
-   "Not for ... (use <sibling>)". An exact error string must not appear in any other description:
-   `grep -l '<string>' .claude/skills/*/SKILL.md` prints one file.
+2. Write a description of 600 characters or fewer: what the skill is, a trigger clause ("Use when ...",
+   "Use for ...", "Use on ..." or "Use before ..."), then "Not for ... (use <sibling>)". An exact error
+   string may appear in only ONE description (skill bodies may repeat it):
+   `grep -H '^description:' .claude/skills/*/SKILL.md | grep -cF -- '<string>'` prints `1`.
 3. Add the skill to this README: the start-here table (with an observed first command), the index,
    and the ID registry. Its ID prefixes must not reuse a prefix that another skill owns.
 4. Run the re-verify block above, then `.claude/skills/change-control/scripts/precommit-guard.sh` and
