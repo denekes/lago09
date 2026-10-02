@@ -419,7 +419,9 @@ def op_periodic_billing(inp, profile):
         return none
     if sub["started_at"] is None or not zone.local_date(sub["started_at"]) < t:
         return none
-    if not sub["created_at"].astimezone(UTC).date() <= r.date():
+    created_d = zone.local_date(sub["created_at"]) if profile == "corrected" else sub["created_at"].astimezone(UTC).date()
+    run_d = t if profile == "corrected" else r.date()
+    if not created_d <= run_d:
         return none
     if sub["ending_at"] is not None and zone.local_date(sub["ending_at"]) == t:
         return none
@@ -514,8 +516,7 @@ def op_single_day_price(inp, profile):
     else:
         b = compute(plan, sub, zone, parse_instant(inp["billing_at"]), bool(inp.get("current_usage")), None, profile)
         n = length(b["_fee_per"])
-    return {"value": f_str(amount / n) if profile == "compat" else _frac_str(Fraction(amount, n), 15),
-            "period_days": n}
+    return {"value": f_str(amount / n), "period_days": n}
 
 
 def _frac_str(fr, places):
@@ -544,13 +545,16 @@ def op_subscription_fee(inp, profile):
     # ---- gate (BE-SP-46..48)
     created = True
     if advance and others:
-        lo = datetime.combine(D, MIDNIGHT, tzinfo=UTC)
-        hi = lo + timedelta(days=1) - ONE_US
+        if profile == "corrected":
+            lo, hi = zone.start(D), zone.end(D)
+        else:
+            lo = datetime.combine(D, MIDNIGHT, tzinfo=UTC)
+            hi = lo + timedelta(days=1) - ONE_US
         if any(lo <= o <= hi for o in others):
             created = False
     if created and interval in ("yearly", "semiannual"):
         fm = first_month(plan, sub, anchor, D)
-        started_past = _started_in_past(sub)
+        started_past = _started_in_past(sub, zone if profile == "corrected" else None)
         if advance and not started_past:
             ok = fm or not others
         elif advance:
@@ -574,13 +578,14 @@ def op_subscription_fee(inp, profile):
     # ---- basis (BE-SP-39)
     run = compute(plan, sub, zone, ts, False, None, profile)
     nxt = sub["next_subscription"]
+    zc = zone if profile == "corrected" else None
     if status == "terminated" and not advance and nxt in ("upgrade", "none"):
         basis = "terminated"
     elif prev is not None and count <= 1 and prev["amount_cents"] * YEARLY_FACTOR[prev["interval"]] <= yearly_amount(plan):
         basis = "upgraded"
     elif (advance and sub["billing_time"] == "anniversary" and prev is None) or any(o < inv_created for o in others) \
-            or (_started_in_past(sub) and advance) \
-            or (_started_in_past(sub) and sub["started_at"] is not None and sub["started_at"] < run["previous_beginning_of_period"]):
+            or (_started_in_past(sub, zc) and advance) \
+            or (_started_in_past(sub, zc) and sub["started_at"] is not None and sub["started_at"] < run["previous_beginning_of_period"]):
         basis = "full_period"
     else:
         basis = "first_period"
@@ -647,7 +652,9 @@ def op_subscription_fee(inp, profile):
     return {"created": created, "basis": basis, "precise_amount_cents": cut16(value), "amount_cents": half_up_int(value)}
 
 
-def _started_in_past(sub):
+def _started_in_past(sub, zone=None):
+    if zone is not None:
+        return sub["started_at"] is not None and zone.local_date(sub["started_at"]) < zone.local_date(sub["created_at"])
     return sub["started_at"] is not None and sub["started_at"].astimezone(UTC).date() < sub["created_at"].astimezone(UTC).date()
 
 
@@ -737,15 +744,16 @@ def op_terminate(inp, profile):
         raise KitError("subscription_canceled")
     if status == "incomplete":
         return {"status": "canceled", "canceled": True, "webhooks": ["subscription.canceled"], "invoicing_reasons": []}
+    ev = "subscription.canceled" if profile == "corrected" else "subscription.terminated"
     if status == "pending":
-        out = {"status": "canceled", "canceled": True, "webhooks": ["subscription.terminated"], "invoicing_reasons": []}
+        out = {"status": "canceled", "canceled": True, "webhooks": [ev], "invoicing_reasons": []}
         if prev:
-            out["webhooks"] = ["subscription.updated", "subscription.terminated"]
+            out["webhooks"] = ["subscription.updated", ev]
             out["previous_subscription_status"] = "terminated"
         return out
     if status == "terminated":
         return {"status": "terminated", "terminated_at": fmt_instant(sub["terminated_at"]), "canceled": False,
-                "webhooks": ["subscription.terminated"], "invoicing_reasons": []}
+                "webhooks": [] if profile == "corrected" else ["subscription.terminated"], "invoicing_reasons": []}
     out = {"status": "terminated", "terminated_at": fmt_instant(sub["terminated_at"] or now), "canceled": False,
            "webhooks": ["subscription.updated", "subscription.terminated"],
            "invoicing_reasons": [] if skip else ["subscription_terminating"]}
