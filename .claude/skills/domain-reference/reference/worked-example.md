@@ -45,7 +45,8 @@ Authorization: Bearer <org api key>
 Caveat on `timestamp`: it is `Time#to_f.to_s`, not the client's string. On Ruby 3.3.6 (this sandbox),
 `Time.at(BigDecimal("1727787600.123")).to_f.to_s` is `"1727787600.1230001"`, and for 129 of the 1000
 millisecond values `.000`-`.999` the string sits just BELOW the ms (e.g. `1727787600.002` -> `"1727787600.0019999"`), so Go's
-ms truncation lands 1 ms early. lago-api pins Ruby 4.0.6 (`$API/Gemfile:6`): UNVERIFIED there. The Go
+ms truncation lands 1 ms early. lago-api pins Ruby 4.0.6 (`$API/Gemfile:6`): same result there (VERIFIED
+2026-10-02 with the kit oracle's Ruby 4.0.6; SKILL.md MC17). The Go
 side's own float issues are owned by `rails-go-parity`. The example uses the clean string.
 
 ## Stage 2 [EP, executed]: what events-processor emits

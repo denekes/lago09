@@ -8,11 +8,18 @@
 //	source .claude/skills/build-and-env/scripts/ep-env.sh
 //	cd .claude/skills/rails-go-parity/scripts && go run ./value-format-probe
 //	go run ./value-format-probe -values-only   # one Go value per line (pipe into ch-decimal-probe.sh -)
+//	go run ./value-format-probe -divzero       # contract row P37: an expression dividing by zero
 //
-// Exit codes: 0 = report printed; 1 = setup error (cache, enrichment failure on a value case).
+// -divzero runs EnrichEvent for a metric whose expression divides by a property equal to 0
+// (source != http_ruby, so Go evaluates it) in a CHILD process (this binary re-executed with
+// RGP_DIVZERO_CHILD=1) and reports how the child ended; the parent itself never aborts.
+//
+// Exit codes: 0 = report printed; 1 = setup error (cache, enrichment failure on a value case,
+// child could not be started).
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +28,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/getlago/lago/events-processor/cache"
 	"github.com/getlago/lago/events-processor/config/kafka"
@@ -68,7 +77,11 @@ func rawEvent(tx, code, source, props string) []byte {
 
 func main() {
 	valuesOnly := flag.Bool("values-only", false, "print only the Go value string per corpus case, one per line")
+	divzero := flag.Bool("divzero", false, "evaluate an expression dividing by zero through EnrichEvent in a child process and report how it ended")
 	flag.Parse()
+	if *divzero {
+		os.Exit(runDivzeroParent())
+	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	c, err := cache.NewCache(cache.CacheConfig{Context: context.Background()})
@@ -82,6 +95,7 @@ func main() {
 		{ID: "bm-sum", OrganizationID: org, Code: "probe_sum", AggregationType: models.AggregationTypeSum, FieldName: "amount"},
 		{ID: "bm-uc", OrganizationID: org, Code: "probe_uc", AggregationType: models.AggregationTypeUniqueCount, FieldName: "amount"},
 		{ID: "bm-expr", OrganizationID: org, Code: "probe_expr", AggregationType: models.AggregationTypeSum, FieldName: "amount", Expression: "event.timestamp"},
+		{ID: "bm-div", OrganizationID: org, Code: "probe_div", AggregationType: models.AggregationTypeSum, FieldName: "amount", Expression: divExpr},
 	}
 	for _, bm := range bms {
 		if r := c.SetBillableMetric(bm); r.Failure() {
@@ -101,6 +115,12 @@ func main() {
 			return nil, r.ErrorCode(), r.Error()
 		}
 		return r.Value(), "", nil
+	}
+
+	if os.Getenv(divChildEnv) == "1" { // child of -divzero: the real enrichment path, then report if it survived
+		_, code, err := enrich(rawEvent("tx-div", "probe_div", "connector", `{"a":6,"b":0}`))
+		fmt.Printf("child survived: error_code=%q err=%v\n", code, err)
+		return
 	}
 
 	if !*valuesOnly {
@@ -175,6 +195,37 @@ func main() {
 	for _, m := range capture.msgs {
 		fmt.Printf("wire %-9s key=%q value=%s\n", m.kind, m.key, m.value)
 	}
+}
+
+const (
+	divExpr     = "event.properties.a / event.properties.b"
+	divChildEnv = "RGP_DIVZERO_CHILD"
+)
+
+// runDivzeroParent re-executes this binary as a child that enriches one event whose
+// expression divides by zero, and prints how the child ended. Returns the parent's exit code.
+func runDivzeroParent() int {
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "divzero: cannot locate own binary:", err)
+		return 1
+	}
+	cmd := exec.Command(self)
+	cmd.Env = append(os.Environ(), divChildEnv+"=1")
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	runErr := cmd.Run()
+	var exitErr *exec.ExitError
+	if runErr != nil && !errors.As(runErr, &exitErr) {
+		fmt.Fprintln(os.Stderr, "divzero: cannot start child:", runErr)
+		return 1
+	}
+	text := out.String()
+	fmt.Printf("expression %q with properties {\"a\":6,\"b\":0} (source!=http_ruby, EnrichEvent) -> child %s; "+
+		"rust panic \"Division by zero\": %t; SIGABRT: %t; survived: %t\n",
+		divExpr, cmd.ProcessState.String(), strings.Contains(text, "Division by zero"),
+		strings.Contains(text, "SIGABRT"), strings.Contains(text, "child survived"))
+	return 0
 }
 
 type capMsg struct{ kind, key, value string }

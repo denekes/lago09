@@ -30,6 +30,13 @@ Consumers: Go `models.Event` (`events-processor/models/event.go:12-27`, unmarsha
 (`$API/db/clickhouse_migrate/20231026124912_create_events_raw_queue.rb:14-24`) → `events_raw_mv`
 (`20231030163703_create_events_raw_mv.rb:11,13`).
 
+The "Rails API producer" column is EXECUTED (2026-10-02) by the kit vectors `billing-engine-spec events.raw_message.001`-`.008`
+(the real endpoint at the pin `591ae90`, Ruby 4.0.6): no key, topic `events-raw`; `timestamp` `"1700000000.0"` for an integer,
+`"1704070923.1234567"` for `"1704070923.123456789"`, `"1.0e-05"` below 1e-4 s; `ingested_at` `"2026-01-01T10:20:30.000"`;
+`precise_total_amount_cents` `"123.45"` as sent, `"0.0"` when absent or not a number; `properties` after the expression
+(`"total":"6.0"`, contract P38); `external_customer_id` `null`; `source` `"http_ruby"`; `api_post_processed` `true` (PG-store)
+or `false` (CH-store). The re-enrichment and connector columns are code-read.
+
 <!-- evidence-check: off field table; sources are the file:line ranges in the paragraph above, wire samples, and probe sections named in cells -->
 | Field | Rails API producer | Rails re-enrichment | connectors/*.yml | Go `models.Event` | CH `events_raw_queue` | Notes |
 |---|---|---|---|---|---|---|

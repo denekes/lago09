@@ -32,7 +32,10 @@ An unparsable one returns 422 `invalid_format` (`$API/app/services/events/create
 If the BM has an `expression`, Rails evaluates it now and writes the result into
 `properties[field_name]` (`$API/app/services/events/calculate_expression_service.rb:22`,
 `$API/app/services/events/calculate_expression_service.rb:26`). The expression sees the timestamp as
-INTEGER seconds (`event.timestamp.to_i`). A runtime error returns 422.
+INTEGER seconds (`event.timestamp.to_i`). An evaluation error returns 422 `expression_evaluation_failed`
+(`$API/app/services/events/calculate_expression_service.rb:29`; EXECUTED: `billing-engine-spec events.validate.016`).
+A division by zero is not a `RuntimeError`: the request fails with HTTP 500 and nothing is stored or published
+(observed by the re-implementation kit on 2026-10-02, no vector; SKILL.md MC28, `rails-go-parity` P37).
 
 **LC4 [Rails] store branch on `organization.clickhouse_events_store?`** (`$API/app/services/events/create_service.rb:32`).
 - **PG**: `event.save!` runs model validations (`$API/app/models/event.rb:14`) and hits the unique index
@@ -214,4 +217,28 @@ cache (`$API/app/services/invoices/customer_usage_service.rb:130`).
 | Pay in advance trigger | Sidekiq PostProcess (LC5) | Go topic -> Karafka, +15 s (LC11, LC14) |
 | Charge-usage cache invalidation | eager, unless `lazy_charge_usage_cache` (LC5) | event-driven only through `lazy_charge_usage_cache`; otherwise an entry lives until the period end (`reference/glossary-extended.md`; `rails-go-parity`, pinned-SHA drift) |
 | Does events-processor matter for billing? | No (it still runs and writes CH, LC10) | Yes, on every step from LC8 |
+| Billing semantics of the same events | normative (the kit's reference) | differs at the edges: next table |
+<!-- evidence-check: on -->
+
+## PG-store vs CH-store: billing semantics (kit-executed)
+
+Read this when the same events bill differently for a PG-store and a CH-store organization, or before you
+change aggregation, `value`, or the CH schema. Every row was EXECUTED on 2026-10-02 by the `billing-engine-spec`
+vectors named in it (lago-api at the pin, both stores; CH rows use the Go `value` spelling as input). The kit
+treats the PG store as normative; the CH behaviour is the compat variant and its proposed fix is the PG result
+(`reimplementation-kit RBD-25`..`RBD-31`, owner rulings pending in the proposed OD-21 batch, `change-control` §9).
+
+<!-- evidence-check: off each row cites the code anchor and the kit vectors that executed both stores -->
+| Behaviour | PG store | CH store | Code | Vectors (`billing-engine-spec`) | RBD |
+|---|---|---|---|---|---|
+| Non-numeric or missing value (sum, max, latest, weighted_sum, and their counts) | excluded from value AND event count (regex `^-?\d+(\.\d+)?$`); `"1e3"`, `"+5"`, `".5"` excluded | counted as an event worth 0; `"1e3"`, `"+5"`, `".5"`, `"5."` parsed as numbers; max of `-5` and `"abc"` is 0 | `$API/app/services/events/stores/postgres_store.rb:523` | `aggregation.core.sum.005`, `.sum.008`; `aggregation.store_ch.gate.001`-`.007` | RBD-25 |
+| \|value\| ≥ 1e12 | exact (`numeric(40,15)`) | 0 (`Decimal(38,26)` via `toDecimal128OrZero`) | `$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32` | `aggregation.store_ch.big.001`-`.003` | RBD-26 |
+| unique_count identity | stored JSON text: `1` = `"1"` ≠ `1.0` | Go `value` text: `1`, `"1"`, `1.0` are one value; `1000000` (`"1e+06"`) and `"1000000"` are two; filters and groups read the map text (`512.0` matches `"512"`) | `$API/app/services/events/stores/clickhouse/unique_count_query.rb:311` | `aggregation.core.unique.007`; `aggregation.store_ch.unique.001`, `.002`, `filters.002`, `group.001` | RBD-27 |
+| unique_count `operation_type` other than `add`/`remove` (`""`, `delete`, `ADD`) | counted as a removal; the count can go negative (six events: -3) | not counted (same six events: 0) | `$API/app/services/events/stores/postgres/unique_count_query.rb:284`, `$API/app/services/events/stores/clickhouse_store.rb:942` | `aggregation.core.unique.012`; `aggregation.store_ch.unique.003` | RBD-28 |
+| weighted_sum durations | exact fractional seconds | whole-second boundary crossings (1.5 s counts 1 s; 0.2 s across a second counts 1 s) | `$API/app/services/events/stores/postgres/weighted_sum_query.rb:105`, `$API/app/services/events/stores/clickhouse/weighted_sum_query.rb:49` | `aggregation.store_ch.weighted.002`, `.003` | RBD-29 |
+| Equal timestamps | running totals non-deterministic; `latest` by ingestion order (`created_at`) | `latest` has no tie-break; in-advance boundary ties ordered by `transaction_id` | `$API/app/services/events/stores/postgres_store.rb:242`, `$API/app/services/events/stores/clickhouse_store.rb:461` | `aggregation.store_ch.latest.002`, `.boundary.001` | RBD-30 |
+| Prorated unique_count, grouped | a value added and removed before the window adds one phantom day (0.74194 vs 0.70968 ungrouped) | no phantom day | (query-level; see the kit chapter) | `aggregation.prorated.unique.013`; `aggregation.store_ch.prorated.004` | RBD-31 |
+| Instant precision | microseconds (an event at 23:59:59.9995 is after a `.999` bound) | milliseconds (the same event reads `.999` and is inside) | `$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:27` | `aggregation.store_ch.precision.001`, `.002` | RBD-40 |
+| Missing property key in a filter | key absent | reads as `""`, so a filter on `""` matches events without the key | `$API/app/services/events/stores/clickhouse_store.rb:774` (map access) | `aggregation.store_ch.filters.001` | RBD-25 |
+| Duplicate `transaction_id` | rejected at ingestion (LC4) | accepted; collapsed only with `clickhouse_deduplication_enabled` and an equal timestamp | `$API/app/services/billable_metrics/aggregations/base_service.rb:168` | `events.validate.020`; `aggregation.store_ch.dedup.002`, `.003` | RBD-32 |
 <!-- evidence-check: on -->

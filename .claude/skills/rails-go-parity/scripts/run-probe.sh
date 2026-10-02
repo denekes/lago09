@@ -4,12 +4,13 @@
 #
 # Usage (from anywhere inside the lago repo):
 #   .claude/skills/rails-go-parity/scripts/run-probe.sh time  [-base N] [-scan N] [-fail-on-mismatch]
-#   .claude/skills/rails-go-parity/scripts/run-probe.sh value [-values-only]
+#   .claude/skills/rails-go-parity/scripts/run-probe.sh value [-values-only | -divzero]
 #   .claude/skills/rails-go-parity/scripts/run-probe.sh subscription
 #
 #   time          utils.ToTime / ToFloat64Timestamp / CustomTime over "<sec>.<ms>" ms=0..999 (no CGO)
 #   value         real EnrichEvent `value` string for a golden property corpus (CGO: sources
-#                 build-and-env's ep-env.sh automatically if LAGO_EXPRESSION_LIB is unset)
+#                 build-and-env's ep-env.sh automatically if LAGO_EXPRESSION_LIB is unset);
+#                 -divzero: an expression dividing by zero, evaluated in a child process (row P37)
 #   subscription  Go DB mode vs Go cache mode vs Rails SQL on a throwaway Postgres database
 #                 (DATABASE_URL, default postgres://lago:lago@localhost:5432/lago; role needs CREATEDB)
 #
@@ -30,8 +31,8 @@ case "$probe" in
   time) dir=time-precision-probe ;;
   value) dir=value-format-probe ;;
   subscription) dir=subscription-parity-probe ;;
-  -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
-  "") sed -n '2,24p' "$0" >&2; exit 2 ;;
+  -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+  "") sed -n '2,25p' "$0" >&2; exit 2 ;;
   *) echo "run-probe: unknown probe '$probe' (time|value|subscription)" >&2; exit 2 ;;
 esac
 shift

@@ -205,3 +205,38 @@ $API/app/services/fees/charge_service.rb:74	def init_metered_items_fees
 $API/db/seeds/01_base.rb:54	organization = Organization.create!(id:, name:, clickhouse_events_store:)
 $API/app/services/fees/charge_service.rb:149	charge_model_result = apply_charge_model(aggregation_result:, selected_metered_item:)
 $API/app/models/organization.rb:348	#  clickhouse_deduplication_enabled :boolean          default(FALSE), not null
+$API/config/webhook_event_types.yml:87	name: credit_note.provider_refund_failure
+$API/app/services/webhooks/credit_notes/payment_provider_refund_failure_service.rb:20	"credit_note.refund_failure"
+$API/app/services/webhooks/base_service.rb:43	webhook_endpoint.event_types.include?(webhook_type)
+$API/app/services/events/stores/postgres_store.rb:523	"#{sanitized_property_name} ~ '^-?\\d+(\\.\\d+)?$'"
+$API/app/services/events/stores/postgres/unique_count_query.rb:284	ELSE CASE WHEN operation_type = 'add' THEN 1 ELSE -1 END
+$API/app/services/events/stores/clickhouse/weighted_sum_query.rb:49	date_diff('seconds', timestamp, leadInFrame(timestamp, 1, toDateTime64(:to_datetime, 5, 'UTC')) OVER
+$API/app/services/fees/apply_taxes_service.rb:40	applied_tax.amount_cents = tax_amount_cents.round
+$API/app/services/fees/apply_taxes_service.rb:51	fee.taxes_amount_cents = applied_taxes_amount_cents.round
+$API/app/services/invoices/apply_taxes_service.rb:44	invoice.taxes_amount_cents = applied_taxes_amount_cents.round
+$API/app/services/fees/charge_service.rb:290	rounded_amount = amount_result.amount.round(selected_metered_item.currency.exponent)
+$API/app/services/fees/charge_service.rb:293	unit_amount_cents = amount_result.unit_amount * selected_metered_item.currency.subunit_to_unit
+$API/app/models/wallet_credit.rb:32	amount.fdiv(wallet.rate_amount)
+$API/app/services/credit_notes/create_service.rb:278	adjust_credit_note_tax_rounding if credit_note_for_all_remaining_amount?
+$API/app/services/subscriptions/terminate_service.rb:26	subscription.mark_as_canceled!
+$API/app/services/subscriptions/terminate_service.rb:68	SendWebhookJob.perform_after_commit("subscription.terminated", subscription)
+$API/app/models/tax.rb:42	validates :code, presence: true, uniqueness: {scope: :organization_id}
+$API/app/models/coupon.rb:53	validates :code, presence: true, uniqueness: {conditions: -> { where(deleted_at: nil) }, scope: :org
+$API/app/services/webhooks/base_service.rb:42	return true if webhook_endpoint.event_types.nil?
+$API/app/models/webhook.rb:84	hmac = OpenSSL::HMAC.digest("sha-256", organization.hmac_key, payload.to_json)
+$API/app/services/coupons/terminate_service.rb:12	.find_each(&:mark_as_terminated!)
+$API/app/services/credits/applied_coupons_service.rb:52	.applied_coupons.active
+$API/app/models/invoice.rb:452	def voidable?
+$API/app/models/invoice.rb:133	transitions from: :finalized, to: :voided, after: :handle_void_transition!
+$API/app/services/invoices/void_service.rb:32	return result.not_allowed_failure!(code: "not_voidable") if invoice.voided?
+$API/app/services/events/calculate_expression_service.rb:29	rescue RuntimeError => e
+$API/app/services/fees/charge_service.rb:292	precise_amount_cents = amount_result.amount * selected_metered_item.currency.subunit_to_unit.to_d
+$API/app/models/wallet_credit.rb:26	@amount = (credit_amount * wallet.rate_amount).round(currency.exponent)
+$API/app/services/credit_notes/adjust_amounts_with_rounding_service.rb:13	# NOTE: The goal of this service is to adjust the amounts so
+$API/app/services/fees/apply_taxes_service.rb:37	tax_amount_cents = (fee.sub_total_excluding_taxes_amount_cents * tax.rate).fdiv(100)
+$API/app/services/events/stores/clickhouse_store.rb:942	"events_enriched.sorted_properties['operation_type']"
+$API/app/services/events/stores/postgres/weighted_sum_query.rb:105	CASE WHEN EXTRACT(EPOCH FROM LEAD(timestamp, 1, :to_datetime) OVER (ORDER BY timestamp) - timestamp)
+$API/app/services/events/stores/postgres_store.rb:242	value: events.order(timestamp: :desc, created_at: :desc).first&.properties&.[](aggregation_property)
+$API/app/services/events/stores/clickhouse_store.rb:461	ORDER BY events.timestamp DESC
+$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:27	t.datetime :timestamp, null: false, precision: 3
+$API/app/services/events/stores/clickhouse_store.rb:774	scope = scope.where("events_enriched.properties[?] IN (?)", key.to_s, values)

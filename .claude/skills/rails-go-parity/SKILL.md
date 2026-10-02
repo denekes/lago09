@@ -14,6 +14,9 @@ Facts verified 2026-10-01. Code facts as of `5308258` (events-processor tree `83
 branch may carry skills-only commits on top. lago-api at the pin `591ae90` (2026-09-08) unless marked.
 Owner decisions of 2026-10-02 folded in (register: `change-control` §9): production runs memory-cache mode
 (DECIDED OD-1 (owner, 2026-10-02)), so the `go_cache` column is the production path; dev runs DB mode.
+Re-implementation kit evidence of 2026-10-02 folded in: rows cite `events-processor-spec` and `billing-engine-spec`
+vectors that EXECUTED the behaviour against the Go reference build or lago-api at the pin (legend in
+`reference/contract-table.md`).
 
 ## When to use / when NOT to use
 
@@ -47,6 +50,9 @@ Do NOT use it for:
   are cited in that row's Evidence column.
 - **MATCH / DIVERGE-VERIFIED / DIVERGE-CODE / HISTORICAL / INFO**: same by construction / difference shown by a
   probe / difference shown by reading code only / contract removed in `d9c32b6` or `2fd8e8b` / one-sided fact.
+- **Kit vector `<skill> <id>`, `RBD-n`**: a golden vector of the re-implementation kit (e.g. `events-processor-spec
+  ep.match_subscription.033`), EXECUTED against the reference on 2026-10-02 unless labelled RECOMPUTED; `RBD-n` is the
+  kit's rebuild decision for that behaviour (`reimplementation-kit`).
 - **Post-processing**: the per-event side effects (refresh flag, pay-in-advance trigger) that exactly one
   side performs, chosen by `source_metadata.api_post_processed`.
 - **`value` / `decimal_value`**: the string Go writes into `events_enriched.value`; ClickHouse derives
@@ -84,26 +90,30 @@ section 1): changing a row with a K# follows change-control N6: a paired PR in e
 |---|---|---|---|---|
 | P1 | Subscription window with `date_trunc('millisecond', …)` | MATCH | K8 | events attach to the wrong subscription |
 | P2 | `ORDER BY terminated_at DESC NULLS FIRST, started_at DESC` | MATCH | K8 | wrong sub on upgrade/downgrade boundaries |
-| P3 | Cache mode skips ms truncation | DIVERGE-VERIFIED | K9 | production path (cache mode, DECIDED OD-1): events in the `started_at` ms lose the sub |
-| P4 | `utils.ToTime` float math: 496/1000 ms strings land 1 ms early | DIVERGE-VERIFIED | K2 | boundary-ms events miss their sub |
-| P5 | RFC3339 timestamps: offset kept, not truncated; CH raw MV rejects them | DIVERGE-VERIFIED | K2 | wrong sub by the offset in DB mode (dev); cache mode matched |
-| P6 | No `status` filter in Go; Rails PostProcess excludes `incomplete` | DIVERGE-VERIFIED | K8 | refresh / in-advance for incomplete subs |
+| P3 | Cache mode skips ms truncation | DIVERGE-VERIFIED (+ kit) | K9 | production path (cache mode, DECIDED OD-1): events in the `started_at` ms lose the sub |
+| P4 | `utils.ToTime` float math: 496/1000 ms strings land 1 ms early | DIVERGE-VERIFIED (+ kit) | K2 | `started_at`-ms events miss their sub; events 1 ms after the `terminated_at` ms stay on the old sub |
+| P5 | RFC3339 timestamps: offset kept, not truncated; CH raw MV rejects them; Rails API rejects them (422) | DIVERGE-VERIFIED (+ kit) | K2 | wrong sub by the offset in DB mode (dev); cache mode matched |
+| P6 | No `status` filter in Go; Rails PostProcess excludes `incomplete` | DIVERGE-VERIFIED (+ kit) | K8 | refresh / in-advance for incomplete subs |
 | P7 | Recurring fallback: Go window at now(), Rails `.active` | DIVERGE-VERIFIED | K8 | backdated events on non-active subs (both modes; cache: OPEN DECISION OD-1b) |
 | P8 | BM lookup on kept rows | MATCH | K8 | deleted BMs billed again |
+| P36 | Cache mode finds subscriptions by key prefix: `acme` also sees `acme:eu` | DIVERGE-VERIFIED (kit) | K9 | production path: event enriched with another subscription and plan (refresh flag, in-advance pre-filter) |
 | P9 | count → `"1"`, else `properties[field_name]` | MATCH | K4 | wrong quantity |
 | P10 | `value` = Go `%v`: `1000000→"1e+06"`, missing → `"<nil>"` | DIVERGE-VERIFIED | K4 | feeds P11/P12 |
 | P11 | `Decimal(38,26)`: values with \|x\| ≥ 1e12 and `"<nil>"` become 0 | DIVERGE-VERIFIED | K4 | silent zero billing (schema fix allowed: DECIDED OD-3) |
 | P12 | unique_count compares raw `value` strings | DIVERGE-VERIFIED | K4 | double-counted uniques, `"<nil>"` counted |
 | P13 | CH `properties` map text ≠ `value` text in the same row | DIVERGE-VERIFIED | K4 | never compare them as strings |
-| P14 | lago-expression core source identical (Go v0.2.0, Rails gem `2abd2b3`); `Cargo.lock` crate versions differ | MATCH (source) / UNVERIFIED (behaviour) | — (N3 pins) | different formula results |
-| P15 | `event.timestamp`: Go float with ms, Rails integer seconds | DIVERGE-VERIFIED | — | value depends on ingestion path |
+| P35 | unique_count `operation_type` outside {`add`, `remove`}: PG store counts a removal (can go negative), CH store does not | DIVERGE-VERIFIED (kit, PG vs CH) | — (lago-api internal) | same events bill differently per store |
+| P14 | lago-expression core source identical (Go v0.2.0, Rails gem `2abd2b3`); `Cargo.lock` crate versions differ | MATCH (source) / DIVERGE-VERIFIED (kit: zero prints `"0"` vs `"0.00"`) | — (N3 pins) | different result text |
+| P15 | `event.timestamp`: Go float with ms, Rails integer seconds | DIVERGE-VERIFIED (both sides, kit) | — | value depends on ingestion path |
 | P16 | `properties: null` + expression → Go DLQ | DIVERGE-VERIFIED | — | non-Rails producers must send `{}` |
 | P17 | Go evaluates expressions only if `source != "http_ruby"` | MATCH | K3 | double evaluation |
+| P37 | Expression dividing by zero: Rails HTTP 500 (nothing stored); Go SIGABRT, record never committed | DIVERGE-VERIFIED (Go probed; Rails by the kit) | — (N3 pins) | poison record wedges a partition; API 500 |
+| P38 | Expression result text in `properties[field_name]`: Rails `"6.0"`, Go engine text `"5.00"`, `"1E-7"` | DIVERGE-VERIFIED (kit) | K2, K4 | two spellings of one number (unique_count) |
 | P18 | `api_post_processed = !clickhouse_events_store?`: one side post-processes | MATCH | K3 | double or missing side effects |
 | P19 | In-advance pre-filter: any non-deleted `pay_in_advance` charge | MATCH | K5 | missing in-advance fees |
 | P20 | Redis `subscription_refreshed_v2`, `<org>:<sub>\|<bucket>`, 10 s, wall-clock score | MATCH | K1 | wallets/alerts stop refreshing |
 | P21 | Rails pops it only if `LAGO_REDIS_STORE_URL` and `LAGO_CLICKHOUSE_ENABLED` are present | INFO | K1 | ZSET grows forever |
-| P22 | Rails `timestamp` = `to_f.to_s` / `%s.%3N` | MATCH (parsing); CANDIDATE drift: `Time#to_f.to_s` puts 129/1000 ms values 1 ms early after Go truncation on Ruby 3.3.6 (Ruby 4.0.6 UNVERIFIED; domain-reference MC17) | K2 | parse failures → DLQ |
+| P22 | Rails `timestamp` = `to_f.to_s` / `%s.%3N` | MATCH (parsing); drift VERIFIED: `Time#to_f.to_s` puts 129/1000 ms values 1 ms early after Go truncation, on Ruby 3.3.6 and on the pinned 4.0.6 (domain-reference MC17) | K2 | parse failures → DLQ |
 | P23 | `ingested_at` = `iso8601(3)` minus `Z`; DLQ re-marshal drops ms | MATCH / DIVERGE-VERIFIED | K2, K6 | retries disabled, 1970 in CH |
 | P24 | Topic env names | MATCH | K2, K4-K6 | data to nowhere |
 | P25 | Keys: Go `<org>-<transaction_id>`, Rails raw none, DLQ none | MATCH | K2, K4, K5 | — (no consumer reads keys) |
@@ -147,15 +157,15 @@ tree (the probe module `replace`s onto `../../../../events-processor`), so they 
 
    | File touched | Rows to re-check |
    |---|---|
-   | `models/subscriptions.go`, `cache/subscriptions.go` | P1-P7 |
+   | `models/subscriptions.go`, `cache/subscriptions.go` | P1-P7, P36 |
    | `utils/time.go` | P4, P5, P22, P23 |
-   | `processors/events_processor/enrichment_service.go` | P7, P9, P10, P15-P17, P19 |
+   | `processors/events_processor/enrichment_service.go` | P7, P9, P10, P15-P17, P19, P37, P38 |
    | `models/event.go` | P18, P25-P30 (every JSON tag is contract) |
    | `processors/events_processor/event_producer_service.go`, `processor.go` | P18, P19, P23, P25-P28 |
    | `models/stores.go`, `subscription_refresh_service.go`, `processors/main_processor.go` | P20, P21, P24 |
    | `models/charges.go`, `cache/charges.go` | P19 |
    | `models/billable_metrics.go` | P8, enum line `AGG` |
-   | `Dockerfile*`, `.github/workflows/events-processor-tests.yml`, `go.mod` (expression) | P14 |
+   | `Dockerfile*`, `.github/workflows/events-processor-tests.yml`, `go.mod` (expression) | P14, P37, P38 |
    <!-- evidence-check: on -->
 
 3. Static guard: `.claude/skills/rails-go-parity/scripts/parity-constants.sh -q`.
@@ -166,6 +176,7 @@ tree (the probe module `replace`s onto `../../../../events-processor`), so they 
    ```bash
    .claude/skills/rails-go-parity/scripts/run-probe.sh time
    .claude/skills/rails-go-parity/scripts/run-probe.sh value          # sources ep-env.sh for CGO (cold: ~1 min build)
+   .claude/skills/rails-go-parity/scripts/run-probe.sh value -divzero # P37, only when expression code or pins change
    .claude/skills/rails-go-parity/scripts/run-probe.sh subscription   # needs Postgres (DATABASE_URL)
    .claude/skills/rails-go-parity/scripts/ch-decimal-probe.sh         # ~210 MB download on first run
    ```
@@ -205,6 +216,10 @@ tree (the probe module `replace`s onto `../../../../events-processor`), so they 
 | Connector events vanish, Sentry shows `cannot unmarshal number … precise_total_amount_cents` | P30 | Silent loss (unmarshal error, record committed, no DLQ). Direct producers can send it as a string; through `connectors/*.yml` there is no value-preserving workaround: numbers pass through (Go fails) and anything else, strings included, becomes `"0"` (`connectors/http.yml:32-36`). Fix: `event-accounting-campaign` W2 (Phase 2 item 3) |
 | Rails code mentions `events_enriched_expanded` / `reprocess` | P33 | Read `reference/pinned-sha-drift.md`; OD-8 |
 | You want Go to pick charge filters or expire Rails cache again | P31, P32 | Don't (change-control N8) |
+| Cache mode (production) enriches an event for `acme` with the subscription or plan of `acme:eu` | P36 | Expected today (prefix scan in `events-processor/cache/subscriptions.go:46`); DB mode is exact. Route the fix to `event-accounting-campaign` W6 |
+| events-processor dies with `SIGABRT` after a Rust `Division by zero` panic and dies again after each restart; the API answers 500 for the same metric | P37 | A metric expression divides by a property that can be 0. Run `run-probe.sh value -divzero` to confirm the mechanism; symptom triage and recovery: `debugging-playbook`; owner ruling RBD-37 (proposed OD-21 batch) |
+| unique_count differs between a PG-store and a CH-store org for the same events, or a PG unique count is negative | P35 | Look for `operation_type` values other than `add`/`remove` in the events' properties (PG counts them as removals: `$API/app/services/events/stores/postgres/unique_count_query.rb:284`) |
+| Same expression gives Ruby decimal text (`"6.0"`, `"2.25"`) on API events and engine text (`"5.00"`, `"1E-7"`) on connector events | P38, P14 | Expected (two number-to-text paths: `$API/app/services/events/calculate_expression_service.rb:26` vs `events-processor/processors/events_processor/enrichment_service.go:134`); never compare `properties[field_name]` as text across ingestion paths |
 
 ## 6. Scripts
 
@@ -215,7 +230,7 @@ All read-only on the repo; temp files go to `mktemp -d`, downloads to `${LAGO_SK
 | `scripts/parity-constants.sh` | Static cross-repo guard: ZSET name, bucket, member/score shape, `http_ruby`, `api_post_processed`, aggregation enum, window SQL, ORDER BY, keys, topic env names, payload field coverage, drift markers | `parity-constants.sh [-q] [--network] [--api DIR] [--ep DIR]` | 0 ok; 1 FAIL; 3 CHANGED; 2 usage/missing file |
 | `scripts/run-probe.sh` | Builds a Go probe into a temp dir with a temp `-modfile` (never writes go.mod/go.sum or binaries in the repo) and runs it | `run-probe.sh time\|value\|subscription [args]` | probe's own; 2 usage, `go` missing, or build failure |
 | `scripts/time-precision-probe/` | `utils.ToTime`/`ToFloat64Timestamp`/`CustomTime` over `"<s>.<ms>"` ms 0..999 | `run-probe.sh time [-base N] [-scan N] [-fail-on-mismatch]` | 0; 1 with `-fail-on-mismatch` and mismatches > 0; 2 bad flag or unparsable corpus string |
-| `scripts/value-format-probe/` | Real `EnrichEvent` `value` for a golden corpus; expression and wire samples (CGO) | `run-probe.sh value [-values-only]` | 0; 1 setup error |
+| `scripts/value-format-probe/` | Real `EnrichEvent` `value` for a golden corpus; expression and wire samples (CGO); `-divzero`: an expression dividing by zero, evaluated in a child process (P37) | `run-probe.sh value [-values-only \| -divzero]` | 0 (also when the `-divzero` child aborts: that is the finding); 1 setup error |
 | `scripts/subscription-parity-probe/` | Go DB vs Go cache vs Rails SQL on a throwaway PG database (dropped on exit, also after a setup error) | `DATABASE_URL=… run-probe.sh subscription` | 0 (divergences are data); 1 setup error |
 | `scripts/ch-decimal-probe.sh` | clickhouse-local checks for `decimal_value`, queue/MV parsing, DLQ MV, raw MV; binary in the shared cache layout `clickhouse/<ver>/clickhouse` (owner: diagnostics-and-tooling `ch-local.sh`) | `ch-decimal-probe.sh [--version V] [--bin PATH] [-]` | 0 all EXPECTED; 1 mismatch; 2 setup |
 
@@ -246,6 +261,11 @@ expression with properties:null (source!=http_ruby) -> error_code="evaluate_expr
 connector payload with numeric precise_total_amount_cents -> unmarshal error: json: cannot unmarshal number into Go struct field Event.precise_total_amount_cents of type string
 ```
 
+`run-probe.sh value -divzero` (recorded 2026-10-02, same pins; ~8 s warm)
+```
+expression "event.properties.a / event.properties.b" with properties {"a":6,"b":0} (source!=http_ruby, EnrichEvent) -> child exit status 2; rust panic "Division by zero": true; SIGABRT: true; survived: false
+```
+
 `run-probe.sh subscription` (scratch database `rgp_probe_<pid>` created and dropped; columns aligned, note column omitted)
 ```
 scenario              go_time             go_db  go_cache  rails_pp  rails_cm  verdict
@@ -273,14 +293,21 @@ crates differ: pest 2.7.13 vs 2.8.5, bigdecimal 0.4.6 vs 0.4.10, serde_json 1.0.
   corpus matches Rails/PG semantics, or each divergence has an owner-approved exception"; "0/1000 ms
   mismatches in `utils.ToTime`"). These are TARGETS, not current state.
 - Owner decisions this skill touches (register and full text: `change-control` §9):
-  DECIDED OD-1 (owner, 2026-10-02): production runs memory-cache mode, so P3 and the cache notes of P5, P7
-  and P19 are production-relevant (code-level VERIFIED by the probes; production impact UNVERIFIED);
+  DECIDED OD-1 (owner, 2026-10-02): production runs memory-cache mode, so P3, P36 and the cache notes of P5, P7
+  and P19 are production-relevant (VERIFIED by the probes and kit vectors against the code; production impact
+  UNVERIFIED);
   OPEN DECISION OD-1b (owner): the production Debezium column list, Kafka auth and broker list (decides whether
   the P7/P19 cache notes are live in production);
   DECIDED OD-3 (owner, 2026-10-02): a ClickHouse schema change for `decimal_value` is allowed (P11);
   DECIDED OD-4 (owner, 2026-10-02): a paired PR only in repos that depend on the changed contract (runbook step 5);
   OPEN DECISION OD-8 (owner): production state of `pre_filter_events`, `lazy_charge_usage_cache`,
   `enriched_events_aggregation` (pinned-SHA drift DR2-DR7).
+- The re-implementation kit pins most divergences as a compat vector (today's behaviour) plus an `x` twin (the
+  proposed fix) under a rebuild decision: P3 `reimplementation-kit RBD-17`, P4 RBD-15, P5 RBD-16, P6 RBD-19,
+  P10 RBD-13, P11 RBD-26, P12 RBD-27, P15 RBD-38, P35 RBD-28, P36 RBD-99, P37 RBD-37 (P37 has corrected vectors
+  only: an HTTP 500 or an abort cannot be graded). The owner rules on the open ones as one batch (proposed OD-21,
+  `change-control` §9). A fix that closes a row must also move its kit
+  vectors to the corrected profile and re-mint them (`reimplementation-kit`).
 <!-- evidence-check: off maintenance instruction, not a claim -->
 - When a fix lands, flip the row's status, update the EXPECTED block above, and keep the old behaviour in
   the row text so readers of older data understand it.
@@ -296,7 +323,10 @@ crates differ: pest 2.7.13 vs 2.8.5, bigdecimal 0.4.6 vs 0.4.10, serde_json 1.0.
   `$API/clock.rb`, `$API/karafka.rb`, `$API/db/clickhouse_migrate/*events_{raw,enriched,dead_letter}*`;
   commits `4100da0` (origin of the `%v` value), `d9c32b6`, `2fd8e8b`, `0b56915`, `42615c9`, `fb6401d`, `7421650`, `731e18f`,
   `76c1b3b`, `8ceca4b`;
-  getlago/lago-expression `v0.2.0`, `2abd2b3`, `0ff1b8d` (Cargo.lock bump).
+  getlago/lago-expression `v0.2.0`, `2abd2b3`, `0ff1b8d` (Cargo.lock bump);
+  re-implementation kit vectors (2026-10-02): `events-processor-spec` `ep.match_subscription.*`, `ep.parse_timestamp.*`,
+  `ep.value_string.*`, `ep.decode.021`, `EPC-07`, `EPC-24`; `billing-engine-spec` `events.raw_message.*`,
+  `events.parse_timestamp.017`, `expression.*`, `aggregation.core.unique.012`, `aggregation.store_ch.*`, `clock.jobs_due.*`.
 - Volatile facts and one-line re-verification (as of 2026-10-01). Set up once from the repo root:
   `S=.claude/skills/rails-go-parity/scripts; API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api); H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`
   - pin: `git ls-tree HEAD api` → `591ae9005110…`; `git -C "$API" log -1 --format='%h %cs'` → `591ae90 2026-09-08`
@@ -307,8 +337,13 @@ crates differ: pest 2.7.13 vs 2.8.5, bigdecimal 0.4.6 vs 0.4.10, serde_json 1.0.
   - ToTime precision: `$S/run-probe.sh time | sed -n 2p` → `ToTime(string) mismatches: 496/1000 …`
   - value strings: `$S/run-probe.sh value -values-only 2>/dev/null | head -2` → `999999`, `1e+06`
   - CH decimal cap: `$S/ch-decimal-probe.sh | grep "'1000000000000'"` → `D  '1000000000000'  0  0  ok` (fields are tab-separated)
-  - Ruby float timestamp (P22 CANDIDATE, needs `ruby`): `ruby -rbigdecimal -e 'p Time.at(BigDecimal("1727787600.123")).to_f.to_s'`
-    → `"1727787600.1230001"` on Ruby 3.3.6 (lago-api pins Ruby 4.0.6: `grep -n '^ruby' "$API/Gemfile"` → `6:ruby "4.0.6"`)
+  - division by zero (P37, as of 2026-10-02): `$S/run-probe.sh value -divzero` → `… child exit status 2; rust panic "Division by zero": true; SIGABRT: true; survived: false`
+  - kit vectors behind P3-P6 and P36 (as of 2026-10-02): load the reference build with `eval "$(.claude/skills/events-processor-spec/scripts/maintainer/build-go-reference.sh --print-env)"`, then
+    `python3 .claude/skills/reimplementation-kit/scripts/kitrun.py --areas ep --only 'ep\.(match_subscription|parse_timestamp)\.' --impl-cmd "env LD_LIBRARY_PATH=$EP_REF_LD_LIBRARY_PATH $EP_ORACLE_BIN"` → `vectors=49 passed=49`
+  - billing-side kit vectors (P5, P11, P12, P14, P15, P18, P21-P23, P25, P29, P35, P38): maintainer-only, through the kit's oracle (`.claude/skills/reimplementation-kit/scripts/maintainer/oracle.sh adapter` as kitrun's `--impl-cmd`; setup in `reimplementation-kit`)
+  - Ruby float timestamp (P22, needs `ruby`): `ruby -rbigdecimal -e 'p Time.at(BigDecimal("1727787600.123")).to_f.to_s'`
+    → `"1727787600.1230001"` on Ruby 3.3.6 and on Ruby 4.0.6 (lago-api pins it: `grep -n '^ruby' "$API/Gemfile"` → `6:ruby "4.0.6"`;
+    the kit oracle installs it: `"${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}"/rubies/ruby-4.0.6-conda/bin/ruby`, as of 2026-10-02)
   - expression core: `$S/parity-constants.sh --network | grep -E ' P14[nd] '` → `OK P14n expression-core identical between v0.2.0 and 2abd2b3 …` and
     `KNOWN P14d expression-core deps differ in Cargo.lock: v0.2.0 bigdecimal=0.4.6 pest=2.7.13 serde_json=1.0.132 vs 2abd2b3 …`
   - dev CH image: `grep -n 'image: clickhouse/clickhouse-server' docker-compose.dev.yml` → `460:    image: clickhouse/clickhouse-server:26.2-alpine`
@@ -316,7 +351,8 @@ crates differ: pest 2.7.13 vs 2.8.5, bigdecimal 0.4.6 vs 0.4.10, serde_json 1.0.
 - Update triggers: an `api` gitlink bump (release); any change to the files listed in step 2 of the runbook;
   a lago-expression ref bump on either side; a ClickHouse version bump (re-run `ch-decimal-probe.sh --version`);
   a new raw-topic producer; lago-api removing `events_enriched_expanded` or `reprocess`; an owner answer to
-  OD-1b or OD-8; an amendment of OD-1, OD-3 or OD-4; a lago-api ClickHouse migration touching `decimal_value`.
+  OD-1b or OD-8; an amendment of OD-1, OD-3 or OD-4; a lago-api ClickHouse migration touching `decimal_value`;
+  a re-mint of the kit vectors cited here (pin bump) or an owner ruling on an RBD cited in section 7.
 - Probe module upkeep: `scripts/go.mod` replaces onto `../../../../events-processor`; `run-probe.sh` absorbs
   dependency bumps in a temp copy. Refresh `scripts/go.sum` only when it drifts far:
   `cd .claude/skills/rails-go-parity/scripts && go mod tidy` (C0 change).

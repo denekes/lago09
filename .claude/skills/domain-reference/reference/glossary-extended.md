@@ -32,6 +32,23 @@ pin `591ae90`).
 | `pre_filter_events` | Org boolean: resolve charges/filters from `events_enriched_expanded`. Go stopped feeding that table in `d9c32b6`; production state is OPEN DECISION OD-8 (owner). | `$API/app/services/events/billing_period_filters/charges_resolver.rb:14` |
 | `enriched_at` | ClickHouse insert time of an `events_enriched` row (`now64(3)` since the 20260727090000 migration). | `$API/db/clickhouse_migrate/20260727090000_set_events_enriched_at_default_to_now64.rb:15` |
 
+## Money and rounding (kit-executed)
+
+Read this before you compare amounts across fees, taxes, invoices, credit notes or wallets: the totals do not add up
+by construction. Every row was EXECUTED on 2026-10-02 by the `billing-engine-spec` vectors named in it (lago-api at
+the pin); `RBD-n` is the kit's rebuild decision (`reimplementation-kit`). Misconception summary: SKILL.md MC20, MC21.
+
+| Term | Meaning here | Where |
+|---|---|---|
+| Half away from zero | The rounding of money, metric rounding and expression `round`, on exact decimals, negatives included: 0.125 EUR → 13 cents, -0.125 EUR → -13 cents, 0.135 → 14 (a decimal tie, not a binary one). RBD-95. | `$API/app/services/fees/charge_service.rb:290`; vectors `domain.money.to_minor_units.003`, `.004` |
+| `amount_cents` vs `precise_amount_cents` | A fee stores the rounded minor-unit amount and the unrounded decimal next to it; later steps (taxes, credit notes) mostly start from the precise one. | `$API/app/services/fees/charge_service.rb:292`; vector `pricing.fee_money.001` |
+| `unit_amount_cents` | Truncated toward zero, not rounded: a unit amount of 0.0199 EUR is stored as 1 cent, while `amount_cents` rounds half away from zero. RBD-47. | `$API/app/services/fees/charge_service.rb:293` (decimal into an integer column); vectors `pricing.fee_money.001`, `.007` |
+| Applied tax row vs fee tax total | Each applied-tax row is rounded; the fee's `taxes_amount_cents` is the rounded sum of the UNROUNDED rows, so rows can disagree with the total (two 10 % taxes on 15 cents: rows 2 + 2, total 3; three on 14 cents: rows 1 + 1 + 1, total 4). RBD-69. | `$API/app/services/fees/apply_taxes_service.rb:40`, `$API/app/services/fees/apply_taxes_service.rb:51`; vectors `domain.money.fee_taxes.001`, `.005` |
+| Invoice tax total | The rounded sum of unrounded per-fee contributions, not the sum of fee taxes (four 1-cent fees at 40 %: each fee tax 0, invoice tax 2). The taxable base on an invoice tax row is truncated to whole cents while the tax uses the fraction. RBD-69. | `$API/app/services/invoices/apply_taxes_service.rb:44`; vectors `invoice.totals.016`, `invoice.totals.001`, `invoice.apply_taxes.005` |
+| Wallet credit snapping | Paid and granted (invoiceable) credits are converted to money, rounded to the currency, and converted back, so they snap to whole minor units (1034 credits at 0.001 EUR become 1030); voided (non-invoiceable) credits keep their count while the money rounds. Conversions divide in binary floating point. RBD-81. | `$API/app/models/wallet_credit.rb:26`, `$API/app/models/wallet_credit.rb:32`; vectors `wallets.credits.001`, `.002`, `.004`, `wallets.top_up.015` |
+| Credit-note rounding | A credit note whose items and total differ by one cent is accepted and adjusted so sub-total + taxes = total; automatic items are truncated to 5 decimals; the note that credits the remaining amount absorbs the tax residue of earlier notes (rows are not adjusted). RBD-75. | `$API/app/services/credit_notes/adjust_amounts_with_rounding_service.rb:13`, `$API/app/services/credit_notes/create_service.rb:278`; vectors `credit_notes.compute.011`, `credit_notes.termination.002`, `credit_notes.compute.002` |
+| Float islands | Steps computed with limited precision before rounding, mostly binary floating point: tax `fdiv`, coupon percentages (17.5 % of 180 cents = 31, exact 32), creditable amounts (12.999999999999998), single-day subscription price and proration, package counts; prorated aggregation ratios use a database decimal ceiled to 5 places (3.1 x 11/31 → 1.10001). RBD-96 (umbrella of RBD-42, 43, 46, 52, 55, 68). | `$API/app/services/fees/apply_taxes_service.rb:37`; vectors `invoice.coupon_amount.010`, `invoice.available_to_credit.006`, `aggregation.prorated.island.001`; tag `float-island` in the kit |
+
 ## Tables, topics and tooling
 
 | Term | Meaning here | Where |
