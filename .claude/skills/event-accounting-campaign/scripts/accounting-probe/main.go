@@ -3,10 +3,17 @@
 // Question it answers: "for every raw-topic record, where did it END?"
 // It drives the REAL events-processor consumer group (kafka.NewConsumerGroup:
 // poll loop, processRecordsAndCommit, findMaxCommitableRecord) and the REAL
-// processor (ProcessEvents -> EnrichEvent -> producers -> DLQ -> Redis flag) in
-// DB mode against in-process Kafka (kfake), miniredis and a throwaway Postgres
-// database, injects one fault per case, restarts the consumer in the same group,
-// and prints one ledger row per raw offset.
+// processor (ProcessEvents -> EnrichEvent -> producers -> DLQ -> Redis flag)
+// against in-process Kafka (kfake) and miniredis, in one of two data-source modes:
+//   - db (default): models.ApiStore over a throwaway Postgres database (the dev default);
+//   - cache: memory-cache mode, the mode production runs (LAGO_USE_MEMORY_CACHE=true,
+//     DECIDED OD-1 (owner, 2026-10-02)): a fresh cache.Cache per case seeded with the
+//     harness fixture (fixture.SeedCache); no Postgres, no Debezium CDC traffic.
+//     Cases whose fault is injected at the Postgres edge (1-3) have no cache-mode
+//     counterpart and are skipped.
+//
+// It injects one fault per case, restarts the consumer in the same group, and
+// prints one ledger row per raw offset.
 //
 // Faults are injected only at the edges, never inside events-processor code:
 //   - DB: a gorm Query callback fails the next N "subscriptions" queries
@@ -19,7 +26,7 @@
 //
 // Usage (CGO env required; use ../run.sh accounting-probe [flags]):
 //
-//	accounting-probe [-case NAME[,NAME]] [-list] [-db-url URL] [-timeout 20s] [-v]
+//	accounting-probe [-mode db|cache] [-case NAME[,NAME]] [-list] [-db-url URL] [-timeout 20s] [-v]
 //
 // Outcomes (one per raw offset):
 //
@@ -35,7 +42,8 @@
 // UNACCOUNTED = LOST + SKIPPED_RETRY + SENTRY_ONLY (violations of the campaign contract).
 //
 // Exit codes: 0 every record accounted; 1..99 = UNACCOUNTED rows (capped at 99);
-// 100 setup error (Postgres unreachable, kfake/miniredis start failure, bad flag).
+// 100 setup error (Postgres unreachable in db mode, kfake/miniredis/cache start failure,
+// bad flag, a -case without a counterpart in the chosen -mode).
 package main
 
 import (
@@ -66,6 +74,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 	"gorm.io/gorm"
 
+	"github.com/getlago/lago/events-processor/cache"
 	"github.com/getlago/lago/events-processor/config/database"
 
 	"lagoskills/kfakeharness/fixture"
@@ -97,8 +106,9 @@ type scenario struct {
 	what     string
 	fault    faultKind
 	payload  func(tx string) []byte
-	later    bool // produce 2 good records after the fault record's batch (production keeps flowing)
-	expected string
+	later    bool   // produce 2 good records after the fault record's batch (production keeps flowing)
+	expected string // today's fault-row outcome in db mode
+	cacheExp string // today's fault-row outcome in cache mode; "" = no cache-mode counterpart (Postgres-edge fault)
 }
 
 // ---------- payloads (raw-topic wire format as lago-api sends it) ----------
@@ -150,25 +160,25 @@ func numericPTAC(tx string) []byte {
 
 var scenarios = []scenario{
 	{"retryable-then-later-batch", "transient DB error on the subscription lookup of a record alone in its batch; 2 good records follow; restart",
-		faultDBSubscriptionOnce, good, true, "fault=LOST"},
+		faultDBSubscriptionOnce, good, true, "fault=LOST", ""},
 	{"retryable-only-batch", "CONTROL: same transient DB error, nothing follows before the restart",
-		faultDBSubscriptionOnce, good, false, "fault=REDELIVERED"},
+		faultDBSubscriptionOnce, good, false, "fault=REDELIVERED", ""},
 	{"retryable-stale-12h", "same transient DB error on a record ingested 13 h ago",
-		faultDBSubscriptionOnce, stale, true, "fault=DLQ(fetch_subscription)"},
+		faultDBSubscriptionOnce, stale, true, "fault=DLQ(fetch_subscription)", ""},
 	{"unmarshal-bad-json", "invalid JSON on the raw topic",
-		faultNone, badJSON, true, "fault=SENTRY_ONLY"},
+		faultNone, badJSON, true, "fault=SENTRY_ONLY", "fault=SENTRY_ONLY"},
 	{"numeric-precise-total-amount-cents", "connector shape: precise_total_amount_cents as a JSON number",
-		faultNone, numericPTAC, true, "fault=SENTRY_ONLY"},
+		faultNone, numericPTAC, true, "fault=SENTRY_ONLY", "fault=SENTRY_ONLY"},
 	{"enriched-produce-failure", "events_enriched rejects the fault record's produce (INVALID_RECORD)",
-		faultProduceEnriched, good, true, "fault=DLQ(push events_enriched)"},
+		faultProduceEnriched, good, true, "fault=DLQ(push events_enriched)", "fault=DLQ(push events_enriched)"},
 	{"dlq-produce-failure", "unknown metric code (non-retryable) while events_dead_letter rejects produces",
-		faultProduceDLQ, unknownCode, true, "fault=SENTRY_ONLY"},
+		faultProduceDLQ, unknownCode, true, "fault=SENTRY_ONLY", "fault=SENTRY_ONLY"},
 	{"redis-flag-then-later-batch", "Redis error on the refresh-flag ZADD of a record alone in its batch; 2 good records follow; restart",
-		faultRedisOnce, good, true, "fault=SKIPPED_RETRY"},
+		faultRedisOnce, good, true, "fault=SKIPPED_RETRY", "fault=SKIPPED_RETRY"},
 	{"redis-flag-only-batch", "CONTROL: same Redis error, nothing follows before the restart",
-		faultRedisOnce, good, false, "fault=REDELIVERED (enriched x2)"},
+		faultRedisOnce, good, false, "fault=REDELIVERED (enriched x2)", "fault=REDELIVERED (enriched x2)"},
 	{"missing-bm-nonretryable", "unknown metric code: non-retryable fetch_billable_metric",
-		faultNone, unknownCode, true, "fault=DLQ(fetch_billable_metric)"},
+		faultNone, unknownCode, true, "fault=DLQ(fetch_billable_metric)", "fault=DLQ(fetch_billable_metric: Key not found)"},
 }
 
 // ---------- fault switches (edges only) ----------
@@ -297,7 +307,7 @@ func (o *observer) waitDelivered(offsets []int64, times int, timeout time.Durati
 	}
 }
 
-// ---------- scratch Postgres (DB mode = production default path) ----------
+// ---------- scratch Postgres (db mode = the dev default; production runs cache mode, DECIDED OD-1) ----------
 
 const schemaSQL = `
 CREATE TABLE billable_metrics (id uuid PRIMARY KEY, organization_id uuid NOT NULL, name varchar NOT NULL DEFAULT 'n',
@@ -424,7 +434,7 @@ func produce(ctx context.Context, cl *kfx.Cluster, payload []byte) (int64, error
 	return r.Offset, nil
 }
 
-func runCase(sc scenario, dbURL string, timeout time.Duration) (*caseResult, error) {
+func runCase(sc scenario, mode, dbURL string, timeout time.Duration) (*caseResult, error) {
 	ctx := context.Background()
 	res := &caseResult{sc: sc}
 
@@ -446,19 +456,33 @@ func runCase(sc scenario, dbURL string, timeout time.Duration) (*caseResult, err
 	}
 	defer mr.Close()
 
-	db, err := database.NewConnection(database.DBConfig{Url: dbURL, MaxConns: 20})
-	if err != nil {
-		return nil, fmt.Errorf("database.NewConnection: %w", err)
-	}
-	defer db.Close()
-	if err := registerDBFault(db.Connection); err != nil {
-		return nil, err
-	}
-
 	obs := newObserver()
 	cfg := pipeline.Config{
 		Brokers: cl.Addrs, RawTopic: rawTopic, EnrichedTopic: enrichedTopic, InAdvanceTopic: inAdvTopic, DLQTopic: dlqTopic,
-		ConsumerGroup: groupPrefix, RedisAddr: mr.Addr(), DB: db, Wrap: obs.wrap,
+		ConsumerGroup: groupPrefix, RedisAddr: mr.Addr(), Wrap: obs.wrap,
+	}
+	if mode == "cache" {
+		// Memory-cache mode as production runs it, minus the Debezium snapshot/CDC
+		// (fixture.SeedCache writes the same tenant the DB fixture holds).
+		c, err := cache.NewCache(cache.CacheConfig{Context: ctx})
+		if err != nil {
+			return nil, fmt.Errorf("cache.NewCache: %w", err)
+		}
+		defer func() { _ = c.Close() }()
+		if err := fixture.SeedCache(c); err != nil {
+			return nil, fmt.Errorf("fixture.SeedCache: %w", err)
+		}
+		cfg.Cache = c
+	} else {
+		db, err := database.NewConnection(database.DBConfig{Url: dbURL, MaxConns: 20})
+		if err != nil {
+			return nil, fmt.Errorf("database.NewConnection: %w", err)
+		}
+		defer db.Close()
+		if err := registerDBFault(db.Connection); err != nil {
+			return nil, err
+		}
+		cfg.DB = db
 	}
 	sentryCount.Store(0)
 
@@ -659,7 +683,8 @@ func trim(s string, n int) string {
 // ---------- main ----------
 
 func main() {
-	caseFlag := flag.String("case", "", "comma-separated case names to run (default: all)")
+	caseFlag := flag.String("case", "", "comma-separated case names to run (default: all of the chosen -mode)")
+	mode := flag.String("mode", "db", "data source: db (scratch Postgres, the dev default) or cache (memory-cache mode, as production runs it; no Postgres; cases 1-3 have no counterpart)")
 	list := flag.Bool("list", false, "list cases and exit")
 	def := os.Getenv("DATABASE_URL")
 	if def == "" {
@@ -670,27 +695,46 @@ func main() {
 	verbose := flag.Bool("v", false, "show events-processor logs (default: silenced)")
 	flag.Parse()
 
-	if *list {
+	if *mode != "db" && *mode != "cache" {
+		fmt.Fprintf(os.Stderr, "accounting-probe: -mode must be db or cache, got %q\n", *mode)
+		os.Exit(100)
+	}
+	expectedOf := func(sc scenario) string {
+		if *mode == "cache" {
+			return sc.cacheExp
+		}
+		return sc.expected
+	}
+	pool := scenarios
+	if *mode == "cache" {
+		pool = nil
 		for _, sc := range scenarios {
-			fmt.Printf("%-36s %s (today: %s)\n", sc.name, sc.what, sc.expected)
+			if sc.cacheExp != "" {
+				pool = append(pool, sc)
+			}
+		}
+	}
+	if *list {
+		for _, sc := range pool {
+			fmt.Printf("%-36s %s (today: %s)\n", sc.name, sc.what, expectedOf(sc))
 		}
 		return
 	}
-	selected := scenarios
+	selected := pool
 	if *caseFlag != "" {
 		want := map[string]bool{}
 		for _, n := range strings.Split(*caseFlag, ",") {
 			want[strings.TrimSpace(n)] = true
 		}
 		selected = nil
-		for _, sc := range scenarios {
+		for _, sc := range pool {
 			if want[sc.name] {
 				selected = append(selected, sc)
 				delete(want, sc.name)
 			}
 		}
 		if len(want) > 0 {
-			fmt.Fprintf(os.Stderr, "accounting-probe: unknown case(s) %v (try -list)\n", keys(want))
+			fmt.Fprintf(os.Stderr, "accounting-probe: unknown case(s) for -mode %s: %v (try -mode %s -list; cases 1-3 exist in db mode only)\n", *mode, keys(want), *mode)
 			os.Exit(100)
 		}
 	}
@@ -706,10 +750,18 @@ func main() {
 		os.Exit(100)
 	}
 
-	sdb, err := createScratchDB(*dbURL)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "accounting-probe: setup error:", err)
-		os.Exit(100)
+	var sdb *scratchDB
+	dbu := ""
+	if *mode == "db" {
+		var err error
+		sdb, err = createScratchDB(*dbURL)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "accounting-probe: setup error:", err)
+			os.Exit(100)
+		}
+		dbu = sdb.url
+	} else {
+		fmt.Printf("== mode: cache (memory-cache data source, fixture.SeedCache; no Postgres, no CDC; %d of %d cases have a cache-mode counterpart)\n\n", len(pool), len(scenarios))
 	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -720,7 +772,7 @@ func main() {
 	rows := 0
 	var faultLines []string
 	for i, sc := range selected {
-		res, err := runCase(sc, sdb.url, *timeout)
+		res, err := runCase(sc, *mode, dbu, *timeout)
 		if err != nil {
 			sdb.drop()
 			fmt.Fprintf(os.Stderr, "accounting-probe: case %s: setup error: %v\n", sc.name, err)
@@ -741,7 +793,7 @@ func main() {
 			totals[r.outcome]++
 			rows++
 			if r.role == "fault" {
-				faultLines = append(faultLines, fmt.Sprintf("%-36s %-14s (expected today: %s)", sc.name, r.outcome, sc.expected))
+				faultLines = append(faultLines, fmt.Sprintf("%-36s %-14s (expected today: %s)", sc.name, r.outcome, expectedOf(sc)))
 			}
 		}
 		fmt.Printf("committed offset: after session 1 = %d, after restart = %d | sentry captures = %d | zset members = %d\n",

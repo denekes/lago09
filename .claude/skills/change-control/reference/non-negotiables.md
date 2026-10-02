@@ -187,10 +187,11 @@ Other skills cite these rules as "change-control N#".
   - Any new hit in a type that does per-record I/O is a review blocker.
   - Before `02a4bc8` the same grep hit `models/stores.go` twice.
 
-## N6. Cross-repo contracts change only together with lago-api, versioned, with a deploy order
+## N6. Cross-repo contracts change only together with their external dependents, versioned, with a deploy order
 
 - **Rule.**
-  - These contracts change only together with lago-api:
+  - These contracts (K1-K10, `cross-repo-protocol.md` §1) change only together with every
+    external dependent they have:
     - Redis ZSET `subscription_refreshed_v2` (name, member `<org>:<sub>|<bucket>`, 10 s bucket);
     - Kafka topic names and consumer-group naming;
     - the raw, enriched, in-advance and DLQ payload schemas;
@@ -198,8 +199,11 @@ Other skills cite these rules as "change-control N#".
     - the `api_post_processed` split;
     - the Debezium column list.
   - Any format change uses a **new versioned name**.
-  - A paired lago-api PR is required (OPEN DECISION OD-4, default YES).
-  - The PR states the deploy order and the rollback.
+  - Paired PRs are dependency-driven (DECIDED OD-4 (owner, 2026-10-02)): one in every other repo
+    whose listed dependent reads or writes the changed part (lago-api, lago-front,
+    lago-helm-charts or a deploy repo). If none does, no paired PR; the PR says so and cites the
+    K row. Most rows have lago-api dependents, so most format changes still need one.
+  - Whenever a dependent exists, the PR states the deploy order and the rollback (DECIDED OD-4).
 - **Incident chain.**
   - `7421650` (#500, 2025-04-07): a Redis SET `subscription_refreshed` (SADD).
   - `42615c9` (#720, 2026-03-27): changed to a ZSET with time buckets **and** renamed it
@@ -219,7 +223,7 @@ Other skills cite these rules as "change-control N#".
 - **Check.** `reference/cross-repo-protocol.md` has the contract inventory with both-side
   anchors. `rails-go-parity` ships the parity constants check.
 
-## N7. No change to Kafka commit or delivery semantics without test + ADR + owner sign-off
+## N7. No change to Kafka commit or delivery semantics without test + ADR-001 conformance + owner sign-off
 
 - **Rule.** A change to commit, retry, DLQ or skip behaviour needs all three of:
   - (a) a test that drives `processRecordsAndCommit` through an in-process Kafka (the kfake
@@ -227,8 +231,11 @@ Other skills cite these rules as "change-control N#".
     `GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path` run.
     The in-repo test adds kfake to `events-processor/go.mod` (absent today), so the PR is also
     C5: run `pin-sync-check.sh`; the kfake version pin is in `diagnostics-and-tooling`;
-  - (b) a design note or ADR in the PR (template in `docs-and-writing`);
-  - (c) owner sign-off: OPEN DECISION OD-2 (owner).
+  - (b) conformance to ADR-001, the accepted delivery contract (DECIDED OD-2 (owner,
+    2026-10-02), delegated; `event-accounting-campaign` `reference/delivery-options.md`): the
+    PR references ADR-001 and names the points it implements (template in `docs-and-writing`);
+  - (c) owner sign-off, as for every C4. A deviation from ADR-001 needs an owner decision (an
+    ADR-001 amendment) before merge (DECIDED OD-2).
 - **Incident chain.** It took 13 months and ended in a production segfault.
   - `cec0eb2` (#502, 2025-03-31) added retry semantics and `findMaxCommitableRecord`, with a
     stray `return` in the consume loop. "Commit every record" was the `4100da0` origin design
@@ -249,7 +256,8 @@ Other skills cite these rules as "change-control N#".
   - No test calls `processRecordsAndCommit` or `ProcessEvents`.
     `grep -rn "processRecordsAndCommit\|ProcessEvents(" --include=*_test.go events-processor`
     prints nothing.
-  - The fix campaign is `event-accounting-campaign`.
+  - The fix campaign is `event-accounting-campaign`; its target contract is ADR-001 (commit
+    offset N only when every record <= N has a durable disposition), DECIDED OD-2.
 - **Check.** If the diff touches `config/kafka/consumer.go` or the disposition branches of
   `processors/events_processor/processor.go:50-88`, it is C4 (see `change-classes.md`), unless
   it is an observability-only edit under the precedence rule (`change-classes.md` §1 step 6:

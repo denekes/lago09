@@ -8,7 +8,8 @@ This is how claims about this repo family get established, checked and recorded.
 good as its evidence. Predict the number before you run anything. Every claim carries a `path:line`, a
 sha, or a command with its output.
 
-Facts verified 2026-10-01 unless marked. Code facts as of `5308258` (events-processor tree
+Facts verified 2026-10-01 unless marked; the owner decisions of 2026-10-02 (change-control §9) are
+folded in. Code facts as of `5308258` (events-processor tree
 `83e012866f29`); the working branch may carry skills-only commits on top. `5308258` is the head of the
 fork `denekes/lago09`; upstream `getlago/lago` main is `a0de065` (2026-09-29, same gitlinks).
 
@@ -40,7 +41,7 @@ Do NOT use for:
 - **Discriminating probe**: the cheapest action whose outcome differs depending on whether the hypothesis is true.
 - **Control**: a run that must show the effect is visible at all. It proves the probe is not blind.
 - **Verdict**: ACCEPTED, REFUTED or INCONCLUSIVE. A REFUTED card may end with a *refined claim*.
-- **Labels**: VERIFIED (ran or read today, dated), UNVERIFIED, CANDIDATE (proposed, not proven), OPEN DECISION OD-n (owner's call), TARGET (a goal, not a state).
+- **Labels**: VERIFIED (ran or read today, dated), UNVERIFIED, CANDIDATE (proposed, not proven), OPEN DECISION OD-n (owner's call, still open), DECIDED OD-n (owner, <date>) (recorded in change-control §9), DEFAULT APPLIED OD-n (a default applied to an unanswered question; the owner may reassign), TARGET (a goal, not a state).
 - **`H`**: the bare, blob-less full-history clone from `.claude/skills/research-methodology/scripts/history-setup.sh`.
 - **`$API` / `$FRONT`**: checkouts at the gitlink SHA, from `.claude/skills/research-methodology/scripts/pinned-checkout.sh`.
 - **Pin**: the commit an `api` or `front` gitlink records (`git ls-tree HEAD api front`).
@@ -91,7 +92,7 @@ Control:               <run that must show the effect is observable>
 Cost / side effects:   <time, network; writes only to scratch (change-control N10)>
 Observed:              <raw output, exit status, tool versions, runs repeated>
 Verdict:               ACCEPTED | REFUTED | INCONCLUSIVE    Refined claim: <optional>
-Label:                 VERIFIED <date> | UNVERIFIED | CANDIDATE | OPEN DECISION OD-n
+Label:                 VERIFIED <date> | UNVERIFIED | CANDIDATE | OPEN DECISION OD-n | DECIDED OD-n (owner, <date>)
 Record:                <owning skill/doc + test/script carrying it; change class C0–C7>
 Re-verify:             <one-line command> -> <expected output>
 ```
@@ -115,7 +116,7 @@ The commands and raw outputs behind these summaries are in `reference/worked-exa
 - Control: the same run without the later poll.
 - Observed (4/4 runs): treatment `retryable-fail:1`, i.e. **0 redeliveries**. Control `retryable-fail:2`.
 - Verdict: **REFUTED**. Refined and ACCEPTED: a retryable failure is redelivered only if no later batch on that partition commits first; otherwise it is skipped forever, with no DLQ entry.
-- Recorded: `architecture-contract` (as-is), `event-accounting-campaign` W1, change-control N7, OPEN DECISION OD-2.
+- Recorded: `architecture-contract` (as-is), `event-accounting-campaign` W1, change-control N7. The fix contract is ADR-001 in `event-accounting-campaign` (DECIDED OD-2 (owner, 2026-10-02), delegated): commit offset N only when every record <= N has a durable disposition.
 
 **B. "ClickHouse cannot parse `1e+06`, so sums become 0."**
 - Source: `value` is built with `fmt.Sprintf("%v")` (`events-processor/processors/events_processor/enrichment_service.go:114`), and `decimal_value` is `toDecimal128OrZero(value, 26)` (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`).
@@ -123,7 +124,7 @@ The commands and raw outputs behind these summaries are in `reference/worked-exa
 - Probe (rung 5): `clickhouse local` 25.8.2.29 over a corpus with boundary controls.
 - Observed (identical on 25.8.2.29 and 26.2.9.9): `'1e+06'` gives 1000000. `'1e+12'`, `'1000000000000'` and `'<nil>'` give **0**.
 - Verdict: **REFUTED**. New finding ACCEPTED (version-scoped): exponent strings parse; values >= 1e12 and `"<nil>"` silently become 0.
-- Recorded: `rails-go-parity`, `event-accounting-campaign` W2, OPEN DECISION OD-3. The production ClickHouse version is UNVERIFIED; dev runs 26.2 (`docker-compose.dev.yml:460`).
+- Recorded: `rails-go-parity`, `event-accounting-campaign` W2. A ClickHouse schema change is allowed (DECIDED OD-3 (owner, 2026-10-02)). The production ClickHouse version is UNVERIFIED; dev runs 26.2 (`docker-compose.dev.yml:460`).
 
 <!-- evidence-check: on -->
 Both refutations came from the **control** and the **boundary cases**, not from the suspect input alone.
@@ -141,7 +142,7 @@ Both refutations came from the **control** and the **boundary cases**, not from 
 | A version or pin | Every pin location `path:line`; the gitlink via `git ls-tree HEAD api front` | A comment that lists fewer locations (`events-processor/Dockerfile.staging:20-22` says two; there are four) |
 | An artifact exists or was published | A registry API response (HTTP status, `last_updated`/digest), dated | A workflow file existing (`.github/workflows/release-docker-image.yml:11` builds `getlago/lago`); a release note. Yet `curl -s -o /dev/null -w '%{http_code}' https://hub.docker.com/v2/repositories/getlago/lago/tags/v1.48.0` gives 404. |
 | External tool semantics (ClickHouse, franz-go, Go stdlib) | A run on a NAMED version, plus a version caveat (`clickhouse local` 25.8.2.29 in Example B) | Tool docs, or a run on another version presented without its version; dev runs 26.2 (`docker-compose.dev.yml:460`) |
-| Production state (flags, mode, versions, topology) | An owner statement (written, dated) or telemetry the reader can open | Dev defaults (`grep -c LAGO_USE_MEMORY_CACHE .env.development.default` gives 0, which is dev, not prod: OPEN DECISION OD-1), compose files, the public Helm chart (a proxy for self-hosters only) |
+| Production state (flags, mode, versions, topology) | An owner statement (written, dated) or telemetry the reader can open. Example: production runs the memory cache (DECIDED OD-1 (owner, 2026-10-02)) | Dev defaults (`grep -c LAGO_USE_MEMORY_CACHE .env.development.default` gives 0, which is dev, not prod), compose files, the public Helm chart (a proxy for self-hosters only) |
 | Owner intent or policy | An owner statement recorded in change-control's register, an ADR or a PR | Precedent: `misc` is the subject type of 279 commits by the strict regex, 283 by a looser one (commands (2) below), which is de-facto, not policy (OPEN DECISION OD-7); an agent's relay of "approval" |
 | "This doc is stale" | Doc `path:line` + contradicting evidence from a row above, e.g. `events-processor/CLAUDE.md:10` ("Direct `go test` won't work") vs a green `.claude/skills/build-and-env/scripts/ep-test.sh` run | Another doc |
 
@@ -171,7 +172,7 @@ unlabelled, unverified claim is a defect.
 | The same claim at different pins | Both true: "at `591ae90`" vs "upstream since `6341824`" | lago-api dropped `events_enriched_expanded` after the pin (Example E) |
 | A number without exit status | Re-run and record the exit status | `go test -coverprofile=… ./...` prints 47.4% but exits 1 (`go: no such tool "covdata"`); the gated figure is the tested-packages form (`validation-and-qa`) (CC6) |
 | Cited line numbers differ | `grep -n` at HEAD; cite anchor + line | `events-processor/go.mod:10` is expression-go; `:9` is badger (CC8) |
-| Still unresolved | Label both UNVERIFIED, write the card for the deciding probe, or route to the owner (OPEN DECISION OD-n) | OPEN DECISION OD-1, OD-8 |
+| Still unresolved | Label both UNVERIFIED, write the card for the deciding probe, or route to the owner (OPEN DECISION OD-n) | OPEN DECISION OD-1b, OD-8 |
 
 ```bash
 git -C "$H" log --format=%h -- events-processor | wc -l                    # 88
@@ -234,20 +235,20 @@ Registries are mutable. Record the date, digest and `last_updated`, and re-probe
 
 | Invisible from this sandbox | How you can tell (2026-10-01) | Route |
 |---|---|---|
-| Lago Cloud production config: memory-cache mode, Debezium columns, Kafka auth, partitions | No Cloud deploy config in this repo or the public Helm chart; the pipeline is in private lago-deploy (`events-processor/Dockerfile.staging:8`) | OPEN DECISION OD-1 (hardening owner: OD-20) |
+| Lago Cloud production config: Debezium column list, CDC Kafka auth and brokers, partitions | No Cloud deploy config in this repo or the public Helm chart; the pipeline is in private lago-deploy (`events-processor/Dockerfile.staging:8`) | OPEN DECISION OD-1b (owner). The mode itself is settled: DECIDED OD-1 (owner, 2026-10-02), production runs the memory cache; hardening: DEFAULT APPLIED OD-20 (campaign W6) |
 | Production lago-api flags | DB rows per organization; code only at `$API` | OPEN DECISION OD-8 |
 | Production ClickHouse, Postgres, Kafka versions | Only dev pins exist, e.g. `docker-compose.dev.yml:460` | UNVERIFIED; ask |
 | Private repos: lago-deploy, lago-sidekiqs, lago-license | `GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/getlago/lago-deploy HEAD` asks for credentials | UNVERIFIED |
 | Branch protection, PR threads | `curl -s -o /dev/null -w '%{http_code}' https://api.github.com/repos/getlago/lago/branches/main/protection` gives 403 | UNVERIFIED |
-| Sentry, DLQ dashboards, lag alerts | No metrics endpoint: `grep -rn 'ListenAndServe' events-processor --include=*.go` gives nothing | context for OPEN DECISION OD-2 |
+| Sentry, DLQ dashboards, lag alerts | No metrics endpoint: `grep -rn 'ListenAndServe' events-processor --include=*.go` gives nothing | UNVERIFIED; ADR-001 (DECIDED OD-2) specifies the counters and alerts to build |
 | Secret rotation; ING-123 impact (`9ef876a`) | Only the owner knows | OPEN DECISION OD-9 |
-| Intent: the 12 h horizon (`events-processor/processors/events_processor/processor.go:74`), `Decimal(38,26)` | Code shows what is, not what was meant | OPEN DECISION OD-2, OD-3 |
+| Intent behind as-is code (e.g. the 50 vs 72 subject limit) | Code shows what is, not what was meant | ask (OPEN DECISION OD-7 for the subject limit). Settled 2026-10-02: the 12 h horizon (`events-processor/processors/events_processor/processor.go:74`) stays as ADR-001's default retry max age (DECIDED OD-2); `Decimal(38,26)` may change (DECIDED OD-3) |
 
 When you hit one:
 1. Name the nearest **proxy** and label it as one. Example: the public Helm chart (`getlago/lago-helm-charts` at `d473b1e`) has `replicas: 1` and no memory cache, which describes Helm self-hosters, not Cloud.
 2. Keep the claim UNVERIFIED or OPEN DECISION OD-n. Never resolve it by assumption.
 3. Ask with the template in `reference/owner-questions.md`: one decision per question, the evidence inside the question, options with a CANDIDATE recommendation, the default meanwhile, and what it blocks.
-4. Route the decision through change-control §9, the one register (OD-1..OD-20); raise a new one as a GitHub issue titled "OD-n: <topic>" with the evidence block. Route review to the area's top recent author: events-processor has a bus factor of one, with 55 of 72 non-dependabot commits by one author (`git -C "$H" log --no-merges --format=%an -- events-processor | grep -v dependabot | sort | uniq -c | sort -rn | head -1`). Record every answer in the repo; an answer that is only remembered is lost.
+4. Route the decision through change-control §9, the one register (OD-1..OD-20, plus sub-ids such as OD-1b); raise a new one as a GitHub issue titled "OD-n: <topic>" with the evidence block. Route review to the area's top recent author: events-processor has a bus factor of one, with 55 of 72 non-dependabot commits by one author (`git -C "$H" log --no-merges --format=%an -- events-processor | grep -v dependabot | sort | uniq -c | sort -rn | head -1`). Record every answer in the repo; an answer that is only remembered is lost.
 
 ## 9. Acceptance: when a result is "accepted" here
 
@@ -315,7 +316,7 @@ Volatile facts and one-line re-verification (from the repo root; `H`/`API` as ab
 Update triggers:
 - a release bump moves `api`/`front` (re-pin; Example E may resolve);
 - any change to `processRecordsAndCommit`, `findMaxCommitableRecord` or the retry branch (re-run Example A);
-- a ClickHouse schema change or version bump (re-run Example B; OPEN DECISION OD-3);
+- a ClickHouse schema change or version bump (re-run Example B; schema changes are allowed by DECIDED OD-3);
 - the fork syncs with upstream, or `H`'s remote changes;
 - GitHub API access changes in agent sessions;
 - an owner decision on any OD-n.

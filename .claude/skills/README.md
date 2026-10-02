@@ -13,6 +13,13 @@ index for people and agents.
   `getlago/lago` main is `a0de065` (2026-09-29), and its gitlinks are identical. Claims about lago-api
   say "at the pin `591ae90` (2026-09-08)".
 - Run every command from the repo root: `cd "$(git rev-parse --show-toplevel)"`.
+- **Owner decisions of 2026-10-02** (register: `change-control` §9). DECIDED: OD-1 production runs
+  the memory cache (memory-cache findings are production-relevant; test cache mode too); OD-2
+  delivery follows ADR-001 in `event-accounting-campaign` (delegated); OD-3 a ClickHouse schema
+  change is acceptable; OD-4 a paired PR is needed only in repos that depend on the changed
+  contract (`change-control` K1-K10 dependents); OD-5 the Docker-free `ep-test.sh` is an accepted
+  pre-PR gate. OPEN and urgent: OD-1b, the production Debezium column list and CDC Kafka
+  auth/brokers. DEFAULT APPLIED: OD-20, memory-cache hardening is campaign W6.
 - **Postgres after a restart.** The sandbox Postgres 16 does not survive a container restart. Run
   `pg_isready -d postgres://lago:lago@localhost:5432/lago`. If it fails, run `pg_ctlcluster 16 main start`.
   Role and database `lago`/`lago` must exist (`build-and-env` "Postgres for tests"; the symptom when they
@@ -51,8 +58,10 @@ Typical chains:
 - An error: `debugging-playbook`, then the owning skill it names, then the `change-control` gate for the fix.
 - A code change: `architecture-contract` and `failure-archaeology`, then `validation-and-qa`, then
   `change-control` (its "Pre-PR gate for events-processor code").
-- An owner decision: the register is `change-control` §9 (OD-1..OD-20: default, who decides, closing
-  evidence). Raise one as a GitHub issue titled "OD-n: <topic>".
+- An owner decision: the register is `change-control` §9 (OD-1..OD-20 plus OD-1b: decision or
+  default, who decides, record or closing evidence). Cite a decided one as "DECIDED OD-n (owner,
+  <date>)" and an open one as "OPEN DECISION OD-n (owner)". Raise a new one as a GitHub issue titled
+  "OD-n: <topic>".
 
 ## The 16 skills (one line each)
 
@@ -60,14 +69,14 @@ Typical chains:
 | Skill | Owns | Not for |
 |---|---|---|
 | `architecture-contract` | as-is events-processor topology, startup, concurrency, commit and disposition, DB vs memory-cache mode, invariants, weak points | live triage, fixes |
-| `build-and-env` | environment from zero, the Docker-free CGO recipe, the foundation scripts, version matrix, build traps | test policy, images |
-| `change-control` | classes C0-C7, gates, non-negotiables N1-N13, cross-repo contracts K1-K10, the OD register, PR checklist | running tests, release steps |
+| `build-and-env` | environment from zero, the Docker-free CGO recipe (an accepted pre-PR gate, DECIDED OD-5), the foundation scripts, version matrix, build traps | test policy, images |
+| `change-control` | classes C0-C7, gates, non-negotiables N1-N13, cross-repo contracts K1-K10 with their external dependents, the owner-decision register, PR checklist | running tests, release steps |
 | `config-and-flags` | every config plane, the env registry, boolean traps, add-a-variable checklist | bring-up, secrets policy |
 | `debugging-playbook` | symptom -> cause -> confirm -> fix router, DLQ codes, costly traps; `explain-error.sh` | building probes, history |
 | `diagnostics-and-tooling` | probe harnesses: kfake, binary smoke, `-overlay`, scratch Postgres, clickhouse local | conclusions, test policy |
 | `docs-and-writing` | docs inventory, stale-claim register SC-01..SC-42, templates, style | the facts themselves |
 | `domain-reference` | billing glossary with code locations, event lifecycle, misconceptions | Go/Rails contracts |
-| `event-accounting-campaign` | the decision-gated plan W1-W5 that makes every raw record accountable | as-is behaviour, triage |
+| `event-accounting-campaign` | the decision-gated plan W1-W6 that makes every raw record accountable (W6 memory-cache correctness, DEFAULT APPLIED OD-20); ADR-001, the delivery contract (DECIDED OD-2) | as-is behaviour, triage |
 | `failure-archaeology` | chains A-N and X1-X13, do-not-re-fight rules, history scripts | current behaviour |
 | `rails-go-parity` | Go vs Rails/ClickHouse contract rows, payload schemas, pinned-SHA drift, parity probes | glossary, fixes |
 | `release-and-images` | release runbook, workflow inventory, artifact matrix, all-in-one image sync, actionlint | commit rules, local builds |
@@ -121,7 +130,7 @@ Cite an ID from another skill as `<skill> <ID>`, for example `change-control N7`
 <!-- evidence-check: off registry table; ranges were read from the skill files with grep on 2026-10-02 -->
 | Owner | Prefixes |
 |---|---|
-| `change-control` | C0-C7 change classes; N1-N13 non-negotiables; K1-K10 cross-repo contracts; OD-1..OD-20 owner decisions (§9; OD-10..OD-15 were release-and-images REL-1..REL-6); script rule ids G1-G5 (`precommit-guard.sh`), PS1-PS5 (`pin-sync-check.sh`), M1-M7 (`commit-msg-check.sh`) |
+| `change-control` | C0-C7 change classes; N1-N13 non-negotiables; K1-K10 cross-repo contracts; OD-1..OD-20 and OD-1b owner decisions (§9; OD-10..OD-15 were release-and-images REL-1..REL-6); script rule ids G1-G5 (`precommit-guard.sh`), PS1-PS5 (`pin-sync-check.sh`), M1-M7 (`commit-msg-check.sh`) |
 | `failure-archaeology` | A-N events-processor chains; X1-X13 infra chains |
 | `architecture-contract` | I1-I15 invariants; L1-L7 loss modes; WP1-WP26 weak points; D1-D21 design decisions; startup-contract probe ids S0-S7 and SK1-SK9 |
 | `rails-go-parity` | P1-P34 contract rows (each maps to a change-control K#); DR1-DR8 pinned-SHA drift items |
@@ -133,7 +142,7 @@ Cite an ID from another skill as `<skill> <ID>`, for example `change-control N7`
 | `security-and-supply-chain` | SD1-SD13 self-host insecure defaults |
 | `validation-and-qa` | HD1-HD7 harness defects |
 | `diagnostics-and-tooling` | H1-H11 harness catalogue rows |
-| `event-accounting-campaign` | W1-W5 workstreams |
+| `event-accounting-campaign` | W1-W6 workstreams; ADR-001 (delivery contract) |
 | `research-methodology` | RM-<id> hypothesis cards; CC1-CC8, CD1-CD3, CM1-CM3, CV1-CV3 conflict cases |
 | `config-and-flags` | GAP1-GAP6 `env-crossref.sh` gap codes |
 | `release-and-images` | all-in-one "break 1..5" |

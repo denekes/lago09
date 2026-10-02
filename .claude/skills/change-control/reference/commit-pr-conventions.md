@@ -117,7 +117,9 @@ Good commit bodies to imitate. They state symptom, root cause and fix:
    - Context, Description.
    - The evidence block for the class (`change-classes.md`).
    - WARN explanations from `precommit-guard.sh`.
-   - For C4: deploy order, rollback, and a link to the paired lago-api PR.
+   - For C4: the ADR-001 reference for a delivery part (DECIDED OD-2); deploy order, rollback,
+     and links to the paired PRs in each dependent repo, or "no external dependent of K#"
+     (DECIDED OD-4).
    - The full template is in `docs-and-writing`.
 8. **Not applicable here.** `pnpm test` and `[ci skip]` from the umbrella templates. Do not
    cite them as gates.

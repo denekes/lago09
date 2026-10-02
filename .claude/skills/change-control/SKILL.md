@@ -1,14 +1,15 @@
 ---
 name: change-control
-description: "Change-control rules for the Lago umbrella repo: change classes C0-C7 and the gates and evidence each needs, non-negotiables N1-N13 with their incidents, commit/PR conventions, cross-repo contracts K1-K10, submodule and pin hygiene, and the owner OPEN DECISION register OD-1..OD-20 (who decides, defaults). Use before a commit or PR, on \"Subproject commit\" or \"M api\" in a diff, a gitlink move, a pin bump, a topic, group or Redis-key rename, force-push, \"what gates does this need\", \"who decides\". Not for running tests (use validation-and-qa) or cutting a release (use release-and-images)."
+description: "Change-control rules for the Lago umbrella repo: change classes C0-C7 and the gates and evidence each needs, non-negotiables N1-N13 with their incidents, commit/PR conventions, cross-repo contracts K1-K10, submodule and pin hygiene, and the owner decision register OD-1..OD-20 (decided, open, defaults). Use before a commit or PR, on \"Subproject commit\" or \"M api\" in a diff, a gitlink move, a pin bump, a topic, group or Redis-key rename, force-push, \"what gates does this need\", \"who decides\". Not for running tests (use validation-and-qa) or cutting a release (use release-and-images)."
 ---
 # Change control: classes, gates, non-negotiables
 
 This skill says what must be true before a commit, a PR or a merge lands, in this repo and
 across repos. It covers the gates for each change class, the 13 non-negotiables, and the
-incident behind each one. It also owns the owner's OPEN decisions OD-1..OD-20 (§9).
-Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
-skills-only commits on top. Facts verified 2026-10-01 unless marked.
+incident behind each one. It also owns the owner-decision register OD-1..OD-20 (§9;
+OD-1..OD-5 DECIDED 2026-10-02, OD-1b OPEN). Code facts as of `5308258` (events-processor tree
+`83e012866f29`); the working branch may carry skills-only commits on top. Facts verified
+2026-10-01 unless marked; decisions and contract dependents folded in 2026-10-02.
 
 ## When to use / when NOT to use
 
@@ -45,22 +46,23 @@ directly (every EP PR needs `validation-and-qa` and `docs-and-writing`).
 | release bump | The PR that moves both gitlinks and the `docker-compose.yml:11,13` image tags to `vX.Y.Z` (example `ba292b6`). Syncing `docker/Dockerfile` Ruby/Node ARGs (`:1-2`) and `BUNDLER_VERSION` (`:18`) to the new pins may ride along (guard WARNs G1-release-shape: explain it in the PR); anything else goes in its own PR. |
 | pin set | Values that must move together: the lago-expression ref (4 places), the Rust image (2), Go major.minor (5). |
 | contract | Data or names another repo reads or writes: K1-K10 in `reference/cross-repo-protocol.md`. |
+| external dependent | A file in another repo (lago-api, lago-front, lago-helm-charts, a deploy repo), or another deployable of this repo (`connectors/*.yml`), that reads or writes a contract K#. Listed per K row in `reference/cross-repo-protocol.md` §1. A paired PR is needed in each repo whose dependent the change touches (DECIDED OD-4). |
 | versioned name | A new key, topic or field name used when a format changes (`subscription_refreshed` -> `subscription_refreshed_v2`, `42615c9`). |
 | EP | `events-processor/`, the only first-party code in this repo. |
 | `BASE` | `git merge-base origin/main HEAD`: the point the PR diff starts from. |
 | gate / evidence block | A check that must pass, and its output pasted into the PR body. |
 | ADR | A short design note in the PR (template in `docs-and-writing`). |
+| ADR-001 | The accepted delivery contract for failures (DECIDED OD-2): classify SYSTEMIC / TRANSIENT / PERMANENT; pause and back off, retry topic, or DLQ with cause; commit only durable dispositions. Text: `event-accounting-campaign` `reference/delivery-options.md`. |
 | owner | The repository's engineering owner/maintainers: they take OD decisions and sign off C4, C7 and doctrine edits. Identity UNVERIFIED from the repo (no CODEOWNERS); route by history (§8: events-processor is dominated by one maintainer). |
-| OD-n | An OPEN DECISION that only the owner can take (§9). Label it "OPEN DECISION OD-n (owner)" wherever you rely on its default. Raise one as a GitHub issue titled "OD-n: <topic>" with the evidence block; until decided, the §9 default applies. |
+| OD-n | An owner decision (§9). While open, write "OPEN DECISION OD-n (owner)" wherever you rely on its default. Once decided, write "DECIDED OD-n (owner, <date>)". "DEFAULT APPLIED OD-n" marks a default the orchestrator applied to an unanswered question (the owner may reassign). Raise a new one as a GitHub issue titled "OD-n: <topic>" with the evidence block. |
 | N#, C#, G#/PS#/M# | Non-negotiable (§4), change class (§2), and the rule ids printed by the three scripts (§Scripts). |
 | `$API`, `$FRONT`, `$H` | Pinned lago-api and lago-front checkouts and the full-history clone, from the research-methodology scripts (see Provenance). |
 
 ## 1. The flow for every change
 
 <!-- evidence-check: off normative procedure; its commands are in §3 and reference/change-classes.md -->
-1. **Classify** the diff with §2. Several classes can match. Apply the union of their gates.
-2. **Before each commit**, run `.claude/skills/change-control/scripts/precommit-guard.sh`.
-   Expect `SUMMARY precommit-guard: 0 FAIL`.
+1. **Classify** the diff with §2. Several classes can match: apply the union of their gates.
+2. **Before each commit**, run `.claude/skills/change-control/scripts/precommit-guard.sh` (expect `0 FAIL`).
 3. **Run the class gates** (§3; for events-processor code, the pre-PR gate block in §3;
    the per-class commands are in `reference/change-classes.md`).
 4. **Before opening the PR**, run
@@ -72,11 +74,10 @@ directly (every EP PR needs `validation-and-qa` and `docs-and-writing`).
    - Until the library is on `main`, a branch made from `origin/main` has no `.claude/skills/`;
      run the scripts from a checkout that has them, with `-C <your-worktree>`.
 5. **Write the PR.** Paste the evidence block, explain every WARN, label every OPEN DECISION
-   you depend on, and route review (§8).
+   you depend on, cite every DECIDED one you apply (§9), and route review (§8).
    - `PULL_REQUEST_TEMPLATE.md:12,14` (one commit, amend, `pnpm test`) do not apply here: use
      these gates; the squash merge makes the single commit.
-6. **Never force-push the PR branch** (N2). Fix forward with new commits; the squash merge
-   collapses them.
+6. **Never force-push the PR branch** (N2). Fix forward; the squash merge collapses commits.
 <!-- evidence-check: on -->
 
 ## 2. Classify: C0-C7
@@ -105,15 +106,16 @@ How to apply the table:
   `moved=0 unmeasured=0` (paste it; about 20 s here, needs Postgres). Anything that alters commit, retry, DLQ
   or skip behaviour, or a contract K1-K10, is C4. Say in the PR which rule applied
   (`reference/change-classes.md` §1 step 6).
-- **`value` string formatting** (`enrichment_service.go:114`) is C3 + C4: contract K4 (N6),
-  paired lago-api PR (OD-4), a ClickHouse schema change only via OD-3. Closing a DIVERGE value
-  row of `rails-go-parity` (P10-P13) runs the cross-repo protocol (§6). Time parsing
-  (`utils/time.go`) is C3; C4 if the enriched `timestamp` payload format changes.
-- **A new DLQ cause or `error_code`** (e.g. detect-and-DLQ ClickHouse overflow) changes
-  disposition: C4 (ADR + owner acceptance under OD-3; DLQ'd rows are not replayable: no DLQ
-  replay tool exists). The N7 kfake test is required only if `consumer.go` or commit logic
-  changes; the campaign accounting-probe ledger and value corpus before/after are required
-  either way.
+- **`value` string formatting** (`enrichment_service.go:114`) is C3 + C4 (K4, N6): lago-api reads
+  it (ClickHouse queue, `decimal_value` default), so a paired lago-api PR (DECIDED OD-4); a
+  ClickHouse schema change is allowed and rides in it (DECIDED OD-3). A DIVERGE value row of
+  `rails-go-parity` (P10-P13) runs §6. Time parsing (`utils/time.go`) is C3; C4 if the enriched
+  `timestamp` payload format changes.
+- **A new DLQ cause or `error_code`** (e.g. detect-and-DLQ overflow) is C4. It must fit ADR-001
+  (PERMANENT: DLQ at once with a cause; DECIDED OD-2), else the owner decides. A new
+  `error_code` value is additive for lago-api; a DLQ payload change is K6 (paired PR). No DLQ
+  replay tool exists yet (ADR-001 specifies one: CANDIDATE). The N7 kfake test is needed only if
+  commit logic changes; the campaign ledger and value corpus before/after always are.
 - A path that matches nothing: take the strictest plausible class and say so in the PR.
 <!-- evidence-check: on -->
 - Classifier one-liners, behaviour tests and worked cases (optional env knob in
@@ -127,8 +129,8 @@ How to apply the table:
 | C0 | Each claim has `path:line`, a sha, or a command and its output; each documented command was run | claims checked + commands | any maintainer; owner for doctrine edits | docs-and-writing, research-methodology |
 | C1 | `ep-test.sh`; `ep-test.sh -race -count=1 ./...`; PASS count does not drop (235); a regression test fails on base | test summary lines | area maintainer | validation-and-qa, diagnostics-and-tooling |
 | C2 | N9: the EP pre-PR gate below (tests, `-race`, vet, gofmt, no new lint) | the C2 evidence block | EP maintainer | validation-and-qa, build-and-env |
-| C3 | C2 + a test pinning the new behaviour; N4 SQL rules with SQL pinned in sqlmock; both data modes; parity cites `$API` file:line; value/time before-and-after on the corpus | + test names, parity cites, before/after | EP maintainer; owner if N8 or OD-3 | rails-go-parity, architecture-contract, event-accounting-campaign |
-| C4 | C3 + **delivery part (N7)**: kfake test driving `processRecordsAndCommit` (puts kfake in `events-processor/go.mod`: also C5), one `GOFLAGS=-race` kfake run, campaign ledger before/after, ADR. **Contract part (N6)**: paired lago-api PR, versioned name, deploy order, rollback. Write "N6 (or N7): not applicable because <reason>" for a part the diff does not touch | + ledger output, ADR, lago-api PR link, deploy order | owner (OD-2 delivery, OD-4 contract) + lago-api owner | cross-repo-protocol, event-accounting-campaign, diagnostics-and-tooling |
+| C3 | C2 + a test pinning the new behaviour; N4 SQL rules with SQL pinned in sqlmock; both data modes (production runs memory-cache mode, DECIDED OD-1; dev runs DB mode); parity cites `$API` file:line; value/time before-and-after on the corpus | + test names, parity cites, before/after | EP maintainer; owner if N8; lago-api maintainers for a ClickHouse schema change (paired PR) | rails-go-parity, architecture-contract, event-accounting-campaign |
+| C4 | C3 + **delivery part (N7)**: conform to ADR-001 (DECIDED OD-2): kfake ledger test driving `processRecordsAndCommit` (puts kfake in `events-processor/go.mod`: also C5), one `GOFLAGS=-race` kfake run, campaign ledger before/after, ADR-001 reference in the PR. **Contract part (N6)**: a paired PR in every repo whose external dependent the change touches (DECIDED OD-4; dependents per K row in `reference/cross-repo-protocol.md` §1), versioned name, deploy order, rollback. Write "N6 (or N7): not applicable because <reason>" for a part the diff does not touch | + ledger output, ADR-001 points implemented, paired PR links or "no external dependent (K#)", deploy order | owner + EP maintainer; each dependent repo's owner on its paired PR; a deviation from ADR-001 needs an owner decision first | cross-repo-protocol, event-accounting-campaign, diagnostics-and-tooling |
 | C5 | `pin-sync-check.sh` 0 FAIL; the EP pre-PR gate for dependency or pin bumps; YAML parse; `--release` for bumps; images "not built locally" | + pin-sync output | CI/release owner | release-and-images, build-and-env |
 | C6 | `docker compose -f <f> config --quiet` for every touched compose file; `bash -n` on scripts; N12 (guard G5) | + config output, service diff | dev-env/infra maintainers | run-and-operate, config-and-flags |
 | C7 | guard G2 + `security-and-supply-chain` scans; rotate anything ever pushed; never print values | counts and file:line only | owner (security) | security-and-supply-chain |
@@ -156,13 +158,10 @@ git diff --name-only --diff-filter=AM "$BASE" -- events-processor | grep '\.go$'
 Timings here (4 vCPU, 2026-10-01): cold suite 60-75 s typical (up to about 120 s loaded), warm
 4-5 s, `-race` warm about 7-8 s. Evidence-block template: `reference/change-classes.md` §4.
 
-CI is not a safety net here:
-
-- The only PR workflow is `events-processor-tests.yml`. It is path-filtered to
-  `events-processor/**` (`.github/workflows/events-processor-tests.yml:7-13`).
-- It runs only `go test -v ./...` (`:63-64`).
-- Docs, compose, workflow, deploy and `docker/Dockerfile`-only PRs get **no** PR check at all:
-  only `events-processor/**` paths trigger it (`.github/workflows/events-processor-tests.yml:12-13`).
+CI is not a safety net here: the only PR workflow, `events-processor-tests.yml`, runs only
+`go test -v ./...` (`.github/workflows/events-processor-tests.yml:63-64`) and only for
+`events-processor/**` paths (`:7-13`). Docs, compose, workflow, deploy and `docker/Dockerfile`-only
+PRs get **no** PR check at all.
 
 ## 4. Non-negotiables N1-N13
 
@@ -176,8 +175,8 @@ Every sha below was read in the history clone.
 | N3 | Pin set moves together; no `@latest`; leave `go.mod:10` expression-go v0.1.4 | `5077151` (#666) bumped the ref in all 3 places of the time but left the prod Dockerfile on rust:1.82; `e8bbd60` (#667) "Fix prod release" 81 min later; `d589940` (#586) `air@latest` broke the dev build; `932c06c` -> `50015b0` Go realign. Residual: `docker/Dockerfile:12` `pnpm@latest` (conditional risk); base images float at patch level (`golang:1.25` = 1.25.14 on Docker Hub; CI tests 1.25.0) | `pin-sync-check.sh`; guard G3 |
 | N4 | EP SQL: explicit columns, `deleted_at IS NULL`, `organization_id`, SQL pinned in sqlmock | `bd92069` -> `9acd83e` (#735, ING-15) SQLSTATE 0A000 for about 5.5 months; `fff5858` -> `8ceca4b` (#740) deleted BMs matched for 18 days; `9ef876a` (#738, ING-123); residual: `models/billable_metrics.go:59-66` (`SELECT *`), `models/charges.go:47-66` (no exact SQL pin) | grep in non-negotiables §N4 |
 | N5 | Per-record side effects (Redis, produce) use the batch context that `processRecordsAndCommit` creates (`context.Background()`, `events-processor/config/kafka/consumer.go:83`), never the process/signal context that SIGTERM cancels | `b6d3616` -> `02a4bc8` (#785): `context canceled` on every rolling restart for about 9 months | context-field grep (6 known hits) |
-| N6 | Cross-repo contracts change with lago-api: versioned, ordered deploy, paired PR (OD-4) | `7421650` -> `42615c9` (SET -> ZSET + `_v2`) -> `fb6401d` (15 s -> 10 s) -> `b4ad153`: 4 protocol changes in 15 months | `reference/cross-repo-protocol.md` |
-| N7 | No commit/delivery change without a kfake test + ADR + owner sign-off (OD-2) | `cec0eb2` -> `656c829` -> `600e195` (infinite poll loop, hotfixed by `b604769` 3 days later) -> `b6d3616` -> `9acd83e` (ING-15): 13 months, ended "segfaulting the pod inside franz-go" | no test calls `processRecordsAndCommit` today |
+| N6 | Cross-repo contracts change together with their external dependents: versioned name, ordered deploy, a paired PR in each dependent repo (DECIDED OD-4: dependency-driven) | `7421650` -> `42615c9` (SET -> ZSET + `_v2`) -> `fb6401d` (15 s -> 10 s) -> `b4ad153`: 4 protocol changes in 15 months | `reference/cross-repo-protocol.md` |
+| N7 | No commit/delivery change without a kfake ledger test + conformance to ADR-001 named in the PR + owner sign-off; a deviation from ADR-001 needs an owner decision (DECIDED OD-2) | `cec0eb2` -> `656c829` -> `600e195` (infinite poll loop, hotfixed by `b604769` 3 days later) -> `b6d3616` -> `9acd83e` (ING-15): 13 months, ended "segfaulting the pod inside franz-go" | no test calls `processRecordsAndCommit` today |
 | N8 | Go never re-implements Rails resolution per event | `flat_filters` saga, about 15 months and 7 fix commits, removed by `d9c32b6` (#797) as "the main database load"; Go cache expiry removed by `2fd8e8b` (#766) | review |
 | N9 | EP pre-PR gate: tests, `-race`, vet, gofmt, no new lint; paste evidence | CI runs `go test -v` only; lint baseline 21 issues (OD-6) | the §3 EP gate block |
 | N10 | Probes never write into the repo | the README's `go build -o event_processors .` leaves an un-ignored 58 MB binary | `git status --porcelain`; guard G4 |
@@ -242,30 +241,32 @@ directive on its own: `932c06c` (#724) moved it, and `50015b0` (#725) realigned 
 minutes later. The base images float at patch level (`golang:1.25` is 1.25.14 on Docker Hub
 as of 2026-10-01): that skew against CI's 1.25.0 is an accepted residual of N3.
 
-## 6. Cross-repo contract changes (N6, OPEN DECISION OD-4)
+## 6. Cross-repo contract changes (N6, DECIDED OD-4)
 
-Contracts are listed in `reference/cross-repo-protocol.md` §1 with anchors on both sides:
-K1 Redis ZSET `subscription_refreshed_v2`; K2 the raw payload; K3 the `api_post_processed`
-split; K4-K6 the enriched, in-advance and DLQ topics and payloads; K7 consumer-group naming;
-K8 Rails columns that Go selects; K9 Debezium columns; K10 the reusable workflow called by
-lago-front `@main`. N6 applies only when one of them changes.
+Contracts (`reference/cross-repo-protocol.md` §1: anchors on both sides plus an **external
+dependents** column, repo: file, verified 2026-10-02): K1 Redis ZSET `subscription_refreshed_v2`;
+K2 the raw payload; K3 the `api_post_processed` split; K4-K6 the enriched, in-advance and DLQ
+topics and payloads; K7 consumer-group naming; K8 Rails columns that Go selects; K9 Debezium
+columns; K10 the reusable workflow lago-front calls at `@main`. N6 applies only when one changes.
+
+**DECIDED OD-4 (owner, 2026-10-02): paired PRs are dependency-driven, not a blanket rule.** A
+contract change needs a paired PR in every OTHER repo that reads or writes the part that
+changes. If none does, write "N6: no external dependent of <K#> is touched" and cite the §1
+row. Most rows have lago-api dependents (K1 the clock job; K2, K4, K6 ClickHouse queue tables;
+K5 Karafka; K2, K3 Rails writers; K8 the Rails schema), so many changes still need one. A new
+topic or Kafka env var also touches deployment repos (`getlago/lago-helm-charts` topic and env
+lists; production provisioning is owner/ops).
 
 <!-- evidence-check: off normative protocol; steps and anchors in reference/cross-repo-protocol.md §2 -->
-The protocol, in short:
-
-1. **Additive first.** If a format changes, use a **new versioned name**.
-2. **ADR in the PR.** It covers both mixed-version windows, the deploy order, the rollback and
-   the cleanup owner.
-3. **Paired lago-api PR.** Required by default (OD-4). Link both PRs both ways. Each side pins
+1. **Additive first.** A format change uses a **new versioned name**.
+2. **ADR in the PR:** both mixed-version windows, deploy order, rollback, cleanup owner.
+3. **Paired PRs per dependent** (the K row's dependents cell), linked both ways; each side pins
    the format in a test.
-4. **Deploy order.** The **tolerant reader ships first**, the writer switches second, and
-   cleanup comes a release later.
-   - Go writes K1, K4, K5 and K6, so lago-api ships first.
-   - Rails writes K2 and K3, so the EP ships first.
-   - Rails column drop (K8): the EP stops selecting the column in release N; Rails drops it in
-     N+1 (`$API/docs/dropping_columns_and_tables.md`).
-5. **Rollback.** Roll back the **writer first**. Irreversible steps (column drops, topic
-   deletion, ClickHouse DDL) happen only in cleanup.
+4. **Deploy order:** the tolerant reader first, the writer second, cleanup a release later. Go
+   writes K1, K4-K6 (lago-api first); Rails writes K2, K3 (EP first); a K8 column drop: the EP
+   stops selecting it in release N, Rails drops it in N+1 (`$API/docs/dropping_columns_and_tables.md`).
+5. **Rollback:** the writer first. Irreversible steps (column drops, topic deletion, ClickHouse
+   DDL) happen only in cleanup.
 <!-- evidence-check: on -->
 
 ## 7. Commit and PR conventions (OPEN DECISION OD-7)
@@ -292,11 +293,9 @@ Defaults we operate under until the owner decides OD-7:
 
 ## 8. Review routing
 
-- **No CODEOWNERS.** None exists in this repo or its history, nor in lago-api at the pin.
-  `find . -iname 'CODEOWNERS*' -not -path './.git/*'` prints nothing, and so does
-  `git -C "$H" log --all --oneline -- CODEOWNERS .github/CODEOWNERS`.
-- **Required checks unknown.** Branch protection and required status checks cannot be seen
-  from git: UNVERIFIED.
+- **No CODEOWNERS** here, in history or in lago-api at the pin: `find . -iname 'CODEOWNERS*' -not -path './.git/*'`
+  and `git -C "$H" log --all --oneline -- CODEOWNERS .github/CODEOWNERS` print nothing.
+- **Required checks unknown.** Branch protection is not visible from git: UNVERIFIED.
 - **Route by history.** Unless the row says otherwise: non-merge commits since 2025-01-01,
   from `git -C "$H" log --no-merges --since=2025-01-01 --format=%an -- <path>` (as of
   2026-10-01):
@@ -312,27 +311,32 @@ Defaults we operate under until the owner decides OD-7:
 
 - **Rules.**
   - C4 and C7 need the owner on top of the area reviewer.
-  - Contract changes need the lago-api owner of the other side (OD-4).
+  - Contract changes need the owner of each dependent repo's paired PR (DECIDED OD-4, §6); a
+    delivery change that deviates from ADR-001 needs an owner decision first (DECIDED OD-2).
   - AI review comments, such as the Copilot comments addressed in `c340ddf`, never replace a
     human sign-off.
 - **Bus-factor rule.** One maintainer holds most events-processor context. Every C3+ PR body
   must stand alone: Context, Description, evidence, decisions. Never "as discussed".
 <!-- evidence-check: on -->
 
-## 9. OPEN decisions OD-1..OD-20 (owned here)
+## 9. Owner decisions OD-1..OD-20 (owned here)
 
-This is the single owner-decision namespace. Other skills label these
-`OPEN DECISION OD-n (owner)` and route them here. Never present one as settled. OD-10..OD-15
+The single owner-decision namespace. Other skills cite a row as `DECIDED OD-n (owner, <date>)` or
+`OPEN DECISION OD-n (owner)` and route here; never present an OPEN row as settled. OD-10..OD-15
 were release-and-images REL-1..REL-6 (OD-(9+n)); OD-16..OD-19 come from
-`security-and-supply-chain`. To raise a new one, see "owner" in Terms.
+`security-and-supply-chain`. To raise a new one, see "owner" in Terms. **2026-10-02:** the owner
+answered OD-1..OD-5 in writing (this register is the record); OD-2 was delegated ("reason with
+industry best practices") and is ADR-001, ACCEPTED (delegated); the unanswered part of OD-1 is the
+OPEN row OD-1b; OD-20 carries a DEFAULT APPLIED (the owner may reassign it).
 
-| ID | Open decision | Default until decided | Who decides | Evidence that closes it |
+| ID | Question | Status: decision, or default until decided | Who decides | Record, or evidence that closes it |
 |---|---|---|---|---|
-| OD-1 | Does production run `LAGO_USE_MEMORY_CACHE=true` (badger + Debezium CDC)? With which column list, SASL/TLS and brokers? | UNKNOWN. DB mode is the default path. Memory-cache defects are real in code; their prod impact is UNVERIFIED | owner + the prod deploy owner (private lago-deploy) | prod EP env and the live Debezium `column.include.list`, secrets masked |
-| OD-2 | Delivery contract for retryable failures: block the partition, retry topic, or bounded skip-to-DLQ? Is 12 h a product decision? | none chosen. `event-accounting-campaign` ranks options. No delivery change merges without ADR + owner sign-off (N7) | owner (product + engineering) | ADR with the fault-matrix ledger (target 0 LOST) and throughput per option |
-| OD-3 | Is a ClickHouse schema change acceptable (e.g. `events_enriched.decimal_value Decimal(38,26)`), and with what migration budget? | not approved. Prefer fixes without a ClickHouse schema change (exact decimal strings, detect-and-DLQ overflow) | owner + lago-api maintainers (Cloud DDL edited in place, `$API/AGENTS.md:176`) | value-corpus magnitudes affected; self-host + Cloud migration plan |
-| OD-4 | Is a paired lago-api PR mandatory for cross-repo contract changes? | YES (conservative), N6 | owner | written policy recorded here |
-| OD-5 | Is `ep-test.sh` (Docker-free) an accepted pre-PR gate, or is `lago exec events-processor go test ./...` mandatory? | accepted: same SHAPE as CI (host-built `libexpression_go.so`, `go test ./...` against Postgres, no Docker), not identical (CI `.github/workflows/events-processor-tests.yml`: `postgres:14-alpine` service `:25`, whole lago-expression workspace built with the runner's unpinned Rust `:49`, `go test -v` `:64`; `ep-env.sh`: the expression-go crate with local cargo, local Postgres). `lago exec` stays valid | owner, with the EP maintainer | owner confirmation, then fix `events-processor/CLAUDE.md:10` (C0) |
+| OD-1 | Does production run `LAGO_USE_MEMORY_CACHE=true` (badger snapshot + Debezium CDC)? | **DECIDED OD-1 (owner, 2026-10-02): YES.** Dev runs DB mode (`.env.development.default` sets no `LAGO_USE_MEMORY_CACHE`); PRODUCTION runs memory-cache mode. Consequences: every memory-cache defect (`architecture-contract` WP6-WP10: Debezium column gaps, swallowed snapshot errors, CDC consumer auth and a new group per start, µs vs ms subscription bounds) is production-relevant; C3/C4 tests, probes and campaign gates cover cache mode, not only DB mode. The config details moved to OD-1b | owner | owner statement 2026-10-02 (this row) |
+| OD-1b | Production CDC config for memory-cache mode: is the live Debezium `column.include.list` the one in `extra/debezium_config.json:2`? Which Kafka auth (SASL/TLS) and which bootstrap broker list do the CDC consumers use? | **OPEN DECISION OD-1b (owner), urgent: verify first.** The repo list omits `charges.pay_in_advance`, `charges.accepts_target_wallet` and `billable_metrics.recurring`, which Go reads (`events-processor/models/charges.go:29-30`, `events-processor/models/billable_metrics.go:93`). If production uses it, a CDC update zeroes them in the cache: in-advance charges and the recurring fallback stop for every edited charge or metric (code-level VERIFIED, `architecture-contract` WP6; production impact UNVERIFIED). The CDC consumers pass `LAGO_KAFKA_BOOTSTRAP_SERVERS` as one seed with no SASL/TLS (`events-processor/cache/consumer.go:27-35`), unlike the main clients (SCRAM, `events-processor/config/kafka/kafka.go:58-60`). Default meanwhile: treat WP6 and WP10 as live production risks | owner + the prod deploy owner (private lago-deploy) | the prod Debezium connector config and the CDC consumers' Kafka env, secrets masked |
+| OD-2 | Delivery contract for retryable failures (block the partition, retry topic, or bounded skip-to-DLQ)? Is the 12 h horizon a product decision? | **DECIDED OD-2 (owner, 2026-10-02), delegated**: ADR-001 in `event-accounting-campaign` `reference/delivery-options.md` (ACCEPTED (delegated)). SYSTEMIC failure (a dependency is down): pause the partitions, back off, commit nothing past it. TRANSIENT (one record): small in-place retry, then a retry topic. PERMANENT: DLQ at once with a cause; unmarshal errors too, never a silent commit. Commit offset N only when every record <= N has a durable disposition (acks=all). 12 h stays the default retry max age. Downstream idempotency is required. Implementation stays C4: kfake ledger test + ADR-001 reference in the PR; a deviation from ADR-001 needs the owner | owner (delegated) | ADR-001; the owner may amend it |
+| OD-3 | Is a ClickHouse schema change acceptable (e.g. `events_enriched.decimal_value Decimal(38,26)`)? | **DECIDED OD-3 (owner, 2026-10-02): YES.** The value-fidelity fix may change the schema. Direction (CANDIDATE until the value corpus and ch-local probes prove it): align with Postgres `numeric(40,15)` (`$API/db/structure.sql:3059`), NULL or DLQ instead of 0 for unparseable values, exact decimal strings from Go. The DDL lives in lago-api: self-host `$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`; Cloud `$API/db/clickhouse_migrate/cloud/02_events_enriched.sql:12`, edited in place (`$API/AGENTS.md:176`). So it needs a paired lago-api PR and a deploy order (DECIDED OD-4) | owner + lago-api maintainers (paired PR) | owner statement 2026-10-02; the migration plan goes in the paired PR |
+| OD-4 | Is a paired lago-api PR mandatory for cross-repo contract changes? | **DECIDED OD-4 (owner, 2026-10-02): NO, unless another repo depends on the changed contract.** A paired PR is needed in every repo that reads or writes the changed part (lago-api Rails, clock, ClickHouse migrations, MVs and queue tables; connectors; Helm or deploy repos). No dependent: no paired PR. Dependents per K row: `reference/cross-repo-protocol.md` §1. Deploy order and rollback rules still apply whenever a dependent exists (§6, N6) | owner | owner statement 2026-10-02 (this row) |
+| OD-5 | Is `ep-test.sh` (Docker-free) an accepted pre-PR gate? | **DECIDED OD-5 (owner, 2026-10-02): YES.** `ep-test.sh` is an accepted pre-PR gate (the §3 block); `lago exec events-processor go test ./...` stays valid for dev-stack users. Same SHAPE as CI, not identical: CI uses a `postgres:14-alpine` service (`.github/workflows/events-processor-tests.yml:25`), builds the whole lago-expression workspace with the runner's unpinned Rust (`:49`) and runs `go test -v` (`:64`); `ep-env.sh` builds the expression-go crate with local cargo against local Postgres. Fixing `events-processor/CLAUDE.md:7-10` (`docs-and-writing` SC-01) is approved, not yet applied: that edit is outside `.claude/skills`, so the owner makes it | owner, with the EP maintainer | owner statement 2026-10-02; SC-01 applied by a C0 PR |
 | OD-6 | golangci-lint policy and config (none committed, ever; 21 issues today) | "no NEW issues vs base" (`--new-from-rev`). No config file without approval | owner, with the EP maintainer | proposed `.golangci.yml` + full-run count + CI job PR |
 | OD-7 | Subject limit 50 or 72; is `misc` sanctioned; branch-name policy | <= 72 hard, <= 50 preferred; `misc` allowed (279 uses, strict regex `^misc(\([^)]*\))?: `); branch names not enforced | owner | CONTRIBUTING.md / PULL_REQUEST_TEMPLATE.md rewritten (C0) |
 | OD-8 | Prod state of lago-api flags `pre_filter_events`, `lazy_charge_usage_cache`, `enriched_events_aggregation` | UNKNOWN. Drift findings say "impact depends on OD-8" | owner / lago-api maintainers | per-org flag state from prod |
@@ -347,13 +351,14 @@ were release-and-images REL-1..REL-6 (OD-(9+n)); OD-16..OD-19 come from
 | OD-17 | Is the HTTP connector (`connectors/http.yml`) ever reachable from outside a private network; may it trust a client-sent `organization_id`? | assume private only; widen no exposure; pinning the org id is CANDIDATE (C4 + C7) | owner (security) | deployment topology; connector fix PR |
 | OD-18 | May the AWS account id stay in public workflows (`5308258` body says it was meant to stay private)? | unchanged (already in history); add no new account ids or ECR URLs to public files | owner (security) | policy note, or a move to secrets/variables (C5 + C7) |
 | OD-19 | Full event JSON in Sentry extras and a TTL-less DLQ table under SOC2 | add no new payload-carrying extras or log fields (`security-and-supply-chain`) | owner (security) + data-handling owner | written policy; scrubber or TTL PR |
-| OD-20 | Who owns memory-cache (badger + Debezium CDC) hardening? Candidate future campaign; the as-is defects are `architecture-contract` WP6-WP10 | unowned; no campaign (`event-accounting-campaign` excludes it); label memory-cache findings with OD-1 and OD-20 | owner (sits next to OD-1) | named owner and a campaign plan, or "won't fix" |
+| OD-20 | Who owns memory-cache (badger + Debezium CDC) hardening? The as-is defects are `architecture-contract` WP6-WP10 | **DEFAULT APPLIED OD-20** (orchestrator, 2026-10-02; the owner may reassign): `event-accounting-campaign` workstream W6 "memory-cache correctness" owns it. Production relevance: DECIDED OD-1; production CDC config: OPEN DECISION OD-1b | owner (sits next to OD-1) | the owner confirms or reassigns W6 |
 
 **Closing an OD:**
 
 <!-- evidence-check: off normative procedure -->
-1. The owner states the decision in an issue or PR.
-2. A C0 PR updates this row: decision, date and link. The owner signs it off.
+1. The owner states the decision in writing (an issue, a PR, or a dated written answer).
+2. A C0 PR updates the row to `**DECIDED OD-n (owner, <date>)**` with the decision, its
+   consequences and the record; an unanswered part becomes an OPEN sub-id (OD-1b). Owner signs.
 3. The same PR updates the skills that carry the label:
    `grep -rn "OD-<n>" .claude/skills`.
 4. If the decision changes a gate, update the scripts' defaults too. For OD-7, change
@@ -372,13 +377,13 @@ were release-and-images REL-1..REL-6 (OD-(9+n)); OD-16..OD-19 come from
 - [ ] C3-vs-C4 rule applied and named (behaviour test; scoreboard moved=0 pasted for an observability-only C4-path edit)
 - [ ] N4 queries: explicit columns, deleted_at IS NULL, organization_id, exact anchored SQL pinned in sqlmock (incl. HasPayInAdvanceCharge if touched)
 - [ ] N5 side effects use the batch ctx from processRecordsAndCommit, never the process/signal ctx
-- [ ] N7 commit/retry/DLQ change: kfake test + GOFLAGS=-race kfake run + ADR + owner sign-off (OD-2), or "N7: not applicable because ..."
-- [ ] N6 contract change: paired lago-api PR <link>, versioned name, deploy order, rollback (OD-4), or "N6: not applicable because ..."
+- [ ] N7 commit/retry/DLQ change: kfake ledger test + GOFLAGS=-race kfake run + ADR-001 points implemented (DECIDED OD-2; a deviation needs the owner first) + owner sign-off, or "N7: not applicable because ..."
+- [ ] N6 contract change: K# named; a paired PR <link> in each repo whose external dependent is touched, or "no external dependent of K# is touched" (DECIDED OD-4); versioned name, deploy order, rollback; or "N6: not applicable because ..."
 - [ ] N8 no per-event Rails resolution added
 - [ ] N10 git status clean apart from intended files; no build outputs
 - [ ] N11 no secrets added; nothing printed from history
 - [ ] N12 dev env: one env file, idempotent topics, service_healthy infra edges; compose config --quiet OK
-- [ ] N13 every claim has path:line / sha / command; UNVERIFIED and OPEN DECISION OD-n labelled
+- [ ] N13 every claim has path:line / sha / command; UNVERIFIED, OPEN DECISION OD-n and DECIDED OD-n labelled
 - [ ] N2 no force-push on this branch from now on
 - [ ] Reviewers per change-control §8 (owner for C4/C7)
 ```
@@ -405,19 +410,18 @@ ln -sf "$PWD/.claude/skills/change-control/scripts/commit-msg-check.sh" "$(git r
 
 Verified in a scratch clone (2026-10-01): a 1-of-4 lago-expression bump was refused by the
 pre-commit hook (`FAIL  PS1 lago-expression refs disagree`), a `WIP:` subject by the commit-msg
-hook (M3, M6); the 4-of-4 bump with a conventional subject committed. The commit-msg hook skips
-git-generated `Merge ...` subjects. Bypass (`git commit --no-verify`) only deliberately and say
-why in the PR. A release bump is the expected case: the hook runs without `--release`, so use
-`--no-verify` only after a clean `precommit-guard.sh --release` (0 FAIL) run.
+hook (M3, M6); the 4-of-4 bump committed; `Merge ...` subjects are skipped. Bypass
+(`git commit --no-verify`) only deliberately, saying why in the PR; for a release bump only after
+a clean `precommit-guard.sh --release` (0 FAIL) run.
 
 ## Provenance and maintenance
 
 - **Sources.**
-  - `CONTRIBUTING.md:166-173`, `PULL_REQUEST_TEMPLATE.md`, `.gitmodules`.
-  - `.github/workflows/events-processor-tests.yml`, `.github/workflows/release-docker-image.yml:28-30`.
-  - The events-processor Dockerfiles, `go.mod`, `mise.toml`, `docker-compose.dev.yml`,
-    `docs/dev_environment.md:248-286`.
-  - `$API/AGENTS.md:30-68,163-178`, `$API/docs/dropping_columns_and_tables.md`.
+  - `CONTRIBUTING.md:166-173`, `PULL_REQUEST_TEMPLATE.md`, `.gitmodules`, `docs/dev_environment.md:248-286`,
+    `.github/workflows/events-processor-tests.yml`, `.github/workflows/release-docker-image.yml:28-30`, the
+    events-processor Dockerfiles, `go.mod`, `mise.toml`, `docker-compose.dev.yml`.
+  - `$API/AGENTS.md:30-68,163-178`, `$API/docs/dropping_columns_and_tables.md`; the K dependents
+    in `reference/cross-repo-protocol.md` §1 (`$API`, `$FRONT`, lago-helm-charts `d473b1e`, 2026-10-02).
   - All shas in `reference/non-negotiables.md`, read with `git -C "$H" show`.
 - **Paths:** `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`;
   `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)` (`front` for `$FRONT`).
@@ -434,17 +438,13 @@ why in the PR. A release bump is the expected case: the hook runs without `--rel
   - CODEOWNERS: `find . -iname 'CODEOWNERS*' -not -path './.git/*'` -> no output.
   - Bus factor: `git -C "$H" log --format=%an -- events-processor | grep -v dependabot | sort | uniq -c | sort -rn | head -1` -> `55 Vincent Pochet` (of 72).
   - Pin moves: `git -C "$H" log --since=2025-01-01 --oneline -- api front | wc -l` -> `77` (60 release, 2 corrective, 15 non-release).
+  - Contract dependents (2026-10-02): `grep -rn kafka_topic_list "$API/db/clickhouse_migrate"` -> 7 queue migrations, of which raw, enriched and dead-letter read K2/K4/K6 (the others: enriched_expanded, activity, api and security logs); `grep -rn docker-build-multi-arch "$API/.github"` -> no output (K10 has only the lago-front caller).
   - Floating versions: `git grep -n '@latest' -- ':!.claude'` -> only `docker/Dockerfile:12` (`pnpm@latest`).
   - No `expression-go/v0.2.0` tag: `git ls-remote --tags https://github.com/getlago/lago-expression | grep expression-go` -> tags `expression-go/v0.1.0` (plus its `^{}` line) and `expression-go/v0.1.4`; no `v0.2.0` (needs network).
   - Conventions: `.claude/skills/change-control/scripts/commit-msg-check.sh -C "$H" --since 2025-01-01 --report` -> `293 subjects; >72: 29; >50: 142; …; FAIL subjects: 65`.
 
-**Update triggers.** Re-verify this skill when any of these happens:
-
-- a release bump (new pins);
-- any edit to a pin file or to `events-processor-tests.yml`;
-- a new PR workflow or required check;
-- a CODEOWNERS file or a golangci config lands;
-- the owner answers any OD;
-- a contract anchor moves (re-run the `$API` greps in `reference/cross-repo-protocol.md`);
-- a new incident;
-- CONTRIBUTING.md or the PR template is rewritten.
+**Update triggers.** Re-verify this skill on: a release bump (new pins); an edit to a pin file
+or `events-processor-tests.yml`; a new PR workflow or required check; a CODEOWNERS file or a
+golangci config; the owner answering or amending any OD (incl. OD-1b, an ADR-001 amendment); a
+contract anchor or dependent moving (re-run the greps behind `reference/cross-repo-protocol.md`
+§1); a new incident; a rewrite of CONTRIBUTING.md or the PR template.

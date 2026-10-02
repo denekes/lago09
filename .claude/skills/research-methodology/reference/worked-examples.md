@@ -156,7 +156,7 @@ control    consumer #2 (restart, same group): deliveries map[retryable-fail:2]
 - **Where it was recorded:**
   - as-is behaviour: the `architecture-contract` skill;
   - remediation: the `event-accounting-campaign` skill, workstream W1;
-  - the rule that forbids changing commit semantics without a kfake test, an ADR and owner sign-off: change-control N7, OPEN DECISION OD-2.
+  - the rule that forbids changing commit semantics without a kfake test, ADR-001 conformance and owner sign-off: change-control N7; the delivery contract itself is ADR-001 (DECIDED OD-2 (owner, 2026-10-02), delegated).
 <!-- evidence-check: on -->
 
 ---
@@ -236,7 +236,7 @@ Observed (`clickhouse local` 25.8.2.29; identical on 26.2.9.9 and 26.2.19.43, re
 - **Where it was recorded:**
   - the value contract: the `rails-go-parity` skill;
   - the fix options: the `event-accounting-campaign` skill, workstream W2;
-  - any ClickHouse schema change: OPEN DECISION OD-3.
+  - any ClickHouse schema change: allowed (DECIDED OD-3 (owner, 2026-10-02)); the DDL ships in a paired lago-api PR (change-control N6).
 <!-- evidence-check: on -->
 
 ---

@@ -4,16 +4,19 @@
 # the skill directory.
 #
 # Usage (from anywhere inside the lago repo):
-#   .claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe [-case A,B] [-list] [-db-url URL] [-timeout 20s] [-v]
+#   .claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe [-mode db|cache] [-case A,B] [-list] [-db-url URL] [-timeout 20s] [-v]
 #   .claude/skills/event-accounting-campaign/scripts/run.sh value-corpus [-mode all|value|time] [-ruby] [-ch-bin PATH] [-value JSON]... [-fail-on-mismatch] [-v]
+#   .claude/skills/event-accounting-campaign/scripts/run.sh cache-bench [-n 1000000]
 #   .claude/skills/event-accounting-campaign/scripts/run.sh --check      # go vet + gofmt -l + franz-go pin check
 #
-#   accounting-probe  kfake fault matrix through the REAL consumer group + processor (DB mode,
-#                     needs Postgres at DATABASE_URL, default postgres://lago:lago@localhost:5432/lago,
-#                     role with CREATEDB; a throwaway database is created and dropped)
+#   accounting-probe  kfake fault matrix through the REAL consumer group + processor. -mode db
+#                     (default) needs Postgres at DATABASE_URL, default postgres://lago:lago@localhost:5432/lago,
+#                     role with CREATEDB (a throwaway database is created and dropped); -mode cache
+#                     runs memory-cache mode (production's mode, DECIDED OD-1) with a seeded cache, no Postgres
 #   value-corpus      golden property corpus through the REAL unmarshal + EnrichEvent; Rails/PG
 #                     expected column; ClickHouse Decimal(38,26) emulation; utils.ToTime ms count;
 #                     -value (repeatable, needs ruby) triages one customer value instead of the corpus
+#   cache-bench       memory-cache (badger) warm-up time, Go heap and RSS for N subscriptions (W6)
 #
 # How it stays read-only: go.mod/go.sum are copied to a mktemp dir and passed with
 # -modfile=<tmp>/go.mod -mod=mod (a dependency bump in events-processor/go.mod is absorbed
@@ -31,17 +34,18 @@
 #
 # Exit codes: the probe's own exit code (accounting-probe: 0 all accounted, 1..99 =
 #             UNACCOUNTED rows, 100 setup error; value-corpus: 0, 1 = mismatches with
-#             -fail-on-mismatch, 2 setup error); 2 = usage, go missing, ep-env.sh failure
+#             -fail-on-mismatch, 2 setup error; cache-bench: 0, 1 cache error, 2 bad
+#             flag); 2 = usage, go missing, ep-env.sh failure
 #             or build failure; 5 = --check found a problem.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 probe="${1:-}"
 case "$probe" in
-  accounting-probe|value-corpus|--check) ;;
-  -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
-  "") sed -n '2,35p' "$0" >&2; exit 2 ;;
-  *) echo "run.sh: unknown probe '$probe' (accounting-probe|value-corpus|--check)" >&2; exit 2 ;;
+  accounting-probe|value-corpus|cache-bench|--check) ;;
+  -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
+  "") sed -n '2,39p' "$0" >&2; exit 2 ;;
+  *) echo "run.sh: unknown probe '$probe' (accounting-probe|value-corpus|cache-bench|--check)" >&2; exit 2 ;;
 esac
 shift
 

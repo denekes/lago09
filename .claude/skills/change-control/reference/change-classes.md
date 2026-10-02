@@ -71,9 +71,9 @@ Worked cases (the precedence rule applied):
 |---|---|---|
 | Log line, span attribute or counter in `consumer.go` / `processor.go:50-88` / `event_producer_service.go`, no control-flow change | C3 | step 6 (paste `moved=0`) |
 | New optional env knob read in `processors/main_processor.go` or `config/kafka/*.go` whose default preserves behaviour | C3 + C6 | no commit/retry/DLQ/skip change and no topic, group, key, payload or Redis name change; write "C4 by path, C3 by behaviour" in the PR; add-a-variable checklist in `config-and-flags` |
-| `value` string formatting (`processors/events_processor/enrichment_service.go:114`) | C3 + C4 | contract K4 (N6): paired lago-api PR (OD-4); a ClickHouse schema change only via OD-3; closing a DIVERGE value row of `rails-go-parity` (P10-P13) runs `cross-repo-protocol.md` |
+| `value` string formatting (`processors/events_processor/enrichment_service.go:114`) | C3 + C4 | contract K4 (N6), which has lago-api dependents (ClickHouse enriched queue, `decimal_value` default): paired lago-api PR (DECIDED OD-4); a ClickHouse schema change is allowed and rides in that PR (DECIDED OD-3); closing a DIVERGE value row of `rails-go-parity` (P10-P13) runs `cross-repo-protocol.md` |
 | Time parsing (`utils/time.go`) | C3 | C4 if the enriched `timestamp` payload format changes (K4, `events-processor/models/event.go:45`) |
-| New DLQ cause or `error_code` (e.g. detect-and-DLQ ClickHouse overflow) | C4 | changes disposition; ADR + owner acceptance under OD-3; DLQ'd rows are not replayable (no DLQ replay tool exists). The N7 kfake test is required only if `consumer.go` or commit logic changes; the campaign accounting-probe ledger and value corpus before/after are required either way |
+| New DLQ cause or `error_code` (e.g. detect-and-DLQ ClickHouse overflow) | C4 | changes disposition; must fit ADR-001 PERMANENT (DLQ at once with a cause, DECIDED OD-2), else it is a deviation for the owner. A new `error_code` value is additive for lago-api (string column); a DLQ payload change is K6 (paired lago-api PR). No DLQ replay tool exists yet (ADR-001 specifies one; CANDIDATE until built). The N7 kfake test is required only if `consumer.go` or commit logic changes; the campaign accounting-probe ledger and value corpus before/after are required either way |
 | New `Select` list over columns Go already reads from that table (e.g. `FetchBillableMetric` using the columns of `GetAllBillableMetrics`, `models/billable_metrics.go:88-98`) | C3 + a K8 note in the PR | no new Go dependency on a Rails column |
 | Selecting a column Go has never read before | C4 | K8 (Go anchor `models/subscriptions.go:37`): the two-release drop rule now binds that column |
 
@@ -143,8 +143,8 @@ no `ep-env.sh`; only `go build`/`go test` of `processors/events_processor` do.
 - `--new-from-rev` was verified in a scratch clone (2026-10-01): one added unchecked
   `os.Remove(...)` call in `utils/time.go` produced "1 issues: * errcheck: 1", exit 1; the
   21 baseline issues were not reported. On the unchanged tree it prints "0 issues.", exit 0.
-- The Docker-free recipe is the accepted local gate: OPEN DECISION OD-5 (owner), default
-  accepted. `lago exec events-processor go test ./...` is still valid for people running the
+- DECIDED OD-5 (owner, 2026-10-02): the Docker-free recipe (`ep-test.sh`) is an accepted
+  pre-PR gate. `lago exec events-processor go test ./...` is still valid for people running the
   dev stack.
 
 Evidence block (paste into the PR body; template in `docs-and-writing`):
@@ -171,10 +171,12 @@ C2 gates, plus all of:
 2. **Queries (N4).** Explicit column list, `deleted_at IS NULL` on soft-deletable tables,
    `organization_id`, and the exact SQL pinned in the sqlmock test. sqlmock's default matcher
    is an unanchored regexp, so anchor new pins: `"^" + regexp.QuoteMeta(sql) + "$"`.
-3. **Both data modes.**
+3. **Both data modes.** Dev runs DB mode; PRODUCTION runs memory-cache mode (DECIDED OD-1
+   (owner, 2026-10-02)).
    - If the logic exists in DB mode and memory-cache mode, test both: the dual-mode DataStore
-     pattern in `validation-and-qa`.
-   - Label any memory-cache production impact "depends on OPEN DECISION OD-1 (owner)".
+     pattern in `validation-and-qa`. A DB-mode-only test is not enough evidence for production.
+   - A memory-cache defect is production-relevant. The production CDC config (Debezium column
+     list, Kafka auth, brokers) is OPEN DECISION OD-1b (owner): state it as UNVERIFIED.
 4. **Parity.** If the behaviour mirrors Rails or ClickHouse:
    - cite both sides as `$API/<path>:line` at the pinned SHA
      (`API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)`);
@@ -184,11 +186,14 @@ C2 gates, plus all of:
 5. **Value or time changes.** Paste a before/after table over the golden corpus
    (`event-accounting-campaign` W2/W3).
    - `value` string formatting (`enrichment_service.go:114`) is also C4 (contract K4; §1 worked cases).
-   - A ClickHouse schema change is OPEN DECISION OD-3 (owner) and lago-api work.
+   - A ClickHouse schema change is allowed (DECIDED OD-3 (owner, 2026-10-02)). It is lago-api
+     work: the self-host migration and the Cloud DDL in a paired lago-api PR with a deploy order
+     (DECIDED OD-4).
 6. **Per-event Rails resolution** (charge or filter matching, Rails cache keys) is forbidden
    (N8). Reintroducing it needs a parity spec, a parity test and owner sign-off.
 
-- **Sign-off.** The events-processor maintainer. The owner too when N8 or OD-3 applies.
+- **Sign-off.** The events-processor maintainer. The owner too when N8 applies. A ClickHouse
+  schema change adds the lago-api maintainers (paired PR; DECIDED OD-3, OD-4).
 - **Cross-repo.** If Rails must change too, it is C4: follow `cross-repo-protocol.md`.
 
 ## 6. C4: delivery semantics or cross-repo contract
@@ -196,6 +201,9 @@ C2 gates, plus all of:
 C4 has two parts. Apply the part(s) the diff touches, and for the other write
 "N6 (or N7): not applicable because <reason>" in the PR. Example: a commit-path change in
 `consumer.go` that changes no payload, topic, key or Redis name needs no paired lago-api PR.
+If it adds a topic (the ADR-001 retry topic), the topic still has to exist in every
+environment: dev topic list (C6), a lago-helm-charts PR, production provisioning (owner/ops);
+see `cross-repo-protocol.md` §1 facts.
 
 C3 gates, plus:
 
@@ -214,14 +222,26 @@ C3 gates, plus:
    - No such test exists in the repo today:
      `grep -rn "processRecordsAndCommit\|ProcessEvents(" --include=*_test.go events-processor`
      prints nothing.
-   - Owner sign-off: OPEN DECISION OD-2 (owner).
-2. **Contract part (N6), for anything lago-api or ClickHouse reads or writes (K1-K10):**
+   - **Conform to ADR-001** (DECIDED OD-2 (owner, 2026-10-02), delegated; text in
+     `event-accounting-campaign` `reference/delivery-options.md`). The PR names the ADR-001
+     points it implements: failure class (SYSTEMIC pause + backoff, TRANSIENT retry topic,
+     PERMANENT DLQ), the commit rule (commit N only when every record <= N has a durable
+     disposition), side-effect order, observability. The ledger before/after shows the touched
+     cases moving to a durable disposition (target 0 LOST, the ADR-001 commit rule).
+   - A deviation from ADR-001 needs an owner decision (an ADR-001 amendment) before merge
+     (DECIDED OD-2).
+   - Owner sign-off, as for every C4 (change-control N7 (c)).
+2. **Contract part (N6), for anything another repo reads or writes (K1-K10):**
    - Versioned key or topic for any format change.
-   - Paired lago-api PR: OPEN DECISION OD-4 (owner), default YES. Both PRs link each other.
+   - Paired PRs per dependent (DECIDED OD-4 (owner, 2026-10-02)): one in each repo whose
+     external dependent of the K row (`cross-repo-protocol.md` §1) the change touches; the PRs
+     link each other. None touched: write "N6: no external dependent of <K#> is touched".
    - Deploy order and rollback written down.
    - Steps: `cross-repo-protocol.md`.
 3. **Design note (both parts).** An ADR or design note in the PR body (template in
    `docs-and-writing`): options, chosen contract, failure matrix, throughput impact, rollback.
+   For a delivery part, cite ADR-001 as the chosen contract instead of re-deciding it, and give
+   the points implemented, the failure matrix, the throughput impact and the rollback.
 4. **Docs.** Update the contract table in `rails-go-parity` and the topology in
    `architecture-contract` in the same PR, or in a linked docs PR.
 

@@ -19,7 +19,7 @@ Copy those; in a Markdown table a pipe would have to be written `\|`, which the 
 | 4 | **Count by data, not by text classifiers.** Subject regexes and keyword greps are hunch generators. | CC5 pin moves |
 | 5 | **A number needs its exit status and denominator.** A coverage figure from a command that exited 1 is not a baseline. | CC6 coverage |
 | 6 | **Line numbers drift.** Re-grep at HEAD and cite an anchor plus the line (`go.mod:10`, the expression-go require). | CC8 |
-| 7 | **Still unresolved?** Label both claims UNVERIFIED, write a hypothesis card for the discriminating probe, or route to the owner (OPEN DECISION OD-n via change-control). Never pick the more convenient one. | production questions, OD-1, OD-8 |
+| 7 | **Still unresolved?** Label both claims UNVERIFIED, write a hypothesis card for the discriminating probe, or route to the owner (OPEN DECISION OD-n via change-control). Never pick the more convenient one. | production questions, OD-1b, OD-8 |
 | 8 | **Record the resolution where the fact lives** (the owning skill or doc), not only in your PR or chat. | all |
 
 <!-- evidence-check: on -->
