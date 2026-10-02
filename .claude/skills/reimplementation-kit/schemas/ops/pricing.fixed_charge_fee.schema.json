@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.fixed_charge_fee.schema.json",
+  "title": "pricing.fixed_charge_fee",
+  "description": "Arrears fee of a fixed charge for a period (BE-PR-70): units from the events, priced with the model, money as for charge fees, stored units = full units.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "fixed_charge_fee",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model",
+        "properties",
+        "events",
+        "window"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "enum": [
+            "standard",
+            "graduated",
+            "volume"
+          ],
+          "description": "Fixed-charge model."
+        },
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Fixed-charge properties."
+        },
+        "prorated": {
+          "type": "boolean",
+          "description": "Charge is prorated.",
+          "default": false
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "units",
+              "timestamp",
+              "created_seq"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "units": {
+                "$ref": "../common.schema.json#/$defs/decimal"
+              },
+              "timestamp": {
+                "$ref": "../common.schema.json#/$defs/instant"
+              },
+              "created_seq": {
+                "type": "integer"
+              }
+            }
+          },
+          "description": "Fixed-charge unit events: units, effective timestamp and creation order (created_seq ascending = created earlier)."
+        },
+        "window": {
+          "type": "object",
+          "required": [
+            "from",
+            "to",
+            "duration_days"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "$ref": "../common.schema.json#/$defs/instant"
+            },
+            "to": {
+              "$ref": "../common.schema.json#/$defs/instant"
+            },
+            "duration_days": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "description": "Fixed-charges period: from (inclusive), to (end instant), full duration in days."
+        },
+        "timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone",
+          "description": "Customer time zone.",
+          "default": "UTC"
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "default": "EUR",
+          "description": "Plan currency (ISO 4217)."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "precise_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "unit_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "precise_unit_amount": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "total_aggregated_units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "events_count": {
+          "type": "integer"
+        },
+        "amount_details": {
+          "$ref": "../common.schema.json#/$defs/payload"
+        },
+        "persisted": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

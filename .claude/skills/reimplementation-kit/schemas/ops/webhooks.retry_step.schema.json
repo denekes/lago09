@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/webhooks.retry_step.schema.json",
+  "title": "webhooks.retry_step",
+  "description": "One delivery attempt of a webhook row (BE-WH-18..22): success iff the endpoint answers 200, 201, 202 or 204 (status succeeded, retries unchanged, no retry). Any other status, a timeout, a refused or dropped connection is a failure: retries = retries_before + 1, http_status = the answered status (null for network failures, unless a previous attempt recorded one), status retrying when retries_before + 1 < attempts (then a new attempt is scheduled after wait = r^4 + u x 0.15 x r^4 + 2 seconds, r = retries after the increment, u uniform in [0, 1)) else failed with no further attempt. `wait_seconds` = {min: r^4 + 2, max: 1.15 r^4 + 2} (the max is a supremum).",
+  "x-kit": {
+    "area": "webhooks",
+    "op": "retry_step",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/12-webhooks.md (BE-WH)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retries_before",
+        "outcome"
+      ],
+      "properties": {
+        "retries_before": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Retry counter of the row before this attempt (0 = first attempt)."
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Maximum number of attempts (environment setting)."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30,
+          "description": "Open/read/write timeout of one attempt."
+        },
+        "now": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "default": "2026-01-01T00:00:00Z",
+          "description": "Instant of the attempt."
+        },
+        "outcome": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Exactly one of http_status or network_error.",
+          "properties": {
+            "http_status": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            },
+            "body": {
+              "type": "string"
+            },
+            "network_error": {
+              "enum": [
+                "connection_refused",
+                "timeout",
+                "connection_closed"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "succeeded",
+            "failed",
+            "retrying"
+          ]
+        },
+        "retries": {
+          "type": "integer"
+        },
+        "http_status": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "retry_scheduled": {
+          "type": "boolean"
+        },
+        "wait_seconds": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "min": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "max": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/system.set_clock.schema.json",
+  "title": "system.set_clock",
+  "description": "Set the frozen wall clock used by every later call and its follow-up work (scenario-tier.md ST-10, ST-11).",
+  "x-kit": {
+    "area": "system",
+    "op": "set_clock",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "reimplementation-kit reference/scenario-tier.md (scenario tier)",
+    "stateful": true
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "now"
+      ],
+      "properties": {
+        "now": {
+          "$ref": "../common.schema.json#/$defs/instant"
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    }
+  }
+}

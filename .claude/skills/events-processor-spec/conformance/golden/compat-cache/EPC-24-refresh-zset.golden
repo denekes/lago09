@@ -1,0 +1,34 @@
+# epconf golden v1 scenario=EPC-24-refresh-zset mode=cache
+[ledger] label partition:offset class enriched/in_advance/dlq committed
+z1 p0:o0 ENRICHED e=1 a=0 d=0 committed=true
+z2 p0:o1 ENRICHED e=1 a=0 d=0 committed=true
+z3 p0:o2 ENRICHED e=1 a=1 d=0 committed=true
+z_multi p0:o3 ENRICHED e=1 a=0 d=0 committed=true
+z_nosub p0:o4 ENRICHED e=1 a=0 d=0 committed=true
+z_pp p0:o5 ENRICHED e=1 a=0 d=0 committed=true
+z_o2 p0:o6 ENRICHED e=1 a=1 d=0 committed=true
+z_dlq p0:o7 DLQ e=0 a=0 d=1 codes="fetch_billable_metric" committed=true
+[unattributed outputs] 0
+[topic events_enriched] 7 record(s)
+key="11111111-1111-1111-1111-111111111111-z1" {"aggregation_type":"count","code":"count_calls","external_subscription_id":"sub_ext_1","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{},"subscription_id":"bbbbbbbb-0000-0000-0000-000000000001","timestamp":1759320000,"transaction_id":"z1","value":"1"}
+key="11111111-1111-1111-1111-111111111111-z2" {"aggregation_type":"count","code":"count_calls","external_subscription_id":"sub_ext_1","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{},"subscription_id":"bbbbbbbb-0000-0000-0000-000000000001","timestamp":1759320000,"transaction_id":"z2","value":"1"}
+key="11111111-1111-1111-1111-111111111111-z3" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"sub_ext_1","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{"amount":1},"subscription_id":"bbbbbbbb-0000-0000-0000-000000000001","timestamp":1759320000,"transaction_id":"z3","value":"1"}
+key="11111111-1111-1111-1111-111111111111-z_multi" {"aggregation_type":"count","code":"count_calls","external_subscription_id":"sub_ext_multi","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{},"subscription_id":"bbbbbbbb-0000-0000-0000-000000000004","timestamp":1759320000,"transaction_id":"z_multi","value":"1"}
+key="11111111-1111-1111-1111-111111111111-z_nosub" {"aggregation_type":"count","code":"count_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{},"subscription_id":"","timestamp":1759320000,"transaction_id":"z_nosub","value":"1"}
+key="11111111-1111-1111-1111-111111111111-z_pp" {"aggregation_type":"count","code":"count_calls","external_subscription_id":"sub_ext_late","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{},"source":"http_ruby","subscription_id":"bbbbbbbb-0000-0000-0000-000000000006","timestamp":1759320000,"transaction_id":"z_pp","value":"1"}
+key="99999999-9999-9999-9999-999999999999-z_o2" {"aggregation_type":"count","code":"api_calls","external_subscription_id":"sub_ext_1","organization_id":"99999999-9999-9999-9999-999999999999","plan_id":"22222222-2222-2222-2222-999999999999","precise_total_amount_cents":"","properties":{},"subscription_id":"bbbbbbbb-0000-0000-0000-0000000000f1","timestamp":1759320000,"transaction_id":"z_o2","value":"1"}
+[topic events_charged_in_advance] 2 record(s)
+key="11111111-1111-1111-1111-111111111111-z3" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"sub_ext_1","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{"amount":1},"subscription_id":"bbbbbbbb-0000-0000-0000-000000000001","timestamp":1759320000,"transaction_id":"z3","value":"1"}
+key="99999999-9999-9999-9999-999999999999-z_o2" {"aggregation_type":"count","code":"api_calls","external_subscription_id":"sub_ext_1","organization_id":"99999999-9999-9999-9999-999999999999","plan_id":"22222222-2222-2222-2222-999999999999","precise_total_amount_cents":"","properties":{},"subscription_id":"bbbbbbbb-0000-0000-0000-0000000000f1","timestamp":1759320000,"transaction_id":"z_o2","value":"1"}
+[topic events_dead_letter] 1 record(s)
+key=<none> {"error_code":"fetch_billable_metric","error_message":"Error fetching billable metric","event":{"code":"nope","external_subscription_id":"sub_ext_incomplete","ingested_at":"<NOW-0h:2006-01-02T15:04:05>","organization_id":"11111111-1111-1111-1111-111111111111","precise_total_amount_cents":"","properties":{},"source_metadata":null,"timestamp":"1759320000","transaction_id":"z_dlq"},"failed_at":"<RFC3339>","initial_error_message":"Key not found"}
+[commits] group=epconf_events-raw
+p0 end=8 committed=8
+[redis subscription_refreshed_v2] 3 distinct masked member(s), 0 invalid
+11111111-1111-1111-1111-111111111111:bbbbbbbb-0000-0000-0000-000000000001|<BUCKET>
+11111111-1111-1111-1111-111111111111:bbbbbbbb-0000-0000-0000-000000000004|<BUCKET>
+99999999-9999-9999-9999-999999999999:bbbbbbbb-0000-0000-0000-0000000000f1|<BUCKET>
+[process]
+exit_after_sigterm=0
+starts=1
+group_present=true other_groups=6

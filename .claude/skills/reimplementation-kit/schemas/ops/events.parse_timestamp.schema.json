@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/events.parse_timestamp.schema.json",
+  "title": "events.parse_timestamp",
+  "description": "Event time of one submitted event (POST /api/v1/events) as persisted, from the exact JSON text of its `timestamp` member. Rule summary (BE-EV-10..14): absent, null, false or a non-scalar value -> received_at; otherwise the value's text is read as an arbitrary-precision decimal number of seconds since the Unix epoch (JSON numbers are first read as binary64 when they are not integers), then truncated to microseconds; text that is not such a number -> error invalid_format on field timestamp.",
+  "x-kit": {
+    "area": "events",
+    "op": "parse_timestamp",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/02-events-ingestion.md (BE-EV)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "received_at"
+      ],
+      "properties": {
+        "timestamp_json": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "x-kit-absent": "the request has no `timestamp` member",
+          "description": "Exact JSON text of the `timestamp` member as sent (\"\\\"1780586634.1\\\"\" is a JSON string, \"1693842312.344\" a JSON number, \"null\" an explicit null)."
+        },
+        "received_at": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Wall clock of the API when the request arrives (whole seconds). Used as the event time when the request carries no usable timestamp, and as the ingestion instant of the raw message."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "timestamp": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Persisted event time (UTC, microsecond precision)."
+        }
+      }
+    }
+  }
+}

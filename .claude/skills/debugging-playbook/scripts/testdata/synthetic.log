@@ -1,0 +1,20 @@
+# synthetic.log - SYNTHETIC lines for code paths the 2026-10-01 runs did not reach. Each line is
+# built from the exact format string at the cited location (code 5308258); values are invented.
+# It also exercises prefix stripping (docker compose "svc | ", kubectl --timestamps) and comments.
+# processors/events_processor/event_producer_service.go:64 then :71 (enriched AND DLQ produce fail)
+{"time":"2026-10-01T10:00:01.000Z","level":"ERROR","msg":"record had a produce error while synchronously producing","service":"post_process","component":"kafka-producer","error":"NOT_ENOUGH_REPLICAS: Messages are rejected since there are fewer in-sync replicas than required."}
+{"time":"2026-10-01T10:00:01.100Z","level":"ERROR","msg":"record had a produce error while synchronously producing","service":"post_process","component":"kafka-producer","error":"NOT_ENOUGH_REPLICAS: Messages are rejected since there are fewer in-sync replicas than required."}
+{"time":"2026-10-01T10:00:01.200Z","level":"ERROR","msg":"error while pushing to dead letter topic","service":"post_process","topic":"events_dead_letter"}
+# processors/events_processor/processor.go:52 with the connector payload error (models/event.go:18)
+lago_events_processor_dev  | {"time":"2026-10-01T10:00:02.000Z","level":"ERROR","msg":"Error unmarshalling message","service":"post_process","error":"json: cannot unmarshal number into Go struct field Event.precise_total_amount_cents of type string"}
+# processors/events_processor/processor.go:64-68 + :130: the pre-02a4bc8 regression signature
+2026-10-01T10:00:03.000000000Z {"time":"2026-10-01T10:00:03.000Z","level":"ERROR","msg":"Error flagging subscription refresh","service":"post_process","error_code":"flag_subscription_refresh","error":"context canceled"}
+# config/kafka/consumer.go:106 (commit failure; note the code typo "offets")
+{"time":"2026-10-01T10:00:04.000Z","level":"ERROR","msg":"Error when committing offets to kafka. Error: REBALANCE_IN_PROGRESS: The group is rebalancing, so a rejoin is needed. topic: events-raw partition: 0 offset: 42\n","service":"post_process","kafka-topic-consumer":"events-raw"}
+# cache/consumer.go:71 and :96 (memory-cache CDC consumers)
+{"time":"2026-10-01T10:00:05.000Z","level":"ERROR","msg":"Fetch error","service":"post_process","pkg":"cache","model":"charges","error":"unable to dial: dial tcp 10.0.0.1:9092: i/o timeout"}
+{"time":"2026-10-01T10:00:05.500Z","level":"ERROR","msg":"Failed to unmarshal","service":"post_process","pkg":"cache","model":"charges","error":"invalid character 'x' looking for beginning of value","topic":"lago_proc_cdc.public.charges"}
+# config/kafka/consumer.go:181-182 (main consumer fetch error -> panic)
+{"time":"2026-10-01T10:00:06.000Z","level":"ERROR","msg":"Fetch error","service":"post_process","kafka-topic-consumer":"events-raw","error":"UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition."}
+panic: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.
+this line belongs to no known component and must be counted as unrecognised

@@ -1,0 +1,42 @@
+== events-processor log triage: synthetic.log
+lines: 11 (json 9, of which service=post_process 9; plain 2; unrecognised 1; # comments skipped 9)
+levels: ERROR=9 WARN=0 INFO=0 DEBUG=0
+time: 2026-10-01T10:00:01.000Z .. 2026-10-01T10:00:06.000Z
+lifecycle: starts=0 shutdown_signals=0 stopped=0
+== startup / crash
+  panics: 1
+      1  panic: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.
+== per-event failures by error_code
+  error_code                      lines   to-DLQ  retryable
+  flag_subscription_refresh           1        0          1
+      e.g.    1  context canceled
+  NOTE: 1 retryable line(s): not committed and not on the DLQ while ingested_at < 12 h; skipped forever if a later batch on the partition commits (loss-retryable-skip)
+== silent-loss signals
+  dropped, committed, NO DLQ (Error unmarshalling message)           1
+      e.g.    1  json: cannot unmarshal number into Go struct field Event.precise_total_amount_cents of type string
+  head-of-batch retryable, commit skipped (No commitable record)     0
+  produce failed -> DLQ row with empty error_code                    2
+      e.g.    2  NOT_ENOUGH_REPLICAS: Messages are rejected since there are fewer in-sync replicas than required.
+  DLQ produce failed too -> Sentry only, LOST                        1
+  not serialisable (NaN/Inf timestamp) -> committed, NO DLQ          0
+  main consumer fetch error -> process panic                         1
+  offset commit errors (redelivery = duplicates)                     1
+== memory-cache mode
+  snapshot loads: started 0, completed 0
+  CDC consumers started: 0 | CDC fetch errors: 1 | CDC decode/write errors: 1
+== other ERROR/WARN messages
+  none
+== playbook entries (explain-error.sh on each distinct ERROR/WARN/panic line)
+  run-unknown-topic            2  a topic EP produces to (or consumes) does not exist on the cluster
+  start-kafka-dial             1  Kafka broker unreachable (first producer Ping fails at startup; at runtime franz-go retries and logs WARN)
+  dlq-flag-refresh             1  ZADD to the Redis ZSET subscription_refreshed_v2 failed -> retryable (enriched already produced)
+  dlq-flag-ctx-canceled        1  REGRESSION SIGNATURE: Redis writes canceled by the process context on SIGTERM (fixed 02a4bc8, #785)
+  dlq-empty-code               1  produce to events_enriched / events_charged_in_advance failed -> DLQ row with error_code "" and the record is COMMITTED (no per-event ERROR line); after a failed ENRICHED push the in-advance event is still produced
+  loss-dlq-push                1  the DLQ produce failed too: the event is now only in Sentry (if SENTRY_DSN is set) and the record is committed = LOST
+  loss-unmarshal               1  raw record is not valid JSON for models.Event: committed, NO DLQ, Sentry only = LOST
+  loss-ptac-number             1  connector events with a numeric precise_total_amount_cents are dropped (EP declares it string, models/event.go:18)
+  run-fetch-panic              1  main consumer got a non-context fetch error and PANICKED (config/kafka/consumer.go:175-183); the whole process exits
+  run-commit-error             1  CommitRecords failed (note the code typo "offets"); records are reprocessed after restart/rebalance = duplicates downstream
+  cache-cdc-fetch              1  a memory-cache CDC consumer cannot fetch; it loops forever with continue (cache/consumer.go:66-74), the cache goes stale
+  cache-cdc-write              1  a CDC or snapshot row could not be decoded or written to badger; that row is skipped (stale cache entry)
+  (9 distinct line(s) examined; details: explain-error.sh --id <id>)

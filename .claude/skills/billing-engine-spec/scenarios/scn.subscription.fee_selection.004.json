@@ -1,0 +1,40 @@
+{
+  "kit_schema": 1,
+  "id": "scn.subscription.fee_selection.004",
+  "area": "scn",
+  "title": "termination invoice bills arrears fixed charges but not in-advance fixed charges",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-SP-66","BE-SP-55"],
+  "rbd": [],
+  "tags": [],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"derived","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2024-03-01T00:00:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": false,
+    "store": "pg",
+    "add_ons": [{"name":"setup_fee","code":"setup_fee","amount_cents":5000,"amount_currency":"EUR"},{"name":"support","code":"support","amount_cents":3000,"amount_currency":"EUR"}],
+    "plans": [{"name":"base","code":"base","interval":"monthly","amount_cents":1000,"amount_currency":"EUR","pay_in_advance":false,"fixed_charges":[{"code":"setup_fee","add_on_id":"{{add_on:setup_fee}}","charge_model":"standard","units":"1","pay_in_advance":true,"properties":{"amount":"50"}},{"code":"support","add_on_id":"{{add_on:support}}","charge_model":"standard","units":"2","properties":{"amount":"30"}}]}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"sub_1","plan_code":"base","billing_time":"calendar"}}},
+    {"at":"2024-03-20T12:00:00Z","op":"api","method":"DELETE","path":"/api/v1/subscriptions/sub_1"}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2024-03-01","payment_due_date":"2024-03-01","currency":"EUR","fees_amount_cents":5000,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":5000,"sub_total_including_taxes_amount_cents":5000,"total_amount_cents":5000,"total_due_amount_cents":5000,"billing_periods":[{"subscription_from_datetime":"2024-03-01T00:00:00Z","subscription_to_datetime":"2024-03-01T00:00:00Z","charges_from_datetime":"2024-03-01T00:00:00Z","charges_to_datetime":"2024-03-01T00:00:00Z","invoicing_reason":"in_advance_charge"}],"fees":[{"item":{"type":"fixed_charge","code":"setup_fee"},"pay_in_advance":true,"amount_cents":5000,"units":"1.0","taxes_amount_cents":0,"from_date":"2024-03-01T00:00:00+00:00","to_date":"2024-03-31T23:59:59+00:00"}]},
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-002","issuing_date":"2024-03-20","payment_due_date":"2024-03-20","currency":"EUR","fees_amount_cents":6645,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":6645,"sub_total_including_taxes_amount_cents":6645,"total_amount_cents":6645,"total_due_amount_cents":6645,"billing_periods":[{"subscription_from_datetime":"2024-03-01T00:00:00Z","subscription_to_datetime":"2024-03-20T12:00:00Z","charges_from_datetime":"2024-03-01T00:00:00Z","charges_to_datetime":"2024-03-20T12:00:00Z","invoicing_reason":"subscription_terminating"}],"fees":[{"item":{"type":"subscription"},"amount_cents":645,"units":"1.0","taxes_amount_cents":0,"from_date":"2024-03-01T00:00:00+00:00","to_date":"2024-03-20T12:00:00+00:00"},{"item":{"type":"fixed_charge","code":"support"},"amount_cents":6000,"units":"2.0","taxes_amount_cents":0,"from_date":"2024-03-01T00:00:00+00:00","to_date":"2024-03-20T12:00:00+00:00"}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": [],
+    "subscriptions": [
+      {"external_id":"sub_1","external_customer_id":"cust_1","plan_code":"base","status":"terminated","billing_time":"calendar","subscription_at":"2024-03-01T00:00:00Z","started_at":"2024-03-01T00:00:00.000Z","terminated_at":"2024-03-20T12:00:00Z"}
+    ]
+  },
+  "compare": {"invoices":{"mode":"set"},"invoices[*].fees":{"mode":"set"}}
+}

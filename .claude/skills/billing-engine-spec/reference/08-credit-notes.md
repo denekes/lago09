@@ -1,0 +1,150 @@
+# 08 — Credit notes (BE-CN)
+
+> Licence note: this chapter describes observable behaviour of lago-api (AGPL-3.0) at pin `591ae90` (2026-09-08).
+> It is a behavioural specification written fresh from executed vectors and probes, not source code. Proprietary
+> clean-room rebuilds should have it reviewed (`reimplementation-kit/reference/legal-and-provenance.md`).
+
+Facts as of lago-api `591ae90`. A **credit note** gives back part of an invoice: as **credit** (a balance consumed by
+the customer's later invoices, chapter 07 BE-IV-30), as a **refund** (money returned through the payment provider) or
+as an **offset** (settles the same invoice's unpaid amount). This chapter specifies eligibility, items, the coupon
+adjustment and taxes of a note, the rounding corrections, validation, the estimate, and the automatic note issued when
+a pay-in-advance subscription is terminated. The bounds a note must respect (creditable, refundable, offsettable
+amounts) are BE-IV-46..50; numbering is BE-DM-44/45; the day counts of a termination are BE-SP-58/59.
+
+Reading guide: rules are numbered `BE-CN-n` and end with `[vec: …]` (file `billing-engine-spec/vectors/credit_notes.jsonl`,
+scenarios `scn.*`) or a prose-only marker. Op schemas: `reimplementation-kit/schemas/ops/credit_notes.*.schema.json`;
+the invoice a note refers to is described with the `invoice.totals` input plus a status and payment state. Money is in
+integer minor units; `precise_*` values are decimals stored with 5 places; `round` = half away from zero (BE-DM-23);
+"binary64" marks float islands (RBD-68).
+
+<!-- evidence-check: off normative spec; evidence = the vector ids on each line, checked by kitrun against the oracle -->
+
+## 1. Kinds, statuses, eligibility
+
+- **BE-CN-1** A note carries three non-negative amounts, `credit`, `refund` and `offset`; the requested `total = credit + refund + offset` and `balance = credit`, both after the correction of BE-CN-11 (which can break the sum, RBD-106). At creation `credit_status` is `available` (even for a note without credit) and `refund_status` is `pending` when the **requested** refund is > 0 (else empty), whatever BE-CN-11 later writes into the refund. [vec: credit_notes.compute.001, credit_notes.compute.004, credit_notes.compute.005, credit_notes.termination.005]
+- **BE-CN-2** A note on a `draft` invoice is a `draft` note (finalized together with the invoice, BE-IV-35); on any other invoice, including a voided one, it is `finalized`. Its issuing date is today in the customer's zone. [vec: credit_notes.compute.007]
+- **BE-CN-3** Manual notes (API, invoice void) require the premium licence (`feature_unavailable`); automatic notes (termination, progressive-billing over-credit) do not. [vec: credit_notes.compute.008]
+- **BE-CN-4** Eligibility: the invoice's version must be ≥ 2 (`invalid_type_or_status`). Credit invoices (wallet purchases) accept a note only while their wallet is active; while their payment is pending or failed only an offset is allowed, otherwise only after the payment succeeded. For invoices of version < 3 the coupon adjustment of BE-CN-6 is 0. [vec: credit_notes.validate.008]
+
+## 2. Amounts of a note
+
+- **BE-CN-5** Items: each item names a fee of the invoice (unknown fee → `fee_not_found`) and an amount in cents that may be fractional; the item keeps `precise_amount_cents` = the requested amount and `amount_cents = round(amount)`. An item whose cent amount is < 0 is `invalid_value`; an item whose cent amount is above the fee's creditable amount (its amount minus the cent amounts of earlier notes' items on it; for a credit fee also capped by the wallet-backed amount, then `higher_than_wallet_balance`) is `higher_than_remaining_fee_amount`, except on a credit invoice whose payment is pending or failed, where any amount passes this check. Items are checked in order and the first invalid one stops the request. [vec: credit_notes.compute.009, credit_notes.validate.003, credit_notes.validate.004, credit_notes.validate.009, credit_notes.validate.010]
+- **BE-CN-6** Coupon adjustment: for each item, `item_rate = item.precise / fee.amount_cents` (binary64; 0 when the fee amount is 0); `adjustment = Σ fee.precise_coupons_amount_cents × item_rate`, 0 for invoices of version < 3; the note stores the precise adjustment (5 places) and `coupons_adjustment_amount_cents = round(adjustment)`. [vec: credit_notes.compute.003, credit_notes.estimate.002]
+- **BE-CN-7** Taxes, per tax code present on the items' fees (rows take code, name and rate from the invoice's tax snapshot): `base = Σ (item.precise − fee.precise_coupons × item_rate)` over the items whose fee carries the code — the coupon share leaves the base **even for version < 3 invoices**, whose adjustment is 0; `base × taxes_base_rate` (the invoice row's taxable amount ÷ its fees amount; 1 for locally computed taxes); `precise_tax = base × rate / 100` (binary64); row `amount_cents = round(precise_tax)`, row `base_amount_cents = round(base)`. The note's precise taxes = Σ precise_tax (binary64 sum, stored at 16 significant digits then 5 places) and `taxes_amount_cents = round(precise taxes)`. [vec: credit_notes.compute.001, credit_notes.compute.002, credit_notes.compute.003]
+- **BE-CN-8** `taxes_rate` of the note = round(Σ over codes of rate × base_code ÷ (Σ item.precise − adjustment), 5), in binary64. [vec: credit_notes.estimate.003]
+- **BE-CN-9** Last-note tax residue: when, once this note's items are counted, the invoice's creditable amount (BE-IV-47) is 0, the note's precise taxes are reduced by Σ (taxes_amount − precise taxes) over the invoice's existing notes, so the notes' taxes add up to the invoice's taxes (two notes of 1367 and 1366 on a 2733 invoice tax). The per-code rows are **not** adjusted. RBD-75 keeps this. [vec: credit_notes.compute.002, credit_notes.estimate.004]
+- **BE-CN-10** `sub_total_excluding_taxes = round(Σ item.precise − stored precise adjustment)`. [vec: credit_notes.compute.003, credit_notes.compute.009]
+- **BE-CN-11** Rounding correction (RBD-75 keeps it): if `total − taxes_amount ≠ sub_total_excluding_taxes`, the total moves by one cent towards it (−1 when larger, +1 when smaller); then, when `credit > 0`, `credit = total − refund`; otherwise `refund = total`; `balance = credit`. The offset is never part of this step, so on a note with an offset the three amounts no longer add up to the total: credit 5000 + offset 6667 requested becomes credit 11666 + offset 6667 on a total of 11666, refund 5000 + offset 6667 becomes refund 11666 + offset 6667, and an offset-only note of 11667 gets refund 11666 next to its offset 11667 (RBD-106; corrected profile, proposed: the cent moves onto one requested field — the credit when credit > 0, else the offset when offset > 0, else the refund — so that credit + refund + offset = total). [vec: credit_notes.compute.001, credit_notes.compute.005, credit_notes.compute.009, credit_notes.compute.013, credit_notes.compute.013x, credit_notes.compute.014, credit_notes.compute.014x, credit_notes.termination.001, credit_notes.termination.002, credit_notes.termination.005, credit_notes.termination.005x]
+- **BE-CN-12** Validation (every failing check is reported; amounts compared with a one-cent tolerance where stated; "other notes" are the invoice's other **finalized** notes, and `remaining_credit = fee_total − other notes' credits − other notes' offsets` with `fee_total` of BE-IV-49): (a) refund > 0 on an invoice whose payment did not succeed although it is fully paid (paid = total > 0) → `cannot_refund_unpaid_invoice` (refund); (b) `|total − round(Σ item.precise − adjustment + precise taxes)| > 1` → `does_not_match_item_amounts` (base); (c) refund > 0 with nothing paid → `cannot_refund_unpaid_invoice`, refund > paid − refunds of the invoice's other finalized notes → `higher_than_remaining_invoice_amount` (refund); (d) credit > 0 on a credit invoice → `cannot_credit_invoice` (credit); credit above `remaining_credit` by more than 1 → `higher_than_remaining_invoice_amount` (credit); (e) offset > 0: on a credit invoice nothing may be paid (`cannot_apply_to_paid_invoice`) and the offset must equal the invoice total (`not_equal_to_total_amount`), the first failure ending check (e); then, on any invoice, offset ≤ min(invoice total − paid − other notes' offsets, `remaining_credit`) else `higher_than_remaining_invoice_amount` (offset); (f) total above `fee_total − (other notes' credits + refunds + offsets)` by more than 1 → `higher_than_remaining_invoice_amount` (base); (g) total ≤ 0 → `total_amount_must_be_positive` (base). [vec: credit_notes.compute.012, credit_notes.validate.001, credit_notes.validate.005, credit_notes.validate.007, credit_notes.validate.010]
+- **BE-CN-13** An offset creates a settlement of the invoice for the offset amount; when the invoice's amount due (BE-IV-46) reaches 0 or less its payment status becomes `succeeded`. [vec: credit_notes.compute.004]
+
+A manual note, as fresh pseudocode:
+
+```
+create_note(invoice, items, credit, refund, offset):
+    check eligibility (BE-CN-3, BE-CN-4); build items (BE-CN-5)
+    adj = 0 if invoice.version < 3 else sum(f.precise_coupons * (i.precise / f.amount) for i, f in items)
+    rows = []; ptax = 0
+    for code in tax codes of the items' fees:
+        base = sum(i.precise - f.precise_coupons * (i.precise / f.amount) for i, f in items if code in f.taxes)
+        t = base * base_rate(code) * rate(code) / 100                  # binary64
+        rows.append({code, amount_cents: round(t), base_amount_cents: round(base)})
+        ptax += t
+    ptax = store5(ptax)
+    if creditable_after_items(invoice) == 0: ptax -= sum(n.taxes - n.precise_taxes for n in invoice.notes)   # BE-CN-9
+    taxes = round(ptax); sub = round(sum(i.precise) - store5(adj))
+    validate (BE-CN-12)
+    total = credit + refund + offset; balance = credit
+    refund_status = pending if refund > 0 else none                     # from the requested refund
+    if total - taxes != sub:                                            # BE-CN-11
+        total += -1 if total - taxes > sub else 1
+        if credit > 0: credit = total - refund                          # offset ignored (RBD-106)
+        else: refund = total                                            # requested refund and offset ignored
+        balance = credit
+```
+
+## 3. Estimate
+
+- **BE-CN-14** Estimate (premium, invoice version ≥ 2; credit invoices only when paid and backed by an active wallet): items are taken as whole cents (fractions dropped), then BE-CN-5..8 apply; the residue of BE-CN-9 applies when the items' total equals the sum of the fees' remaining creditable amounts; `max_creditable = round(Σ item cents − adjustment + precise taxes)` (0 for a credit invoice); `max_refundable = min(max_creditable, the invoice's refundable amount)` stored as integer cents (a fractional refundable is truncated); then if `max_creditable − taxes > sub_total` the creditable amount loses one cent, else if taxes > 0 and `max_creditable − taxes < sub_total` the taxes lose one cent. [vec: credit_notes.estimate.001, credit_notes.estimate.002, credit_notes.estimate.003, credit_notes.estimate.004, credit_notes.estimate.005]
+
+## 4. The termination note
+
+When a subscription of a plan **paid in advance** is terminated (not as a downgrade rotation, BE-SP-53) with
+`on_termination_credit_note` ∈ {`credit`, `refund`, `offset`}, an automatic note returns the unused part of the last
+subscription fee.
+
+- **BE-CN-15** Unused amount: `remaining × sdp` (BE-SP-58, binary64, with the plan amount recorded on the last subscription fee); nothing when ≤ 0; capped at the last subscription fee's `amount_cents`; minus the items of earlier notes on that fee; nothing when ≤ 0. The single item is that amount **truncated** to 5 decimals (e.g. 15466.66666), so its cent amount rounds and the totals are re-rounded (BE-CN-11). [vec: credit_notes.termination.001, credit_notes.termination.002, credit_notes.termination.003]
+- **BE-CN-16** The day counts are those of BE-SP-58/59: remaining days from the end of the termination's local day to the end of the period (one day fewer when terminated by an upgrade, trial-aware), both taken as UTC calendar dates of local day ends; this equals local-date arithmetic whenever the two local day ends have UTC offsets of the same sign (always true except in a zone whose offset changes sign across the period, such as one at −01:00 in winter and +00:00 in summer). [vec: credit_notes.termination.001, credit_notes.termination.003, credit_notes.termination.006]
+- **BE-CN-17** Amounts: `T = round(item − adjustment + precise taxes)` with BE-CN-6/7 applied to the single item on the paid invoice. `refund = min(paid_share − used, T)` rounded, 0 when not positive, where `paid_share = (fee precise sub-total + fee precise taxes) ÷ invoice sub_total_including_taxes × invoice total_paid` (binary64) and `used` = the same `round(x − adjustment + taxes)` chain applied to `sdp × used days` (BE-SP-59). Split: `credit` → (T, 0, 0); `refund` → (T − refund, refund, 0); `offset` → (0, refund, T − refund). The note is then created as an automatic note (BE-CN-1, BE-CN-5..12 apply). [vec: credit_notes.termination.001, credit_notes.termination.002, credit_notes.termination.003, credit_notes.termination.004, credit_notes.termination.005]
+- **BE-CN-18** No termination note when the last subscription fee is 0 or its invoice is voided, or when the three amounts are all 0; termination by upgrade combined with `refund` or `offset` is not supported (error). [vec: credit_notes.termination.007]
+
+## 5. After creation
+
+- **BE-CN-19** A note's credit is consumed by the customer's later invoices after taxes, oldest note first (BE-IV-30); it becomes `consumed` when its balance reaches 0. [vec: invoice.totals.009, invoice.totals.023]
+- **BE-CN-20** A finalized note whose balance is > 0 can be voided: `credit_status = voided`, balance 0, `voided_at` set; a note with balance 0 cannot. [vec: invoice.void.002]
+- **BE-CN-21** Progressive-billing over-credit: when a period invoice's progressive credit exceeds its charge fees, the excess is returned by an automatic note on the progressive-billing invoice (items taken from its fees by descending amount; chapter 10). [vec: scn.invoice.progressive.002]
+- **BE-CN-22** After commit, a refund on an invoice paid through a payment provider triggers a provider refund (interface, chapter 14); a refund note on a credit invoice voids the matching wallet credits (chapter 09). [vec: none (prose only: out-of-scope providers and wallet side effects)]
+- **BE-CN-23** Notes attached to a draft invoice are rescaled (new fee ÷ old fee) and recomputed whenever the draft is refreshed. [vec: none (prose only: draft refresh is exercised by the scenario tier)]
+- **BE-CN-24** Numbering and dates: the note number is `<invoice number>-CN<sequence>` (BE-DM-44/45), recomputed when a draft note is finalized. [vec: domain.numbering.credit_note_number.001]
+
+## 6. Rebuild decisions touching this chapter
+
+| RBD | Behaviour at the pin | Compat | Corrected |
+|---|---|---|---|
+| RBD-75 | ±1-cent total correction, termination items truncated to 5 places, last note absorbs the tax residue | KEEP | KEEP |
+| RBD-106 | the ±1-cent correction ignores the offset: on a note with an offset, credit + refund + offset ≠ total (BE-CN-11) | `credit_notes.compute.013`, `credit_notes.compute.014`, `credit_notes.termination.005` | proposed: the cent lands on one requested field (credit, else offset, else refund); twins `…x` |
+| RBD-68 | item rates, tax shares and the paid share in binary64 | float replication | exact decimal (no twin yet: no divergence found in the note vectors) |
+
+## 7. Edge cases (people get these wrong)
+
+| Case | Rule |
+|---|---|
+| Two notes on one invoice: taxes 1367 then 1366 (residue), while the second note's row still says 1367 | BE-CN-9 |
+| A version-2 invoice: no coupon adjustment, yet the tax base still excludes the coupon share | BE-CN-6, BE-CN-7 |
+| Totals one cent off are accepted and corrected | BE-CN-11, BE-CN-12 |
+| A note with an offset can end with credit + refund + offset above its total (an offset-only note shows a refund equal to its total) | BE-CN-11 |
+| The estimate drops item fractions; the note itself keeps them | BE-CN-14, BE-CN-5 |
+| Termination items are truncated, not rounded, to 5 decimals | BE-CN-15 |
+| A credit note on a draft invoice stays draft until the invoice is finalized | BE-CN-2 |
+
+## 8. Vectors
+
+| File | Ops | Vectors |
+|---|---|---|
+| `credit_notes.jsonl` | `credit_notes.compute`, `credit_notes.estimate`, `credit_notes.termination`, `credit_notes.validate` | 42 (three corrected twins) |
+
+Evidence: every `both`/`compat` vector is EXECUTED through the oracle adapter at the pin (spec-derived values were
+first checked against the reference examples); the three corrected twins (RBD-106) are RECOMPUTED with `ruling:
+proposed`. Run them with `python3 reimplementation-kit/scripts/kitrun.py --impl-cmd "<adapter>"
+--areas credit_notes`.
+
+## Provenance (maintainers)
+
+Executed 2026-10-02 on the pinned toolchain (database `lago_api_test_a7`): the credit-note specs
+(`spec/services/credit_notes/{adjust_amounts_with_rounding,apply_taxes,estimate,validate,validate_item,create,void}_service_spec.rb`, `spec/services/credit_notes/create_from_termination_spec.rb`,
+`spec/scenarios/credit_notes/{credit_note,credit_note_rounding}_spec.rb`, `spec/models/credit_note_spec.rb`) are part of
+the green runs listed in chapter 07; kitrun of `credit_notes.jsonl` against `oracle.sh adapter` → 37/37 PASS, and the
+independent model `scripts/maintainer/recompute-invoicing.py` → 37/37 PASS. Fix round of 2026-10-02 (database
+`lago_api_test_fr5`): the RBD-106 vectors were executed (credit 5000 + offset 6667 requested on items of 9,333.33333 at
+25 % → credit 11,666, offset 6,667, total 11,666; refund 5000 + offset 6667 → refund 11,666, offset 6,667), then 39/39
+`both`/`compat` PASS against the oracle and 39/39 compat plus the three corrected twins PASS with the model, whose
+corrected profile moves the cent onto the requested field. Rounding rule: `$API/app/services/credit_notes/adjust_amounts_with_rounding_service.rb:26-31`.
+
+| Rules | Reference code @591ae90 |
+|---|---|
+| BE-CN-1..4 | `$API/app/services/credit_notes/create_service.rb:26-90`, `$API/app/services/credit_notes/create_service.rb:138-178` |
+| BE-CN-5 | `$API/app/services/credit_notes/create_service.rb:180-197`, `$API/app/services/credit_notes/validate_item_service.rb:5-79`, `$API/app/models/fee.rb:257-282` |
+| BE-CN-6..8 | `$API/app/services/credit_notes/apply_taxes_service.rb:14-116` |
+| BE-CN-9, BE-CN-10 | `$API/app/services/credit_notes/create_service.rb:278-296`, `$API/app/models/credit_note.rb:167-189` |
+| BE-CN-11 | `$API/app/services/credit_notes/adjust_amounts_with_rounding_service.rb:16-37` |
+| BE-CN-12 | `$API/app/services/credit_notes/validate_service.rb:5-171` |
+| BE-CN-13 | `$API/app/services/invoice_settlements/create_service.rb:17-68` |
+| BE-CN-14 | `$API/app/services/credit_notes/estimate_service.rb:14-144` |
+| BE-CN-15..18 | `$API/app/services/credit_notes/create_from_termination.rb:23-190` |
+| BE-CN-19..24 | `$API/app/services/credits/credit_note_service.rb:39-111`, `$API/app/services/credit_notes/void_service.rb`, `$API/app/services/credit_notes/create_from_progressive_billing_invoice.rb:41-82`, `$API/app/services/credit_notes/refresh_draft_service.rb:15-69`, `$API/app/models/credit_note.rb:153-199` |
+
+Spec examples behind the explicit expectations: `$API/spec/scenarios/credit_notes/credit_note_rounding_spec.rb:17`,
+`$API/spec/scenarios/credit_notes/credit_note_rounding_spec.rb:58`, `$API/spec/scenarios/credit_notes/credit_note_spec.rb:57`,
+`$API/spec/scenarios/credit_notes/credit_note_spec.rb:349`.
+
+Update triggers: a pin bump, any change of the credit-note services above, an owner ruling on RBD-75.

@@ -1,0 +1,47 @@
+{
+  "kit_schema": 1,
+  "id": "scn.invoice.progressive.002",
+  "area": "scn",
+  "title": "progressive billing: several thresholds crossed within one period",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-CN-21","BE-PB-14","BE-PB-15"],
+  "rbd": ["RBD-76"],
+  "tags": ["premium"],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/invoices/progressive_billing_spec.rb:219","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2022-12-01T00:00:00Z",
+    "organization": {"premium_integrations":["progressive_billing"],"document_number_prefix":"ORG-0001"},
+    "premium": true,
+    "store": "pg",
+    "billable_metrics": [{"name":"metric_1","code":"metric_1","aggregation_type":"sum_agg","field_name":"total"}],
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":3100,"amount_currency":"EUR","pay_in_advance":false,"usage_thresholds":[{"amount_cents":20000,"recurring":false},{"amount_cents":50000,"recurring":false}],"charges":[{"code":"charge_1","billable_metric_id":"{{bm:metric_1}}","charge_model":"standard","properties":{"amount":"0.0002"}}]}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1"}}},
+    {"at":"2022-12-16T00:00:00Z","op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"transaction_id":"tx_1","code":"metric_1","external_subscription_id":"cust_1","properties":{"total":1000000}}}},
+    {"op":"tick","jobs":["usage_update"]},
+    {"at":"2022-12-21T00:00:00Z","op":"snapshot","expect":{"invoices":[{"invoice_type":"progressive_billing","status":"finalized","total_amount_cents":20000}]},"note":"first threshold crossed"},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"transaction_id":"tx_2","code":"metric_1","external_subscription_id":"cust_1","properties":{"total":1000000}}}},
+    {"op":"tick","jobs":["usage_update"]},
+    {"at":"2022-12-26T00:00:00Z","op":"snapshot","expect":{"invoices":[{"invoice_type":"progressive_billing","status":"finalized","total_amount_cents":20000}]},"note":"no new threshold crossed"},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"transaction_id":"tx_3","code":"metric_1","external_subscription_id":"cust_1","properties":{"total":1000000}}}},
+    {"op":"tick","jobs":["usage_update"]},
+    {"at":"2023-01-01T00:00:00Z","op":"snapshot","expect":{"invoices":[{"invoice_type":"progressive_billing","status":"finalized","total_amount_cents":20000},{"invoice_type":"progressive_billing","status":"finalized","total_amount_cents":40000}]},"compare":{"invoices":{"mode":"set"}},"note":"second threshold crossed"},
+    {"op":"tick","jobs":["billing"]}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"progressive_billing","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2022-12-16","payment_due_date":"2022-12-16","currency":"EUR","fees_amount_cents":20000,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":20000,"sub_total_including_taxes_amount_cents":20000,"total_amount_cents":20000,"total_due_amount_cents":20000,"billing_periods":[{"subscription_from_datetime":"2022-12-01T00:00:00Z","subscription_to_datetime":"2022-12-31T23:59:59Z","charges_from_datetime":"2022-12-01T00:00:00Z","charges_to_datetime":"2022-12-31T23:59:59Z","invoicing_reason":"progressive_billing"}],"fees":[{"item":{"type":"charge","code":"metric_1"},"amount_cents":20000,"units":"1000000.0","events_count":1,"taxes_amount_cents":0,"from_date":"2022-12-01T00:00:00+00:00","to_date":"2022-12-31T23:59:59+00:00"}]},
+      {"invoice_type":"progressive_billing","status":"finalized","payment_status":"pending","number":"ORG-0001-001-002","issuing_date":"2022-12-26","payment_due_date":"2022-12-26","currency":"EUR","fees_amount_cents":60000,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":20000,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":40000,"sub_total_including_taxes_amount_cents":40000,"total_amount_cents":40000,"total_due_amount_cents":40000,"billing_periods":[{"subscription_from_datetime":"2022-12-01T00:00:00Z","subscription_to_datetime":"2022-12-31T23:59:59Z","charges_from_datetime":"2022-12-01T00:00:00Z","charges_to_datetime":"2022-12-31T23:59:59Z","invoicing_reason":"progressive_billing"}],"fees":[{"item":{"type":"charge","code":"metric_1"},"amount_cents":60000,"units":"3000000.0","events_count":3,"taxes_amount_cents":0,"precise_coupons_amount_cents":"20000.0","from_date":"2022-12-01T00:00:00+00:00","to_date":"2022-12-31T23:59:59+00:00"}],"credits":[{"amount_cents":20000,"item":{"type":"invoice","code":"ORG-0001-001-001"},"before_taxes":true}]},
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-003","issuing_date":"2023-01-01","payment_due_date":"2023-01-01","currency":"EUR","fees_amount_cents":63100,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":60000,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":3100,"sub_total_including_taxes_amount_cents":3100,"total_amount_cents":3100,"total_due_amount_cents":3100,"billing_periods":[{"subscription_from_datetime":"2022-12-01T00:00:00Z","subscription_to_datetime":"2022-12-31T23:59:59Z","charges_from_datetime":"2022-12-01T00:00:00Z","charges_to_datetime":"2022-12-31T23:59:59Z","invoicing_reason":"subscription_periodic"}],"fees":[{"item":{"type":"subscription"},"amount_cents":3100,"units":"1.0","taxes_amount_cents":0,"from_date":"2022-12-01T00:00:00+00:00","to_date":"2022-12-31T23:59:59+00:00"},{"item":{"type":"charge","code":"metric_1"},"amount_cents":60000,"units":"3000000.0","events_count":3,"taxes_amount_cents":0,"precise_coupons_amount_cents":"60000.0","from_date":"2022-12-01T00:00:00+00:00","to_date":"2022-12-31T23:59:59+00:00"}],"credits":[{"amount_cents":60000,"item":{"type":"invoice","code":"ORG-0001-001-002"},"before_taxes":true}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": []
+  },
+  "compare": {"invoices":{"mode":"set"},"invoices[*].fees":{"mode":"set"}}
+}

@@ -1,0 +1,46 @@
+{
+  "kit_schema": 1,
+  "id": "scn.invoice.lifecycle.005",
+  "area": "scn",
+  "title": "pay-in-advance subscription terminated: fees billed correctly",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-SP-55"],
+  "rbd": ["RBD-63"],
+  "tags": [],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/invoices/invoices_spec.rb:969","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2024-01-01T00:00:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": false,
+    "store": "pg",
+    "taxes": [{"name":"VAT","code":"tax_1","rate":0.0,"applied_to_organization":true}],
+    "billable_metrics": [{"name":"metric_1","code":"metric_1","aggregation_type":"sum_agg","field_name":"amount","recurring":true}],
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":2900,"amount_currency":"EUR","pay_in_advance":true,"charges":[{"code":"charge_1","billable_metric_id":"{{bm:metric_1}}","charge_model":"standard","prorated":true,"properties":{"amount":"1"}}]},{"name":"plan_2","code":"plan_2","interval":"monthly","amount_cents":29000,"amount_currency":"EUR","pay_in_advance":true,"charges":[{"code":"charge_2","billable_metric_id":"{{bm:metric_1}}","charge_model":"standard","prorated":true,"properties":{"amount":"1"}}]}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1","billing_time":"calendar"}}},
+    {"at":"2024-01-02T00:00:00Z","op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_1","external_subscription_id":"cust_1","properties":{"amount":"5"}}}},
+    {"at":"2024-02-01T00:00:00Z","op":"tick","jobs":["billing"]},
+    {"at":"2024-02-12T06:00:00Z","op":"api","method":"DELETE","path":"/api/v1/subscriptions/cust_1"}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2024-01-01","payment_due_date":"2024-01-01","currency":"EUR","fees_amount_cents":2900,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":2900,"sub_total_including_taxes_amount_cents":2900,"total_amount_cents":2900,"total_due_amount_cents":2900,"billing_periods":[{"subscription_from_datetime":"2024-01-01T00:00:00Z","subscription_to_datetime":"2024-01-31T23:59:59Z","charges_from_datetime":"2024-01-01T00:00:00Z","charges_to_datetime":"2024-01-01T00:00:00Z","invoicing_reason":"subscription_starting"}],"fees":[{"item":{"type":"subscription"},"pay_in_advance":true,"amount_cents":2900,"units":"1.0","taxes_amount_cents":0,"from_date":"2024-01-01T00:00:00+00:00","to_date":"2024-01-31T23:59:59+00:00"}],"applied_taxes":[{"tax_code":"tax_1","tax_rate":0.0,"amount_cents":0,"fees_amount_cents":2900}]},
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-002","issuing_date":"2024-02-01","payment_due_date":"2024-02-01","currency":"EUR","fees_amount_cents":3384,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":3384,"sub_total_including_taxes_amount_cents":3384,"total_amount_cents":3384,"total_due_amount_cents":3384,"billing_periods":[{"subscription_from_datetime":"2024-02-01T00:00:00Z","subscription_to_datetime":"2024-02-29T23:59:59Z","charges_from_datetime":"2024-01-01T00:00:00Z","charges_to_datetime":"2024-01-31T23:59:59Z","invoicing_reason":"subscription_periodic"}],"fees":[{"item":{"type":"subscription"},"pay_in_advance":true,"amount_cents":2900,"units":"1.0","taxes_amount_cents":0,"from_date":"2024-02-01T00:00:00+00:00","to_date":"2024-02-29T23:59:59+00:00"},{"item":{"type":"charge","code":"metric_1"},"amount_cents":484,"units":"5.0","events_count":1,"taxes_amount_cents":0,"from_date":"2024-01-01T00:00:00+00:00","to_date":"2024-01-31T23:59:59+00:00"}],"applied_taxes":[{"tax_code":"tax_1","tax_rate":0.0,"amount_cents":0,"fees_amount_cents":3384}]},
+      {"invoice_type":"subscription","status":"finalized","payment_status":"succeeded","number":"ORG-0001-001-003","issuing_date":"2024-02-12","payment_due_date":"2024-02-12","currency":"EUR","fees_amount_cents":207,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":207,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":207,"sub_total_including_taxes_amount_cents":207,"total_amount_cents":0,"total_due_amount_cents":0,"billing_periods":[{"subscription_from_datetime":"2024-02-01T00:00:00Z","subscription_to_datetime":"2024-02-12T06:00:00Z","charges_from_datetime":"2024-02-01T00:00:00Z","charges_to_datetime":"2024-02-12T06:00:00Z","invoicing_reason":"subscription_terminating"}],"fees":[{"item":{"type":"charge","code":"metric_1"},"amount_cents":207,"units":"5.0","events_count":1,"taxes_amount_cents":0,"from_date":"2024-02-01T00:00:00+00:00","to_date":"2024-02-12T06:00:00+00:00"}],"applied_taxes":[{"tax_code":"tax_1","tax_rate":0.0,"amount_cents":0,"fees_amount_cents":207}],"credits":[{"amount_cents":207,"item":{"type":"credit_note","code":"ORG-0001-001-002-CN001"},"before_taxes":false}]}
+    ],
+    "credit_notes": [
+      {"credit_status":"available","reason":"order_cancellation","currency":"EUR","number":"ORG-0001-001-002-CN001","invoice_number":"ORG-0001-001-002","issuing_date":"2024-02-12","total_amount_cents":1700,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":1700,"balance_amount_cents":1493,"credit_amount_cents":1700,"refund_amount_cents":0,"offset_amount_cents":0,"coupons_adjustment_amount_cents":0,"taxes_rate":0.0,"items":[{"amount_cents":1700,"fee":{"item":{"type":"subscription","code":"plan_1"}}}],"applied_taxes":[{"tax_code":"tax_1","tax_rate":0.0,"amount_cents":0,"base_amount_cents":1700}]}
+    ],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": [],
+    "subscriptions": [
+      {"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_1","status":"terminated","billing_time":"calendar","subscription_at":"2024-01-01T00:00:00Z","started_at":"2024-01-01T00:00:00.000Z","terminated_at":"2024-02-12T06:00:00Z"}
+    ]
+  },
+  "compare": {"invoices":{"mode":"set"},"invoices[*].fees":{"mode":"set"}}
+}

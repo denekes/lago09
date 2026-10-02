@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.pay_in_advance.schema.json",
+  "title": "pricing.pay_in_advance",
+  "description": "Fee of one pay-in-advance event (BE-PR-43..50): delta = price(with event) - price(without event), amount_cents = delta rounded half away from zero to the currency exponent, stored in fee form (unit_amount_cents truncated). Persisted event: units/count INCLUDE the event; estimate (persisted=false): they EXCLUDE it.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "pay_in_advance",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model",
+        "properties",
+        "aggregation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "enum": [
+            "standard",
+            "graduated",
+            "graduated_percentage",
+            "package",
+            "percentage",
+            "volume",
+            "dynamic",
+            "custom"
+          ],
+          "description": "Charge model."
+        },
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Charge properties as stored."
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "default": "EUR",
+          "description": "Plan currency (ISO 4217)."
+        },
+        "premium": {
+          "type": "boolean",
+          "description": "Premium licence active (enables graduated_percentage, per-transaction min/max, pricing units, minimum amounts).",
+          "default": false
+        },
+        "prorated": {
+          "type": "boolean",
+          "description": "Charge is prorated.",
+          "default": false
+        },
+        "persisted": {
+          "type": "boolean",
+          "description": "The event is stored (fee creation); false = estimate.",
+          "default": true
+        },
+        "pay_in_advance": {
+          "type": "boolean",
+          "description": "Charge pay_in_advance flag; false reproduces the refusal.",
+          "default": true
+        },
+        "metric_aggregation_type": {
+          "enum": [
+            "count_agg",
+            "sum_agg",
+            "max_agg",
+            "unique_count_agg",
+            "weighted_sum_agg",
+            "latest_agg",
+            "custom_agg"
+          ],
+          "description": "Aggregation type of the metric.",
+          "default": "sum_agg"
+        },
+        "pricing_unit_conversion_rate": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Charge has an applied pricing unit with this conversion rate (premium).",
+          "x-kit-absent": "no pricing unit"
+        },
+        "aggregation": {
+          "$ref": "#/$defs/aggregation"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "precise_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "unit_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "precise_unit_amount": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "total_aggregated_units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "events_count": {
+          "type": "integer"
+        },
+        "amount_details": {
+          "$ref": "../common.schema.json#/$defs/payload"
+        },
+        "pay_in_advance": {
+          "type": "boolean"
+        },
+        "pricing_unit_usage": {
+          "type": "object",
+          "properties": {
+            "amount_cents": {
+              "$ref": "../common.schema.json#/$defs/cents"
+            },
+            "precise_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "unit_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/cents"
+            },
+            "precise_unit_amount": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "conversion_rate": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            }
+          }
+        }
+      }
+    },
+    "aggregation": {
+      "type": "object",
+      "required": [
+        "units",
+        "event_units"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "A: period total INCLUDING the current event (persisted) or EXCLUDING it (estimate)."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Events in the period, same convention as units.",
+          "default": 0
+        },
+        "full_units_number": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Units without proration (FU); absent = not provided by the aggregation.",
+          "x-kit-absent": "no full-units figure; formulas use units"
+        },
+        "current_usage_units": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Units reported for current usage (pay-in-advance / prorated charges).",
+          "x-kit-absent": "null"
+        },
+        "total_aggregated_units": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Weighted-sum total aggregated units (passed through).",
+          "x-kit-absent": "null"
+        },
+        "running_total": {
+          "type": "array",
+          "items": {
+            "$ref": "../common.schema.json#/$defs/decimal"
+          },
+          "description": "Running totals of event values in timestamp order, as produced by the aggregation for the percentage model's free units (aggregation chapter).",
+          "default": []
+        },
+        "per_event_values": {
+          "type": "array",
+          "items": {
+            "$ref": "../common.schema.json#/$defs/decimal"
+          },
+          "description": "Per-event values in timestamp order (percentage per-transaction mode). Pay in advance: the current persisted event is the LAST element.",
+          "x-kit-absent": "no per-event data (no aggregator handle)"
+        },
+        "event_value": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Value of the not-yet-stored event (pay-in-advance estimate only).",
+          "x-kit-absent": "the event_units value"
+        },
+        "per_event_full": {
+          "type": "array",
+          "items": {
+            "$ref": "../common.schema.json#/$defs/decimal"
+          },
+          "description": "Prorated graduated: signed unit change of each event (full units).",
+          "x-kit-absent": "no per-event data; a prorated graduated charge then prices as plain graduated"
+        },
+        "per_event_prorated": {
+          "type": "array",
+          "items": {
+            "$ref": "../common.schema.json#/$defs/decimal"
+          },
+          "description": "Prorated graduated: the same changes weighted by the remaining fraction of the period.",
+          "x-kit-absent": "same as per_event_full"
+        },
+        "precise_total_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Dynamic model: sum of the events' precise_total_amount_cents (minor units).",
+          "x-kit-absent": "null"
+        },
+        "custom_amount": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Custom model: amount computed by the custom aggregation (major units).",
+          "x-kit-absent": "no custom aggregation result"
+        },
+        "event_units": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "a: units this event makes billable (for sum: the rise above the period's high-water mark)."
+        },
+        "event_precise_total_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Dynamic model: the event's own precise_total_amount_cents.",
+          "x-kit-absent": "null"
+        },
+        "cached": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "current_aggregation": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "max_aggregation": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "units_applied": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            }
+          },
+          "description": "Cached high-water state of the bucket (aggregation chapter).",
+          "x-kit-absent": "no cached state"
+        }
+      }
+    }
+  }
+}

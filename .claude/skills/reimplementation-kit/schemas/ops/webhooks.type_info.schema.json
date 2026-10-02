@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/webhooks.type_info.schema.json",
+  "title": "webhooks.type_info",
+  "description": "Catalogue lookup (BE-WH-7, BE-WH-11): for a configured event name (the name used in endpoint filters and to request an emission), the webhook_type string actually emitted in the payload and the payload's object_type key; `configured` tells whether the name is among the configured filterable names. Unknown names -> error unknown_event_type (field event).",
+  "x-kit": {
+    "area": "webhooks",
+    "op": "type_info",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/12-webhooks.md (BE-WH)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event"
+      ],
+      "properties": {
+        "event": {
+          "type": "string"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "webhook_type": {
+          "type": "string"
+        },
+        "object_type": {
+          "type": "string"
+        },
+        "configured": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

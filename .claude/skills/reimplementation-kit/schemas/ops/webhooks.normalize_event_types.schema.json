@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/webhooks.normalize_event_types.schema.json",
+  "title": "webhooks.normalize_event_types",
+  "description": "Stored form and validity of a webhook endpoint's event-type filter on creation (BE-WH-4, BE-WH-5). A non-empty array is normalised: each element to text, trimmed, lower-cased; blank/null elements dropped; duplicates removed keeping the first occurrence; exactly [\"*\"] after that becomes null (receive everything). Then validation: null is valid; a string is parsed as a PostgreSQL array literal: at least one element ('{a,b}') -> that list, normalised and validated; no element ('', 'wrong', '{}') -> error 'must_be_array'; a JSON number or boolean is an unhandled failure at the pin (kit error code server_error); any element that is not a configured event name -> error 'contains invalid types: <JSON-style list of the offending elements>' (so '*' next to other names is invalid). An empty array (or one that normalises to empty) is stored as [] and silences the endpoint.",
+  "x-kit": {
+    "area": "webhooks",
+    "op": "normalize_event_types",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/12-webhooks.md (BE-WH)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_types_json"
+      ],
+      "properties": {
+        "event_types_json": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "description": "JSON text of the submitted event_types value (array, string, number or null)."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "stored": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "errors": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/api.count_cache_key.schema.json",
+  "title": "api.count_cache_key",
+  "description": "Key under which the invoices, customer-invoices and fees index endpoints cache their total count (BE-API-26, BE-API-27). The request's query parameters are first reduced to the endpoint's permitted scalar filters (invoices: amount_from, amount_to, currency, invoice_type, issuing_date_from, issuing_date_to, page, partially_paid, payment_dispute_lost, payment_overdue, payment_status, payment_statuses, per_page, purchase_order_number, search_term, self_billed, settlements, status, statuses, and the object `metadata`; array values and unknown keys are dropped; fees: fee_type, payment_status, external_subscription_id, external_customer_id, billable_metric_code, currency, event_transaction_id and the created/failed/succeeded/refunded _from/_to bounds, then `page` and `per_page` are added, null when absent). `page` is removed, `organization_id` added, every object becomes the list of its [key, value] pairs sorted by key (recursively), the result is serialised as compact JSON (`preimage`) and key = 'pagination_count/<invoices|fees>/' + lowercase hex SHA-256 of the pre-image. The customer-scoped invoices list uses the invoices key and does not include the customer.",
+  "x-kit": {
+    "area": "api",
+    "op": "count_cache_key",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/11-rest-api.md (BE-API)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "organization_id"
+      ],
+      "properties": {
+        "index": {
+          "enum": [
+            "invoices",
+            "customer_invoices",
+            "fees"
+          ],
+          "description": "Which index endpoint."
+        },
+        "organization_id": {
+          "type": "string",
+          "description": "Organization identifier (any string; the reference uses its UUID)."
+        },
+        "customer_external_id": {
+          "type": "string",
+          "x-kit-absent": "not a customer-scoped list",
+          "description": "Path parameter of the customer-scoped invoices list."
+        },
+        "query": {
+          "type": "object",
+          "default": {},
+          "description": "Query parameters as parsed from the URL: string values, arrays of strings (`k[]=v`), objects (`metadata[k]=v`).",
+          "additionalProperties": true
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "preimage": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "description": "Exact JSON text that was hashed."
+        }
+      }
+    }
+  }
+}

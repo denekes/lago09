@@ -1,0 +1,20 @@
+# smoke-expected-db.txt — result block observed by `smoke-binary.sh db` (verified 2026-10-01; code as of 5308258, events-processor tree 83e012866f29).
+# This is TODAY's behaviour, known defects included; it is a measurement baseline, not a spec.
+# A diff means behaviour changed: if your PR intends that change, update this file in the same PR.
+# Lines are compared in order; '#' lines and blank lines are ignored.
+# What the lines mean and which are defects: architecture-contract (dispositions, DLQ codes),
+# rails-go-parity (value/time semantics), event-accounting-campaign (silent loss).
+tx_A enriched=yes value="1e-07" subscription_id="bbbbbbbb-0000-0000-0000-000000000001" in_advance=yes
+tx_B enriched=no in_advance=no dlq=fetch_billable_metric(record not found)
+tx_C enriched=no in_advance=no dlq=build_enriched_event(strconv.ParseFloat: parsing "2025-03-06 12:00:00": invalid syntax)
+tx_D on-no-output-topic
+tx_E enriched=no in_advance=no dlq=evaluate_expression(failed to evaluate expr: event.properties.a * 2 with json: {"organization_id":"11111111-1111-1111-1111-111111111111","external_subscription_id":"sub_ext_1","subscription_id":"","plan_id":"","transaction_id":"tx_E","code":"expr_metric","aggregation_type":"sum","properties":{"a":2,"flag":true},"precise_total_amount_cents":"","value":null,"timestamp":1759320000})
+tx_F enriched=yes value="1" subscription_id="" in_advance=no
+tx_G enriched=yes value="5" subscription_id="bbbbbbbb-0000-0000-0000-000000000001" in_advance=no
+tx_H enriched=yes value="1" subscription_id="bbbbbbbb-0000-0000-0000-000000000001" in_advance=no
+tx_I enriched=yes value="4" subscription_id="bbbbbbbb-0000-0000-0000-000000000001" in_advance=no
+raw_events=9 accounted=8 on_no_output_topic=1
+committed_offset=9
+zset_members=1
+exit_after_sigterm=<nil>
+consumer_groups: smoke_events-raw + 0 lago_evp_<model>_<uuid>

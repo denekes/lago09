@@ -1,0 +1,37 @@
+{
+  "kit_schema": 1,
+  "id": "scn.subscription.terminate.002",
+  "area": "scn",
+  "title": "ending date on a billing day bills the previous period once",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-SP-27","BE-SP-57"],
+  "rbd": ["RBD-63"],
+  "tags": ["premium"],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/subscriptions/terminate_ended_spec.rb:140","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2023-09-05T00:00:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": true,
+    "store": "pg",
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":1000,"amount_currency":"EUR","pay_in_advance":false}],
+    "customers": [{"external_id":"cust_1","currency":"EUR","timezone":"Europe/Paris"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1","billing_time":"anniversary","subscription_at":"2023-09-05T00:00:00Z","ending_at":"2023-10-05T00:00:00+00:00"}}},
+    {"at":"2023-10-05T00:15:00Z","op":"tick","jobs":["terminate_ended"]}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2023-10-05","payment_due_date":"2023-10-05","currency":"EUR","fees_amount_cents":1000,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":1000,"sub_total_including_taxes_amount_cents":1000,"total_amount_cents":1000,"total_due_amount_cents":1000,"billing_periods":[{"subscription_from_datetime":"2023-09-04T22:00:00Z","subscription_to_datetime":"2023-10-04T21:59:59Z","charges_from_datetime":"2023-09-05T00:00:00Z","charges_to_datetime":"2023-10-04T21:59:59Z","invoicing_reason":"subscription_terminating"}],"fees":[{"item":{"type":"subscription"},"amount_cents":1000,"units":"1.0","taxes_amount_cents":0,"from_date":"2023-09-04T22:00:00+00:00","to_date":"2023-10-04T21:59:59+00:00"}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": [],
+    "subscriptions": [
+      {"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_1","status":"terminated","billing_time":"anniversary","subscription_at":"2023-09-05T00:00:00Z","started_at":"2023-09-05T00:00:00.000Z","ending_at":"2023-10-05T00:00:00Z","terminated_at":"2023-10-05T00:15:00Z"}
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+# epconf golden v1 scenario=EPC-02-filters-pass-through mode=cache
+[ledger] label partition:offset class enriched/in_advance/dlq committed
+flt_eu p0:o0 ENRICHED e=1 a=0 d=0 committed=true
+flt_fr p0:o1 ENRICHED e=1 a=0 d=0 committed=true
+flt_none p0:o2 ENRICHED e=1 a=0 d=0 committed=true
+flt_nested p0:o3 ENRICHED e=1 a=0 d=0 committed=true
+[unattributed outputs] 0
+[topic events_enriched] 4 record(s)
+key="11111111-1111-1111-1111-111111111111-flt_eu" {"aggregation_type":"sum","code":"filtered_calls","external_subscription_id":"sub_ext_1","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{"amount":1,"region":"eu"},"subscription_id":"bbbbbbbb-0000-0000-0000-000000000001","timestamp":1759320000,"transaction_id":"flt_eu","value":"1"}
+key="11111111-1111-1111-1111-111111111111-flt_fr" {"aggregation_type":"sum","code":"filtered_calls","external_subscription_id":"sub_ext_1","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{"amount":1,"region":"fr"},"subscription_id":"bbbbbbbb-0000-0000-0000-000000000001","timestamp":1759320000,"transaction_id":"flt_fr","value":"1"}
+key="11111111-1111-1111-1111-111111111111-flt_nested" {"aggregation_type":"sum","code":"filtered_calls","external_subscription_id":"sub_ext_1","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{"amount":1,"meta":{"a":[1,"b",null,true]},"region":"eu"},"subscription_id":"bbbbbbbb-0000-0000-0000-000000000001","timestamp":1759320000,"transaction_id":"flt_nested","value":"1"}
+key="11111111-1111-1111-1111-111111111111-flt_none" {"aggregation_type":"sum","code":"filtered_calls","external_subscription_id":"sub_ext_1","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"22222222-2222-2222-2222-222222222222","precise_total_amount_cents":"","properties":{"amount":1},"subscription_id":"bbbbbbbb-0000-0000-0000-000000000001","timestamp":1759320000,"transaction_id":"flt_none","value":"1"}
+[topic events_charged_in_advance] 0 record(s)
+[topic events_dead_letter] 0 record(s)
+[commits] group=epconf_events-raw
+p0 end=4 committed=4
+[redis subscription_refreshed_v2] 1 distinct masked member(s), 0 invalid
+11111111-1111-1111-1111-111111111111:bbbbbbbb-0000-0000-0000-000000000001|<BUCKET>
+[process]
+exit_after_sigterm=0
+starts=1
+group_present=true other_groups=6

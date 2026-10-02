@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.projection.schema.json",
+  "title": "pricing.projection",
+  "description": "Projected usage of a charge for the rest of its period (BE-PR-39..42): period_ratio from the customer-local day count, projected units and amount from the charge model, projected_amount_cents rounded; recurring metrics project the current values.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "projection",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model",
+        "properties",
+        "aggregation",
+        "now",
+        "from",
+        "to",
+        "charges_duration_days"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "enum": [
+            "standard",
+            "graduated",
+            "graduated_percentage",
+            "package",
+            "percentage",
+            "volume",
+            "dynamic",
+            "custom"
+          ],
+          "description": "Charge model."
+        },
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Charge properties."
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "default": "EUR",
+          "description": "Plan currency (ISO 4217)."
+        },
+        "premium": {
+          "type": "boolean",
+          "description": "Premium licence active (enables graduated_percentage, per-transaction min/max, pricing units, minimum amounts).",
+          "default": false
+        },
+        "prorated": {
+          "type": "boolean",
+          "description": "Charge is prorated.",
+          "default": false
+        },
+        "recurring": {
+          "type": "boolean",
+          "description": "The metric is recurring.",
+          "default": false
+        },
+        "aggregation": {
+          "$ref": "pricing.charge_model.schema.json#/$defs/aggregation"
+        },
+        "current": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "amount_cents": {
+              "$ref": "../common.schema.json#/$defs/cents"
+            },
+            "units": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            }
+          },
+          "description": "Current fee values (used for recurring metrics).",
+          "default": {
+            "amount_cents": 0,
+            "units": "0"
+          }
+        },
+        "now": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Current instant."
+        },
+        "from": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Period start."
+        },
+        "to": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Period end."
+        },
+        "charges_duration_days": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Charges period length in days."
+        },
+        "timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone",
+          "description": "Customer time zone.",
+          "default": "UTC"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "period_ratio": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "projected_units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "projected_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "EPC-07-value-corpus",
+  "id": "EPC-07",
+  "description": "The value corpus (properties.amount literal -> value string) through a sum metric, no subscription.",
+  "rules": ["EP-C5", "EP-F2"],
+  "rbd": ["RBD-13", "RBD-14"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "v_int_42", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 42}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_int_999999", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 999999}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_int_1e6", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1000000}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_int_12345678", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 12345678}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_int_1e12_minus_1", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 999999999999}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_int_1e12", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1000000000000}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_int_2p53_plus_1", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 9007199254740993}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_int_20_digits", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 12345678901234567890}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_exp_1e21", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1e21}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_dec_0.1", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 0.1}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_dec_0.0001", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 0.0001}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_dec_1e-5", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 0.00001}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_dec_1e-7", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 0.0000001}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_dec_1234567.5", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1234567.5}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_dec_2.0", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 2.0}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_dec_18_sig", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 0.123456789012345678}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_neg_5", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": -5}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_neg_1e12", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": -1000000000000}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_str_12", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": "12"}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_str_1000000", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": "1000000"}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_str_1e12", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": "1000000000000"}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_str_exp", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": "1e6"}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_str_abc", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": "abc"}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_null", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": null}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_missing", "code": "api_calls", "timestamp": "1759320000", "properties": {}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_bool_true", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": true}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "v_object", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": {"x":1}}, "external_subscription_id": "no_such_sub"}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

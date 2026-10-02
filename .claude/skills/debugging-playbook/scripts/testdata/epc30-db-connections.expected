@@ -1,0 +1,30 @@
+== events-processor log triage: epc30-db-connections.log
+lines: 21 (json 21, of which service=post_process 21; plain 0; unrecognised 0; # comments skipped 6)
+levels: ERROR=10 WARN=1 INFO=10 DEBUG=0
+time: 2026-10-02T17:08:12.722078227Z .. 2026-10-02T17:08:17.696073917Z
+lifecycle: starts=1 shutdown_signals=1 stopped=1
+== startup / crash
+  none
+== per-event failures by error_code
+  error_code                      lines   to-DLQ  retryable
+  fetch_billable_metric               5        0          5
+      e.g.    5  failed to connect to `user=epconf_iut database=epconf_22588`:  127.0.0.1:5432 (localhost): server error: FA...
+  NOTE: 5 retryable line(s): not committed and not on the DLQ while ingested_at < 12 h; skipped forever if a later batch on the partition commits (loss-retryable-skip)
+  NOTE: 5 line(s) carry SQLSTATE 53300 (Postgres connection limit): DB pool x replicas above the database budget (loss-db-connections)
+== silent-loss signals
+  dropped, committed, NO DLQ (Error unmarshalling message)           0
+  head-of-batch retryable, commit skipped (No commitable record)     1
+  produce failed -> DLQ row with empty error_code                    0
+  DLQ produce failed too -> Sentry only, LOST                        0
+  not serialisable (NaN/Inf timestamp) -> committed, NO DLQ          0
+  main consumer fetch error -> process panic                         0
+  offset commit errors (redelivery = duplicates)                     0
+== memory-cache mode
+  not active in this log (no snapshot / CDC lines): DB mode (dev), or the process start is not in this log.
+  Production runs memory-cache mode: capture the log from pod start (kubectl logs --previous for a restarted pod).
+== other ERROR/WARN messages
+      5  [db] ERROR failed to connect to `user=epconf_iut database=epconf_22588`:  127.0.0.1:5432 (localhost): server...
+== playbook entries (explain-error.sh on each distinct ERROR/WARN/panic line)
+  loss-db-connections          2  Postgres refused a new connection (SQLSTATE 53300): in DB mode every lookup that needed one fails RETRYABLY, and a later commit on the partition skips those offsets forever (silent loss of most of a burst, no DLQ)
+  loss-retryable-skip          1  the FIRST record of a batch failed retryably, so nothing was committed; if any later batch on that partition commits, the failed offset is skipped forever (no DLQ, no retry)
+  (3 distinct line(s) examined; details: explain-error.sh --id <id>)

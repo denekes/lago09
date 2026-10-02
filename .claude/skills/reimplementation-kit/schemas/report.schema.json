@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "report.schema.json",
+  "title": "kitrun report (--report FILE)",
+  "type": "object",
+  "required": ["kitrun_version", "proto", "kit_version", "started_at", "finished_at", "impl", "profile", "exit_code", "areas", "vectors"],
+  "properties": {
+    "kitrun_version": {"type": "string"},
+    "proto": {"const": 1},
+    "kit_version": {"type": "string"},
+    "kit_schema": {"const": 1},
+    "started_at": {"$ref": "common.schema.json#/$defs/instant"},
+    "finished_at": {"$ref": "common.schema.json#/$defs/instant"},
+    "impl": {
+      "type": "object",
+      "required": ["cmd", "name", "version", "profiles", "ops"],
+      "properties": {
+        "cmd": {"type": "string"},
+        "name": {"type": "string"},
+        "version": {"type": "string"},
+        "profiles": {"type": "array", "items": {"type": "string"}},
+        "ops": {"type": "array", "items": {"type": "string"}},
+        "restarts": {"type": "integer", "minimum": 0}
+      }
+    },
+    "profile": {"$ref": "common.schema.json#/$defs/run_profile"},
+    "selection": {
+      "type": "object",
+      "properties": {
+        "files": {"type": "array", "items": {"type": "string"}},
+        "areas": {"type": ["array", "null"], "items": {"type": "string"}},
+        "only": {"type": ["string", "null"]},
+        "holdout": {"type": "boolean"}
+      }
+    },
+    "exit_code": {"enum": [0, 2, 3, 4]},
+    "areas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["area", "set", "total", "pass", "fail", "error", "timeout", "skip", "unruled", "rate", "core_rate", "threshold", "verdict"],
+        "properties": {
+          "area": {"type": "string"},
+          "set": {"enum": ["shipped", "holdout"]},
+          "total": {"type": "integer"},
+          "pass": {"type": "integer"},
+          "fail": {"type": "integer"},
+          "error": {"type": "integer"},
+          "timeout": {"type": "integer"},
+          "skip": {"type": "integer"},
+          "unruled": {"type": "integer"},
+          "rate": {"type": ["number", "null"], "description": "PASS / (TOTAL - UNRULED), 0..1"},
+          "core_rate": {"type": ["number", "null"]},
+          "threshold": {"type": ["number", "null"]},
+          "verdict": {"enum": ["PASS", "FAIL", "INFO"]}
+        }
+      }
+    },
+    "vectors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "area", "op", "status", "ms"],
+        "properties": {
+          "id": {"type": "string"},
+          "area": {"type": "string"},
+          "op": {"type": "string"},
+          "set": {"enum": ["shipped", "holdout"]},
+          "status": {"enum": ["PASS", "FAIL", "ERROR", "TIMEOUT", "SKIP", "UNRULED"]},
+          "unruled_outcome": {"enum": ["PASS", "FAIL", "ERROR", "TIMEOUT", "SKIP"]},
+          "ms": {"type": "integer", "minimum": 0},
+          "diffs": {"type": "array", "items": {"type": "string"}},
+          "warnings": {"type": "array", "items": {"type": "string"}},
+          "adapter_error": {"type": ["object", "null"]},
+          "stderr_tail": {"type": "string"}
+        }
+      }
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  }
+}

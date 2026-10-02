@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/system.reset.schema.json",
+  "title": "system.reset",
+  "description": "Erase every tenant of the implementation and create one empty tenant (one organization, one billing entity, one API key, no webhook endpoint) with the given settings (scenario-tier.md section 3).",
+  "x-kit": {
+    "area": "system",
+    "op": "reset",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "reimplementation-kit reference/scenario-tier.md (scenario tier)",
+    "stateful": true
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "organization",
+        "premium",
+        "store"
+      ],
+      "properties": {
+        "organization": {
+          "$ref": "../scenario.schema.json#/$defs/tenant_settings"
+        },
+        "billing_entity": {
+          "$ref": "../scenario.schema.json#/$defs/tenant_settings",
+          "x-kit-absent": "the billing entity takes the organization settings"
+        },
+        "premium": {
+          "type": "boolean"
+        },
+        "store": {
+          "enum": [
+            "pg",
+            "ch"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    }
+  }
+}

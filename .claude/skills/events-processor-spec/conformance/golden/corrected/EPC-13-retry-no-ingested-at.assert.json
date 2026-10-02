@@ -1,0 +1,4 @@
+[
+ {"kind": "all_done", "why": "a record without ingested_at is dispositioned", "rbd": ["RBD-3"], "ruling": "decided"},
+ {"kind": "done_with_cause", "tx": "f_noing", "why": "enriched after an in-place retry, or dead-lettered with a cause (age rule for a missing ingested_at: KQ-4)", "rbd": ["RBD-3"], "ruling": "decided"}
+]

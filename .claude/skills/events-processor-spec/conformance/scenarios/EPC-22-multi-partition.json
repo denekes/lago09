@@ -1,0 +1,24 @@
+{
+  "name": "EPC-22-multi-partition",
+  "id": "EPC-22",
+  "description": "Three raw partitions; per-partition commit; a dead-letter-bound record in partition 1 does not block it.",
+  "rules": ["EP-B5", "EP-B6"],
+  "rbd": [],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "partitions": 3,
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "mp0_0", "code": "count_calls", "timestamp": "1759320000"}, "partition": 0},
+      {"json": {"transaction_id": "mp0_1", "code": "count_calls", "timestamp": "1759320000"}, "partition": 0},
+      {"json": {"transaction_id": "mp0_2", "code": "count_calls", "timestamp": "1759320000"}, "partition": 0},
+      {"json": {"transaction_id": "mp1_0", "code": "count_calls", "timestamp": "1759320000"}, "partition": 1},
+      {"json": {"transaction_id": "mp1_1", "code": "nope", "timestamp": "1759320000"}, "partition": 1},
+      {"json": {"transaction_id": "mp1_2", "code": "count_calls", "timestamp": "1759320000"}, "partition": 1},
+      {"json": {"transaction_id": "mp2_0", "code": "count_calls", "timestamp": "1759320000"}, "partition": 2},
+      {"json": {"transaction_id": "mp2_1", "code": "count_calls", "timestamp": "1759320000"}, "partition": 2},
+      {"json": {"transaction_id": "mp2_2", "code": "count_calls", "timestamp": "1759320000"}, "partition": 2}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

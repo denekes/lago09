@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/api.pagination_meta.schema.json",
+  "title": "api.pagination_meta",
+  "description": "Pagination of an index endpoint (BE-API-21..27): the `meta` block and the number of items on the page for a list of `total_count` matching records, given the raw `page` and `per_page` query values. page = integer prefix of the value read leniently (leading whitespace and a sign accepted; no digits -> 0), absent or below 1 -> 1; per_page absent -> 100; a value starting with a digit -> its leading integer (0 allowed); any other value (including a negative one) -> 25. meta: if total_count > 0, total_pages = ceil(total_count / per_page), next_page = page + 1 when page < total_pages else null, prev_page = page - 1 when page > 1 else null; if total_count = 0 every field is 0/null. per_page 0 with total_count > 0 is an unhandled failure (error server_error, HTTP 500). With `cached_count` (indexes that cache their count) the cached value replaces total_count only when cached_count > per_page x page, both taken as integer prefixes of the raw values (absent page 1, absent per_page 100, no digits 0), not the normalised ones.",
+  "x-kit": {
+    "area": "api",
+    "op": "pagination_meta",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/11-rest-api.md (BE-API)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_count"
+      ],
+      "properties": {
+        "total_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of records matching the request's filters."
+        },
+        "page": {
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ],
+          "x-kit-absent": "no page parameter (page 1)",
+          "description": "Raw value of the `page` query parameter (a string as sent; an integer is read as its decimal text)."
+        },
+        "per_page": {
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ],
+          "x-kit-absent": "no per_page parameter (100 per page)",
+          "description": "Raw value of the `per_page` query parameter."
+        },
+        "cached_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "x-kit-absent": "nothing cached (or an index without a count cache)",
+          "description": "Count already cached under this request's count-cache key (invoices and fees indexes, BE-API-26)."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "meta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "current_page": {
+              "type": "integer"
+            },
+            "next_page": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "prev_page": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "total_pages": {
+              "type": "integer"
+            },
+            "total_count": {
+              "type": "integer"
+            }
+          }
+        },
+        "items": {
+          "type": "integer",
+          "description": "Records returned on the requested page."
+        }
+      }
+    }
+  }
+}

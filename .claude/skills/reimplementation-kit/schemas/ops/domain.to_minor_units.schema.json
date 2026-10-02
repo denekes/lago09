@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.to_minor_units.schema.json",
+  "title": "domain.to_minor_units",
+  "description": "Major-unit amount to minor units (BE-DM-23, BE-DM-24): amount_cents = round(amount, exponent) x 10^exponent with ties rounded away from zero (also for negatives); precise_amount_cents = amount x 10^exponent, unrounded. Defined for currencies whose minor unit is a power of ten (not MRO).",
+  "x-kit": {
+    "area": "domain",
+    "op": "to_minor_units",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Amount in major units."
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "description": "ISO 4217 code."
+        }
+      },
+      "required": [
+        "amount",
+        "currency"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "precise_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

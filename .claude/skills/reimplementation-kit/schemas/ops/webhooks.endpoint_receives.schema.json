@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/webhooks.endpoint_receives.schema.json",
+  "title": "webhooks.endpoint_receives",
+  "description": "Whether an endpoint with a stored event-type filter receives an emitted webhook (BE-WH-6): null -> always; otherwise iff the emitted webhook_type string is an element of the stored list ([] -> never). The comparison uses the EMITTED type string, which differs from the configured name for one event (BE-WH-7).",
+  "x-kit": {
+    "area": "webhooks",
+    "op": "endpoint_receives",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/12-webhooks.md (BE-WH)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_types",
+        "webhook_type"
+      ],
+      "properties": {
+        "event_types": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Stored filter (after normalisation)."
+        },
+        "webhook_type": {
+          "type": "string",
+          "description": "Emitted webhook_type string."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "receives": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

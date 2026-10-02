@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.simulate.schema.json",
+  "title": "pricing.simulate",
+  "description": "Price simulator (BE-PR-84): prices `units` with the charge's properties (defaults when empty). charge_amount_cents is in MAJOR units in the reference; subscription_amount_cents is the plan amount in cents.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "simulate",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model",
+        "properties",
+        "units"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "enum": [
+            "standard",
+            "graduated",
+            "graduated_percentage",
+            "package",
+            "percentage",
+            "volume",
+            "dynamic",
+            "custom"
+          ],
+          "description": "Charge model."
+        },
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Charge properties ({} = defaults)."
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "default": "EUR",
+          "description": "Plan currency (ISO 4217)."
+        },
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Units to price."
+        },
+        "plan_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents",
+          "description": "Plan amount.",
+          "default": 0
+        },
+        "premium": {
+          "type": "boolean",
+          "description": "Premium licence active (enables graduated_percentage, per-transaction min/max, pricing units, minimum amounts).",
+          "default": false
+        },
+        "metric_aggregation_type": {
+          "enum": [
+            "count_agg",
+            "sum_agg",
+            "max_agg",
+            "unique_count_agg",
+            "weighted_sum_agg",
+            "latest_agg",
+            "custom_agg"
+          ],
+          "description": "Aggregation type of the metric.",
+          "default": "sum_agg"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "charge_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "subscription_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "total_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        }
+      }
+    }
+  }
+}

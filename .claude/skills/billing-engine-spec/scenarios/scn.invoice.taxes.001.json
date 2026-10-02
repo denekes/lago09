@@ -1,0 +1,44 @@
+{
+  "kit_schema": 1,
+  "id": "scn.invoice.taxes.001",
+  "area": "scn",
+  "title": "plan tax vs charge taxes, charge minimum true-up and a fixed coupon on a monthly arrears invoice",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-DM-27","BE-DM-28","BE-PR-59","BE-PR-60","BE-PR-61","BE-IV-10","BE-IV-11","BE-IV-12","BE-IV-13","BE-IV-25"],
+  "rbd": ["RBD-69"],
+  "tags": ["core","premium"],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/taxes_on_invoice_spec.rb:14","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2023-01-01T00:00:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": true,
+    "store": "pg"
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/taxes","body":{"tax":{"name":"Banking rates","code":"banking_rates","rate":10.0}}},
+    {"op":"api","method":"POST","path":"/api/v1/taxes","body":{"tax":{"name":"Sales tax - FR","code":"sales_tax_fr","rate":0.0}}},
+    {"op":"api","method":"POST","path":"/api/v1/taxes","body":{"tax":{"name":"Sales tax","code":"sales_tax","rate":20.0}}},
+    {"op":"api","method":"POST","path":"/api/v1/customers","body":{"customer":{"external_id":"customer-1"}}},
+    {"op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"FX Transfers","code":"fx_transfers","aggregation_type":"sum_agg","field_name":"total"}},"capture":{"v1":"billable_metric.lago_id"}},
+    {"op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"Cards","code":"cards","aggregation_type":"count_agg"}},"capture":{"v2":"billable_metric.lago_id"}},
+    {"op":"api","method":"POST","path":"/api/v1/plans","body":{"plan":{"name":"P1","code":"plan_code","interval":"monthly","amount_cents":10000,"amount_currency":"EUR","pay_in_advance":false,"tax_codes":["banking_rates"],"charges":[{"billable_metric_id":"{{v1}}","charge_model":"standard","properties":{"amount":"1"},"tax_codes":["sales_tax_fr"]},{"billable_metric_id":"{{v2}}","charge_model":"standard","min_amount_cents":5000,"properties":{"amount":"30"},"tax_codes":["sales_tax"]}]}}},
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"customer-1","external_id":"sub_external_id","plan_code":"plan_code"}}},
+    {"op":"api","method":"POST","path":"/api/v1/coupons","body":{"coupon":{"name":"coupon1","code":"coupon1_code","coupon_type":"fixed_amount","frequency":"once","amount_cents":1000,"amount_currency":"EUR","expiration":"time_limit","expiration_at":"2023-01-16T00:00:00.000Z","reusable":false}}},
+    {"op":"api","method":"POST","path":"/api/v1/applied_coupons","body":{"applied_coupon":{"external_customer_id":"customer-1","coupon_code":"coupon1_code"}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"fx_transfers","transaction_id":"tx_1","external_subscription_id":"sub_external_id","properties":{"total":50}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"cards","transaction_id":"tx_2","external_subscription_id":"sub_external_id"}}},
+    {"at":"2023-02-01T00:00:00Z","op":"tick","jobs":["billing"]}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2023-02-01","payment_due_date":"2023-02-01","currency":"EUR","fees_amount_cents":20000,"coupons_amount_cents":1000,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":1900,"sub_total_excluding_taxes_amount_cents":19000,"sub_total_including_taxes_amount_cents":20900,"total_amount_cents":20900,"total_due_amount_cents":20900,"billing_periods":[{"subscription_from_datetime":"2023-01-01T00:00:00Z","subscription_to_datetime":"2023-01-31T23:59:59Z","charges_from_datetime":"2023-01-01T00:00:00Z","charges_to_datetime":"2023-01-31T23:59:59Z","invoicing_reason":"subscription_periodic"}],"fees":[{"item":{"type":"charge","code":"fx_transfers"},"amount_cents":5000,"units":"50.0","events_count":1,"taxes_amount_cents":0,"precise_coupons_amount_cents":"250.0","from_date":"2023-01-01T00:00:00+00:00","to_date":"2023-01-31T23:59:59+00:00"},{"item":{"type":"subscription"},"amount_cents":10000,"units":"1.0","taxes_amount_cents":950,"taxes_rate":10.0,"precise_coupons_amount_cents":"500.0","from_date":"2023-01-01T00:00:00+00:00","to_date":"2023-01-31T23:59:59+00:00"},{"item":{"type":"charge","code":"cards"},"amount_cents":3000,"units":"1.0","events_count":1,"taxes_amount_cents":570,"taxes_rate":20.0,"precise_coupons_amount_cents":"150.0","from_date":"2023-01-01T00:00:00+00:00","to_date":"2023-01-31T23:59:59+00:00"},{"item":{"type":"charge","code":"cards"},"amount_cents":2000,"units":"1.0","events_count":0,"taxes_amount_cents":380,"taxes_rate":20.0,"precise_coupons_amount_cents":"100.0","from_date":"2023-01-01T00:00:00+00:00","to_date":"2023-01-31T23:59:59+00:00"}],"applied_taxes":[{"tax_code":"banking_rates","tax_rate":10.0,"amount_cents":950,"fees_amount_cents":9500},{"tax_code":"sales_tax_fr","tax_rate":0.0,"amount_cents":0,"fees_amount_cents":4750},{"tax_code":"sales_tax","tax_rate":20.0,"amount_cents":950,"fees_amount_cents":4750}],"credits":[{"amount_cents":1000,"item":{"type":"coupon","code":"coupon1_code"},"before_taxes":true}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": []
+  },
+  "compare": {"invoices[*].fees":{"mode":"set"},"invoices[*].applied_taxes":{"mode":"set"}}
+}

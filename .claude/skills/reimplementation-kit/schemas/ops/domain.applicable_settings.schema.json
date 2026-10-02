@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.applicable_settings.schema.json",
+  "title": "domain.applicable_settings",
+  "description": "Settings a customer actually uses (BE-DM-11): each customer value wins when present (an integer 0 is present; a blank time zone is not), else the billing-entity value applies. Billing-entity values absent from the input take the billing-entity defaults: timezone UTC, invoice_grace_period 0, net_payment_term 0, anchor next_period_start, adjustment align_with_finalization_date, document_locale en. A billing-entity grace period given as null still yields 0. Every customer field absent from the input means not set.",
+  "x-kit": {
+    "area": "domain",
+    "op": "applicable_settings",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "customer": {
+          "type": "object",
+          "properties": {
+            "timezone": {
+              "anyOf": [
+                {
+                  "$ref": "../common.schema.json#/$defs/timezone"
+                },
+                {
+                  "const": ""
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IANA zone; blank counts as not set."
+            },
+            "invoice_grace_period": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Days a subscription invoice stays draft."
+            },
+            "net_payment_term": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Days between issuing date and payment due date."
+            },
+            "subscription_invoice_issuing_date_anchor": {
+              "enum": [
+                "current_period_end",
+                "next_period_start",
+                null
+              ]
+            },
+            "subscription_invoice_issuing_date_adjustment": {
+              "enum": [
+                "keep_anchor",
+                "align_with_finalization_date",
+                null
+              ]
+            },
+            "document_locale": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Document language code (e.g. en, fr)."
+            }
+          },
+          "additionalProperties": false,
+          "description": "Customer-level settings; absent keys mean not set."
+        },
+        "billing_entity": {
+          "type": "object",
+          "properties": {
+            "timezone": {
+              "anyOf": [
+                {
+                  "$ref": "../common.schema.json#/$defs/timezone"
+                },
+                {
+                  "const": ""
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IANA zone; blank counts as not set."
+            },
+            "invoice_grace_period": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Days a subscription invoice stays draft."
+            },
+            "net_payment_term": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Days between issuing date and payment due date."
+            },
+            "subscription_invoice_issuing_date_anchor": {
+              "enum": [
+                "current_period_end",
+                "next_period_start",
+                null
+              ]
+            },
+            "subscription_invoice_issuing_date_adjustment": {
+              "enum": [
+                "keep_anchor",
+                "align_with_finalization_date",
+                null
+              ]
+            },
+            "document_locale": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Document language code (e.g. en, fr)."
+            }
+          },
+          "additionalProperties": false,
+          "description": "Billing-entity settings; absent keys take the billing-entity defaults."
+        }
+      },
+      "required": [
+        "customer",
+        "billing_entity"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone"
+        },
+        "invoice_grace_period": {
+          "type": "integer"
+        },
+        "net_payment_term": {
+          "type": "integer"
+        },
+        "subscription_invoice_issuing_date_anchor": {
+          "enum": [
+            "current_period_end",
+            "next_period_start"
+          ]
+        },
+        "subscription_invoice_issuing_date_adjustment": {
+          "enum": [
+            "keep_anchor",
+            "align_with_finalization_date"
+          ]
+        },
+        "document_locale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

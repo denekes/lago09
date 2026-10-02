@@ -1,0 +1,3 @@
+[
+ {"kind": "all_done", "why": "a failed dead-letter produce is SYSTEMIC: never commit a record that reached no topic", "rbd": ["RBD-5"], "ruling": "decided"}
+]

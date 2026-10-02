@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/webhooks.payload_envelope.schema.json",
+  "title": "webhooks.payload_envelope",
+  "description": "Body POSTed for an emitted webhook (BE-WH-9): the JSON object {\"webhook_type\": <type>, \"object_type\": <object_type>, \"organization_id\": <organization id>, <object_type>: <serialized object>} in exactly this key order, encoded per BE-WH-12.",
+  "x-kit": {
+    "area": "webhooks",
+    "op": "payload_envelope",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/12-webhooks.md (BE-WH)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "webhook_type",
+        "object_type",
+        "organization_id",
+        "object_json"
+      ],
+      "properties": {
+        "webhook_type": {
+          "type": "string"
+        },
+        "object_type": {
+          "type": "string"
+        },
+        "organization_id": {
+          "type": "string",
+          "description": "Organization UUID."
+        },
+        "object_json": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "description": "Serialized object (JSON text)."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "webhook_type": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

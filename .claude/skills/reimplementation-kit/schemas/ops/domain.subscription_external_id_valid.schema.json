@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.subscription_external_id_valid.schema.json",
+  "title": "domain.subscription_external_id_valid",
+  "description": "Subscription external-id rule (BE-DM-55), checked when a subscription enters a status: a subscription entering active or incomplete is invalid (value_already_exist) when another subscription of the same organization with the SAME status already has that external id; other statuses never conflict.",
+  "x-kit": {
+    "area": "domain",
+    "op": "subscription_external_id_valid",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "existing": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "external_id",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "external_id": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "active",
+                  "terminated",
+                  "canceled",
+                  "incomplete"
+                ]
+              },
+              "other_customer": {
+                "type": "boolean",
+                "default": false,
+                "description": "Belongs to another customer of the same organization."
+              }
+            }
+          }
+        },
+        "candidate": {
+          "type": "object",
+          "required": [
+            "external_id",
+            "status"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "external_id": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "active",
+                "terminated",
+                "canceled",
+                "incomplete"
+              ]
+            }
+          }
+        }
+      },
+      "required": [
+        "existing",
+        "candidate"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "First error code on the code attribute (value_already_exist), or null/absent when valid."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

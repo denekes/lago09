@@ -1,0 +1,41 @@
+{
+  "kit_schema": 1,
+  "id": "scn.usage.percentage.001",
+  "area": "scn",
+  "title": "current usage, percentage model with free events, free amount and fixed fee",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-PR-27","BE-PR-28","BE-PR-29"],
+  "rbd": [],
+  "tags": [],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/current_usage/by_charge_model/percentage_spec.rb:187","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2023-03-05T00:00:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": false,
+    "store": "pg",
+    "taxes": [{"name":"VAT","code":"tax_1","rate":20.0,"applied_to_organization":true}],
+    "billable_metrics": [{"name":"metric_1","code":"metric_1","aggregation_type":"sum_agg","field_name":"amount"}],
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":1000,"amount_currency":"EUR","pay_in_advance":false,"charges":[{"code":"charge_1","billable_metric_id":"{{bm:metric_1}}","charge_model":"percentage","properties":{"rate":"1","fixed_amount":"5","free_units_per_events":3,"free_units_per_total_aggregation":"15.0"}}]}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1"}}},
+    {"at":"2023-03-06T00:00:00Z","op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_1","external_subscription_id":"cust_1","properties":{"amount":"1"}}}},
+    {"op":"api","method":"GET","path":"/api/v1/customers/cust_1/current_usage","query":{"external_subscription_id":"cust_1"},"expect":{"status":200,"body":{"customer_usage":{"from_datetime":"2023-03-05T00:00:00Z","to_datetime":"2023-03-31T23:59:59Z","issuing_date":"2023-03-31","currency":"EUR","amount_cents":0,"total_amount_cents":0,"taxes_amount_cents":0,"charges_usage":[{"units":"1.0","total_aggregated_units":"1.0","events_count":1,"amount_cents":0,"amount_currency":"EUR","charge":{"code":"charge_1","charge_model":"percentage"},"billable_metric":{"code":"metric_1","aggregation_type":"sum_agg"},"filters":[]}]}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_2","external_subscription_id":"cust_1","properties":{"amount":"1"}}}},
+    {"op":"api","method":"GET","path":"/api/v1/customers/cust_1/current_usage","query":{"external_subscription_id":"cust_1"},"expect":{"status":200,"body":{"customer_usage":{"from_datetime":"2023-03-05T00:00:00Z","to_datetime":"2023-03-31T23:59:59Z","issuing_date":"2023-03-31","currency":"EUR","amount_cents":0,"total_amount_cents":0,"taxes_amount_cents":0,"charges_usage":[{"units":"2.0","total_aggregated_units":"2.0","events_count":2,"amount_cents":0,"amount_currency":"EUR","charge":{"code":"charge_1","charge_model":"percentage"},"billable_metric":{"code":"metric_1","aggregation_type":"sum_agg"},"filters":[]}]}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_3","external_subscription_id":"cust_1","properties":{"amount":"1"}}}},
+    {"op":"api","method":"GET","path":"/api/v1/customers/cust_1/current_usage","query":{"external_subscription_id":"cust_1"},"expect":{"status":200,"body":{"customer_usage":{"from_datetime":"2023-03-05T00:00:00Z","to_datetime":"2023-03-31T23:59:59Z","issuing_date":"2023-03-31","currency":"EUR","amount_cents":0,"total_amount_cents":0,"taxes_amount_cents":0,"charges_usage":[{"units":"3.0","total_aggregated_units":"3.0","events_count":3,"amount_cents":0,"amount_currency":"EUR","charge":{"code":"charge_1","charge_model":"percentage"},"billable_metric":{"code":"metric_1","aggregation_type":"sum_agg"},"filters":[]}]}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_4","external_subscription_id":"cust_1","properties":{"amount":"1"}}}},
+    {"op":"api","method":"GET","path":"/api/v1/customers/cust_1/current_usage","query":{"external_subscription_id":"cust_1"},"expect":{"status":200,"body":{"customer_usage":{"from_datetime":"2023-03-05T00:00:00Z","to_datetime":"2023-03-31T23:59:59Z","issuing_date":"2023-03-31","currency":"EUR","amount_cents":501,"total_amount_cents":601,"taxes_amount_cents":100,"charges_usage":[{"units":"4.0","total_aggregated_units":"4.0","events_count":4,"amount_cents":501,"amount_currency":"EUR","charge":{"code":"charge_1","charge_model":"percentage"},"billable_metric":{"code":"metric_1","aggregation_type":"sum_agg"},"filters":[]}]}}}}
+  ],
+  "expect": {
+    "invoices": [],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": []
+  }
+}

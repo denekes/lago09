@@ -1,0 +1,31 @@
+== events-processor log triage: epc08-time-formats.log
+lines: 18 (json 18, of which service=post_process 18; plain 0; unrecognised 0; # comments skipped 4)
+levels: ERROR=8 WARN=0 INFO=10 DEBUG=0
+time: 2026-10-02T11:28:48.601857367Z .. 2026-10-02T11:28:49.839397015Z
+lifecycle: starts=1 shutdown_signals=1 stopped=1
+== startup / crash
+  none
+== per-event failures by error_code
+  error_code                      lines   to-DLQ  retryable
+  build_enriched_event                6        6          0
+      e.g.    2  Unsupported timestamp type: <nil>
+      e.g.    1  Unsupported timestamp type: bool
+      e.g.    1  Unsupported timestamp type: map[string]interface {}
+      e.g.       (+2 more distinct)
+== silent-loss signals
+  dropped, committed, NO DLQ (Error unmarshalling message)           0
+  head-of-batch retryable, commit skipped (No commitable record)     0
+  produce failed -> DLQ row with empty error_code                    0
+  DLQ produce failed too -> Sentry only, LOST                        0
+  not serialisable (NaN/Inf timestamp) -> committed, NO DLQ          2
+  main consumer fetch error -> process panic                         0
+  offset commit errors (redelivery = duplicates)                     0
+== memory-cache mode
+  not active in this log (no snapshot / CDC lines): DB mode (dev), or the process start is not in this log.
+  Production runs memory-cache mode: capture the log from pod start (kubectl logs --previous for a restarted pod).
+== other ERROR/WARN messages
+  none
+== playbook entries (explain-error.sh on each distinct ERROR/WARN/panic line)
+  dlq-build-enriched-event     5  event timestamp unparsable or of an unsupported type -> DLQ (non-retryable)
+  loss-nonfinite-timestamp     1  an enriched (or in-advance) record could not be serialised: nothing is produced, no DLQ row, the offset is committed = LOST; the line carries no error, error_code or transaction_id
+  (6 distinct line(s) examined; details: explain-error.sh --id <id>)

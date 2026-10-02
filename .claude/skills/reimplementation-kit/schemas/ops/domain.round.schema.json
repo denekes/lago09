@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.round.schema.json",
+  "title": "domain.round",
+  "description": "Round a decimal at a precision: round (half away from zero), ceil, floor. `precision` is the number of decimal places kept; a negative precision rounds to tens (-1), hundreds (-2), ...; absent or null means 0. `round` goes to the nearest multiple with ties away from zero, also for negatives (-0.125 at 2 -> -0.13, -2.5 at 0 -> -3); `ceil` goes towards plus infinity (-1.239 at 2 -> -1.23); `floor` towards minus infinity (-1.231 at 2 -> -1.24). The result's trailing zeros are not significant.",
+  "x-kit": {
+    "area": "domain",
+    "op": "round",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "The decimal to round (canonical decimal string)."
+        },
+        "mode": {
+          "enum": [
+            "round",
+            "ceil",
+            "floor"
+          ],
+          "description": "round | ceil | floor."
+        },
+        "precision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": 0,
+          "description": "Decimal places kept; negative = tens, hundreds, ...; null or absent = 0."
+        }
+      },
+      "required": [
+        "value",
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "The rounded value (canonical decimal; compared numerically)."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

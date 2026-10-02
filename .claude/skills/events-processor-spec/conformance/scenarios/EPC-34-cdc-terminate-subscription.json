@@ -1,0 +1,23 @@
+{
+  "name": "EPC-34-cdc-terminate-subscription",
+  "id": "EPC-34",
+  "description": "Memory-cache mode: terminating a subscription through CDC.",
+  "rules": ["EP-N6", "EP-H1"],
+  "rbd": [],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "modes": ["cache"],
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "before_term", "code": "count_calls", "timestamp": "1751328000"}}
+    ]},
+    {"wait": "quiescent"},
+    {"cdc": {"table": "subscriptions", "row": {"id": "bbbbbbbb-0000-0000-0000-000000000001", "organization_id": "11111111-1111-1111-1111-111111111111", "external_id": "sub_ext_1", "plan_id": "22222222-2222-2222-2222-222222222222", "created_at": "$NOW_US", "updated_at": "$NOW_US", "started_at": 1735689600000500, "terminated_at": 1748736000000000, "__deleted": "false", "__table": "subscriptions", "__lsn": 4}}},
+    {"wait_cdc_applied": "subscriptions"},
+    {"produce": [
+      {"json": {"transaction_id": "after_term", "code": "count_calls", "timestamp": "1751328000"}},
+      {"json": {"transaction_id": "inside_window", "code": "count_calls", "timestamp": "1740000000"}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/api.authorize.schema.json",
+  "title": "api.authorize",
+  "description": "Permission check of an authenticated API request (BE-API-6). mode = read for GET, write for every other method. The check applies only when the organization has the premium integration api_permissions AND the premium licence is active; then the key's permissions[resource] must contain the mode, else 403 {status:403, error:'Forbidden', code:'<mode>_action_not_allowed_for_<resource>'}. Otherwise every key may do everything. A key created without explicit permissions holds every resource with both modes.",
+  "x-kit": {
+    "area": "api",
+    "op": "authorize",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/11-rest-api.md (BE-API)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "resource"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ]
+        },
+        "resource": {
+          "type": "string",
+          "description": "Resource name of the endpoint (e.g. invoice, customer, webhook_endpoint)."
+        },
+        "premium": {
+          "type": "boolean",
+          "default": false,
+          "description": "Premium licence active."
+        },
+        "premium_integrations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Organization's premium integrations."
+        },
+        "permissions": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "x-kit-absent": "the key's default permissions (all resources, read and write)",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "read",
+                "write"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "http_status": {
+          "type": "integer"
+        },
+        "body_json": {
+          "$ref": "../common.schema.json#/$defs/json_text"
+        }
+      }
+    }
+  }
+}

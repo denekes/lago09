@@ -1,0 +1,4 @@
+[
+ {"kind": "on_dlq", "tx": "f_enr", "why": "a record-specific broker rejection is PERMANENT: dead-letter with a non-empty cause", "rbd": ["RBD-6"], "ruling": "decided"},
+ {"kind": "not_in_advance", "tx": "f_enr", "why": "the in-advance record is produced only after the enriched produce succeeded", "rbd": ["RBD-6"], "ruling": "decided"}
+]

@@ -1,0 +1,3 @@
+[
+ {"kind": "startup_exit", "why": "a broken configuration or an unreachable dependency stops the process with a non-zero status before it joins the group", "rbd": ["RBD-23"], "ruling": "decided"}
+]

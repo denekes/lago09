@@ -1,0 +1,5 @@
+[
+ {"kind": "on_dlq", "tx": "t_nan", "why": "a non-finite timestamp is a PERMANENT failure: dead-letter with a cause, never a silent commit", "rbd": ["RBD-4"], "ruling": "decided"},
+ {"kind": "on_dlq", "tx": "t_inf", "why": "a non-finite timestamp is a PERMANENT failure: dead-letter with a cause, never a silent commit", "rbd": ["RBD-4"], "ruling": "decided"},
+ {"kind": "all_done", "why": "every timestamp shape ends enriched or dead-lettered", "rbd": ["RBD-4"], "ruling": "decided"}
+]

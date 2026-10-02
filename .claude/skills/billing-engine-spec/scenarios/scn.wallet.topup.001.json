@@ -1,0 +1,39 @@
+{
+  "kit_schema": 1,
+  "id": "scn.wallet.topup.001",
+  "area": "scn",
+  "title": "paid credit top-up amounts are rounded",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-WL-9"],
+  "rbd": ["RBD-81"],
+  "tags": ["premium"],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/wallets/topup_with_rounding_spec.rb:16","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2025-01-01T00:00:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": true,
+    "store": "pg",
+    "customers": [{"external_id":"customer_123","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/wallets","body":{"wallet":{"external_customer_id":"customer_123","rate_amount":"1","name":"Wallet1","currency":"EUR","invoice_requires_successful_payment":false}},"capture":{"v1":"wallet.lago_id"}},
+    {"op":"api","method":"POST","path":"/api/v1/wallet_transactions","body":{"wallet_transaction":{"wallet_id":"{{v1}}","paid_credits":"17.9699999999999988631316","invoice_requires_successful_payment":false,"metadata":[{"key":"transaction_id","value":"123"}]}}},
+    {"op":"snapshot","expect":{"invoices":[{"invoice_type":"credit","status":"finalized","payment_status":"pending","total_amount_cents":1797}],"wallet_transactions":[{"status":"pending","transaction_status":"purchased","transaction_type":"inbound","source":"manual","amount":"17.97","credit_amount":"17.97","priority":50}]},"note":"the purchased credits stay pending until the credit invoice is paid"},
+    {"op":"api","method":"PUT","path":"/api/v1/invoices/{{b1_3}}","body":{"invoice":{"payment_status":"succeeded"}},"bind":{"b1_3":{"from":"invoices","where":{"invoice_type":"credit"}}}}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"credit","status":"finalized","payment_status":"succeeded","number":"ORG-0001-001-001","issuing_date":"2025-01-01","payment_due_date":"2025-01-01","currency":"EUR","fees_amount_cents":1797,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":1797,"sub_total_including_taxes_amount_cents":1797,"total_amount_cents":1797,"total_due_amount_cents":1797,"fees":[{"item":{"type":"credit","code":"credit"},"amount_cents":1797,"units":"17.97","taxes_amount_cents":0}]}
+    ],
+    "credit_notes": [],
+    "wallets": [
+      {"status":"active","currency":"EUR","code":"wallet1","priority":50,"rate_amount":"1.0","credits_balance":"17.97","balance_cents":1797,"consumed_credits":"0.0","ongoing_balance_cents":1797,"ongoing_usage_balance_cents":0,"credits_ongoing_balance":"17.97","credits_ongoing_usage_balance":"0.0"}
+    ],
+    "wallet_transactions": [
+      {"status":"settled","transaction_status":"purchased","transaction_type":"inbound","source":"manual","amount":"17.97","credit_amount":"17.97","priority":50}
+    ],
+    "fees": []
+  }
+}

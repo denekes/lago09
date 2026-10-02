@@ -1,0 +1,37 @@
+{
+  "kit_schema": 1,
+  "id": "scn.invoice.leap.001",
+  "area": "scn",
+  "title": "invoice boundaries across a leap February",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-DM-15"],
+  "rbd": ["RBD-64"],
+  "tags": [],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/invoices/invoices_spec.rb:168","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2023-06-16T05:00:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": false,
+    "store": "pg",
+    "taxes": [{"name":"VAT","code":"tax_1","rate":0.0,"applied_to_organization":true}],
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":700,"amount_currency":"EUR","pay_in_advance":true}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1","billing_time":"calendar"}}},
+    {"at":"2024-02-01T12:12:00Z","op":"tick","jobs":["billing"]}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2023-06-16","payment_due_date":"2023-06-16","currency":"EUR","fees_amount_cents":350,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":350,"sub_total_including_taxes_amount_cents":350,"total_amount_cents":350,"total_due_amount_cents":350,"billing_periods":[{"subscription_from_datetime":"2023-06-16T00:00:00Z","subscription_to_datetime":"2023-06-30T23:59:59Z","charges_from_datetime":"2023-06-16T05:00:00Z","charges_to_datetime":"2023-06-16T05:00:00Z","invoicing_reason":"subscription_starting"}],"fees":[{"item":{"type":"subscription"},"pay_in_advance":true,"amount_cents":350,"units":"1.0","taxes_amount_cents":0,"from_date":"2023-06-16T00:00:00+00:00","to_date":"2023-06-30T23:59:59+00:00"}],"applied_taxes":[{"tax_code":"tax_1","tax_rate":0.0,"amount_cents":0,"fees_amount_cents":350}]},
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-002","issuing_date":"2024-02-01","payment_due_date":"2024-02-01","currency":"EUR","fees_amount_cents":700,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":700,"sub_total_including_taxes_amount_cents":700,"total_amount_cents":700,"total_due_amount_cents":700,"billing_periods":[{"subscription_from_datetime":"2024-02-01T00:00:00Z","subscription_to_datetime":"2024-02-29T23:59:59Z","charges_from_datetime":"2024-01-01T00:00:00Z","charges_to_datetime":"2024-01-31T23:59:59Z","invoicing_reason":"subscription_periodic"}],"fees":[{"item":{"type":"subscription"},"pay_in_advance":true,"amount_cents":700,"units":"1.0","taxes_amount_cents":0,"from_date":"2024-02-01T00:00:00+00:00","to_date":"2024-02-29T23:59:59+00:00"}],"applied_taxes":[{"tax_code":"tax_1","tax_rate":0.0,"amount_cents":0,"fees_amount_cents":700}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": []
+  },
+  "compare": {"invoices":{"mode":"set"}}
+}

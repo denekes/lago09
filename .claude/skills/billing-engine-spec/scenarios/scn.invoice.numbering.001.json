@@ -1,0 +1,52 @@
+{
+  "kit_schema": 1,
+  "id": "scn.invoice.numbering.001",
+  "area": "scn",
+  "title": "per-customer invoice numbers with a grace period are assigned at finalization",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-DM-37","BE-DM-40","BE-DM-42","BE-IV-1","BE-IV-35","BE-IV-39"],
+  "rbd": ["RBD-82"],
+  "tags": ["premium"],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/invoices/invoice_numbering_spec.rb:344","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2023-07-19T12:12:00Z",
+    "organization": {"timezone":"Europe/Paris","document_number_prefix":"ORG-0001"},
+    "premium": true,
+    "store": "pg",
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":12900,"amount_currency":"EUR","pay_in_advance":true},{"name":"plan_2","code":"plan_2","interval":"yearly","amount_cents":100000,"amount_currency":"EUR","pay_in_advance":true}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"},{"external_id":"cust_2","currency":"EUR","billing_configuration":{"invoice_grace_period":2}},{"external_id":"cust_3","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1","billing_time":"anniversary","subscription_at":"2023-07-19T12:12:00+00:00"}}},
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_2","external_id":"cust_2","plan_code":"plan_1","billing_time":"anniversary","subscription_at":"2023-07-19T12:12:00+00:00"}}},
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_3","external_id":"cust_3","plan_code":"plan_1","billing_time":"anniversary","subscription_at":"2023-07-19T12:12:00+00:00"}}},
+    {"at":"2023-07-20T12:12:00Z","op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"new_external_id","plan_code":"plan_2","billing_time":"anniversary","subscription_at":"2023-07-20T12:12:00+00:00"}}},
+    {"at":"2023-07-21T12:12:00Z","op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_2","external_id":"new_external_id_2","plan_code":"plan_2","billing_time":"anniversary","subscription_at":"2023-07-21T12:12:00+00:00"}}},
+    {"at":"2023-07-21T13:12:00Z","op":"api","method":"PUT","path":"/api/v1/invoices/{{b1_5}}/finalize","bind":{"b1_5":{"from":"invoices","where":{"invoice_type":"subscription","customer":{"external_id":"cust_2"},"billing_periods":[{"subscription_from_datetime":"2023-07-18T22:00:00Z","subscription_to_datetime":"2023-08-18T21:59:59Z"}]}}}},
+    {"at":"2023-07-21T14:12:00Z","op":"api","method":"PUT","path":"/api/v1/invoices/{{b1_6}}/finalize","bind":{"b1_6":{"from":"invoices","where":{"invoice_type":"subscription","billing_periods":[{"subscription_from_datetime":"2023-07-20T22:00:00Z","subscription_to_datetime":"2024-07-20T21:59:59Z"}]}}}},
+    {"at":"2023-08-19T12:12:00Z","op":"tick","jobs":["billing"]},
+    {"at":"2023-09-19T12:12:00Z","op":"tick","jobs":["billing"]}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","number":"ORG-0001-001-001","issuing_date":"2023-07-19","total_amount_cents":12900,"customer":{"external_id":"cust_1"}},
+      {"invoice_type":"subscription","status":"finalized","number":"ORG-0001-002-001","issuing_date":"2023-07-21","total_amount_cents":12900,"customer":{"external_id":"cust_2"}},
+      {"invoice_type":"subscription","status":"finalized","number":"ORG-0001-003-001","issuing_date":"2023-07-19","total_amount_cents":12900,"customer":{"external_id":"cust_3"}},
+      {"invoice_type":"subscription","status":"finalized","number":"ORG-0001-001-002","issuing_date":"2023-07-20","total_amount_cents":100000,"customer":{"external_id":"cust_1"}},
+      {"invoice_type":"subscription","status":"finalized","number":"ORG-0001-002-002","issuing_date":"2023-07-21","total_amount_cents":100000,"customer":{"external_id":"cust_2"}},
+      {"invoice_type":"subscription","status":"finalized","number":"ORG-0001-003-002","issuing_date":"2023-08-19","total_amount_cents":12900,"customer":{"external_id":"cust_3"}},
+      {"invoice_type":"subscription","status":"finalized","number":"ORG-0001-001-003","issuing_date":"2023-08-19","total_amount_cents":12900,"customer":{"external_id":"cust_1"}},
+      {"invoice_type":"subscription","status":"draft","number":"ORG-0001-DRAFT","issuing_date":"2023-08-21","total_amount_cents":12900,"customer":{"external_id":"cust_2"}},
+      {"invoice_type":"subscription","status":"finalized","number":"ORG-0001-003-003","issuing_date":"2023-09-19","total_amount_cents":12900,"customer":{"external_id":"cust_3"}},
+      {"invoice_type":"subscription","status":"finalized","number":"ORG-0001-001-004","issuing_date":"2023-09-19","total_amount_cents":12900,"customer":{"external_id":"cust_1"}},
+      {"invoice_type":"subscription","status":"draft","number":"ORG-0001-DRAFT","issuing_date":"2023-09-21","total_amount_cents":12900,"customer":{"external_id":"cust_2"}}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": []
+  },
+  "compare": {"invoices":{"mode":"set"}}
+}

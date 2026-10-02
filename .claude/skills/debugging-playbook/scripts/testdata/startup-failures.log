@@ -1,0 +1,58 @@
+# startup-failures.log - REAL output of the events-processor binary (code 5308258), captured 2026-10-01,
+# one block per run; paths sanitized (<repo>, <GOMODCACHE>, <tmp>). Used by selftest.sh.
+# run 1: no LD_LIBRARY_PATH
+<tmp>/ep: error while loading shared libraries: libexpression_go.so: cannot open shared object file: No such file or directory
+# run 2: empty environment
+{"time":"2026-10-01T21:40:20.994900056Z","level":"ERROR","msg":"brokers not found","service":"post_process"}
+panic: brokers not found
+
+goroutine 1 [running]:
+github.com/getlago/lago/events-processor/processors.StartProcessingEvents({0x1d17ba8, 0xc00040e6e0}, 0xc0002abd00)
+	<repo>/events-processor/processors/main_processor.go:106 +0x825
+main.main()
+	<repo>/events-processor/main.go:84 +0x5d0
+# run 3: LAGO_KAFKA_SCRAM_ALGORITHM=sha512
+panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x1 addr=0x18 pc=0xfdf13c]
+
+goroutine 1 [running]:
+github.com/twmb/franz-go/pkg/kgo.validateCfg({_, _, _})
+	<GOMODCACHE>/github.com/twmb/franz-go@v1.20.5/pkg/kgo/client.go:146 +0xdc
+github.com/twmb/franz-go/pkg/kgo.NewClient({0xc000499ac0, 0x3, 0x4})
+	<GOMODCACHE>/github.com/twmb/franz-go@v1.20.5/pkg/kgo/client.go:458 +0x90
+github.com/getlago/lago/events-processor/config/kafka.NewKafkaClient({{0xc00004607b, 0x6}, 0x0, {0xc00049c130, 0x1, 0x1}, {0x1d17fc8, 0xc000492000}, {0x0, 0x0}, ...}, ...)
+	<repo>/events-processor/config/kafka/kafka.go:71 +0xaff
+github.com/getlago/lago/events-processor/config/kafka.NewProducer({{0xc00004607b, 0x6}, 0x0, {0xc00049c130, 0x1, 0x1}, {0x1d17fc8, 0xc000492000}, {0x0, 0x0}, ...}, ...)
+	<repo>/events-processor/config/kafka/producer.go:35 +0x65
+github.com/getlago/lago/events-processor/processors.initProducer({0x1d17ba8, 0xc00042a730}, {0x1ac0674, 0x20})
+	<repo>/events-processor/processors/main_processor.go:61 +0x9d
+github.com/getlago/lago/events-processor/processors.StartProcessingEvents({0x1d17ba8, 0xc00042a730}, 0xc0002c5d00)
+	<repo>/events-processor/processors/main_processor.go:118 +0x225
+main.main()
+	<repo>/events-processor/main.go:84 +0x5d0
+# run 4: LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS=200x (broker reachable)
+{"time":"2026-10-01T21:40:23.162300062Z","level":"ERROR","msg":"Error converting max connections into integer","service":"post_process","error":"strconv.Atoi: parsing \"200x\": invalid syntax"}
+panic: strconv.Atoi: parsing "200x": invalid syntax
+
+goroutine 1 [running]:
+github.com/getlago/lago/events-processor/utils.LogAndPanic({0x1d04780, 0xc0004d5380}, {0x1ad8500, 0x2d})
+	<repo>/events-processor/utils/error_tracker.go:33 +0x11c
+github.com/getlago/lago/events-processor/processors.StartProcessingEvents({0x1d17ba8, 0xc0004906e0}, 0xc0003cdd00)
+	<repo>/events-processor/processors/main_processor.go:136 +0x32b
+main.main()
+	<repo>/events-processor/main.go:84 +0x5d0
+# run 5: ENV=production against a plaintext Redis (LAGO_REDIS_STORE_TLS unset)
+redis: 2026/10/01 21:40:21 pool.go:419: redis: connection pool: failed to dial after 5 attempts: EOF
+redis: 2026/10/01 21:40:22 pool.go:419: redis: connection pool: failed to dial after 5 attempts: EOF
+redis: 2026/10/01 21:40:22 pool.go:419: redis: connection pool: failed to dial after 5 attempts: EOF
+redis: 2026/10/01 21:40:23 pool.go:419: redis: connection pool: failed to dial after 5 attempts: EOF
+{"time":"2026-10-01T21:40:23.140565245Z","level":"ERROR","msg":"Error connecting to the flag store","service":"post_process","error":"EOF"}
+panic: EOF
+
+goroutine 1 [running]:
+github.com/getlago/lago/events-processor/utils.LogAndPanic({0x1d046c0, 0x2a017d0}, {0x1ac4e04, 0x22})
+	<repo>/events-processor/utils/error_tracker.go:33 +0x11c
+github.com/getlago/lago/events-processor/processors.StartProcessingEvents({0x1d17ba8, 0xc00042c6e0}, 0xc00004dd00)
+	<repo>/events-processor/processors/main_processor.go:154 +0x42f
+main.main()
+	<repo>/events-processor/main.go:84 +0x5d0

@@ -1,0 +1,4 @@
+[
+ {"kind": "not_on_dlq", "tx": "f_adv", "why": "never dead-letter a record whose enriched output exists (proposal)", "rbd": ["RBD-7"], "ruling": "proposed"},
+ {"kind": "in_advance", "tx": "f_adv", "why": "the in-advance record is eventually produced (retry in place, then pause; proposal)", "rbd": ["RBD-7"], "ruling": "proposed"}
+]

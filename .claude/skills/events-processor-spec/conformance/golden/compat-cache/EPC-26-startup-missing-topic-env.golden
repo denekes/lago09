@@ -1,0 +1,13 @@
+# epconf golden v1 scenario=EPC-26-startup-missing-topic-env mode=cache
+[ledger] label partition:offset class enriched/in_advance/dlq committed
+[unattributed outputs] 0
+[topic events_enriched] 0 record(s)
+[topic events_charged_in_advance] 0 record(s)
+[topic events_dead_letter] 0 record(s)
+[commits] group=epconf_events-raw
+p0 end=0 committed=none
+[redis subscription_refreshed_v2] 0 distinct masked member(s), 0 invalid
+[process]
+exit_before_ready=2
+starts=1
+group_present=false other_groups=-

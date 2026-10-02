@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/clock.idempotency_key.schema.json",
+  "title": "clock.idempotency_key",
+  "description": "Idempotency key of a guarded resource (BE-CK-8): pre-image = 'v1|' + the parts sorted by key name (byte order), each written as key immediately followed by the value's text (strings as is, integers in decimal, true/false, null as the empty string), joined with '|' (no escaping); key = SHA-256 of the pre-image's UTF-8 bytes (stored as raw 32 bytes; shown here as lowercase hex).",
+  "x-kit": {
+    "area": "clock",
+    "op": "idempotency_key",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/13-clock-and-async.md (BE-CK)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parts"
+      ],
+      "properties": {
+        "parts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": [
+              "string",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "preimage": {
+          "type": "string"
+        },
+        "sha256_hex": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}
