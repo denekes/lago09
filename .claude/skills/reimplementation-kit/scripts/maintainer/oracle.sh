@@ -228,7 +228,9 @@ EOF
 </clickhouse>
 EOF
     log "starting ClickHouse $("$bin" --version 2>/dev/null | head -1)"
-    (cd "$d" && nohup "$bin" server --config-file="$d/config.xml" --pid-file="$d/ch.pid" > "$d/log/stdout.log" 2>&1 &)
+    # 8>&- on the subshell: neither it nor the server may inherit the ch.lock descriptor (they would hold the lock
+    # for the server's whole life and block every ClickHouse-tagged run)
+    (cd "$d" && exec nohup "$bin" server --config-file="$d/config.xml" --pid-file="$d/ch.pid" > "$d/log/stdout.log" 2>&1) 8>&- &
     local i; for i in $(seq 1 60); do ch_up && break; sleep 1; done
     ch_up || die "ClickHouse did not start; see $d/log/"
   fi
