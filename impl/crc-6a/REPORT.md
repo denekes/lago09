@@ -1,0 +1,50 @@
+# REPORT — crc-6a (invoice, credit_notes)
+
+Adapter: `python3.12 impl/crc-6a/adapter.py` (standard library only).
+
+## Final kitrun results (shipped vectors)
+
+Profile compat:
+
+    SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=145 passed=145 skipped_ops=0 exit=0
+
+| area | total | pass | rate | core | threshold |
+|---|---|---|---|---|---|
+| invoice | 114 | 114 | 100.0 % | 100.0 % | 95 % |
+| credit_notes | 31 | 31 | 100.0 % | 100.0 % | 95 % |
+
+Profile corrected (information; 6 proposed twins are UNRULED, all of them also PASS):
+
+    SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=145 passed=139 skipped_ops=0 exit=0
+
+| area | total | pass | unruled | rate | core |
+|---|---|---|---|---|---|
+| invoice | 114 | 111 | 3 | 100.0 % | 100.0 % |
+| credit_notes | 31 | 28 | 3 | 100.0 % | 100.0 % |
+
+Thresholds (compat: both areas >= 95 %, core 100 %) are met.
+
+## Time spent
+
+About one working session (roughly 1.5 hours): reading the kit and chapters 07, 08 (and the parts of 05/06 needed),
+then implementing the ops in order totals/taxes/coupons, lifecycle, credit notes, void, coupon create/apply, and last
+the commitment true-up simulator. Most ops passed on the first run; the failures were an eligibility error that had to be
+reported (not raised) by `credit_notes.validate`, and the missing ops.
+
+## Notes on approach
+
+- Exact `Decimal` everywhere; binary64 only in the documented islands (coupon percentage, tax rate shares, creditable
+  amount, credit-note tax, single-day price, commitment proration), switched off under the corrected profile.
+- Credit notes reuse the totals pipeline to build the invoice, then replay `previous_credit_notes` through the same
+  note builder, so the residue rule (BE-CN-9) and fee creditable amounts need no extra input.
+- The commitment true-up is a small simulator of billing runs (period algebra, subscription-fee bases, yearly gate,
+  usage charge) written from chapters 06 and 07 only; see KIT-GAPS.md items 13.
+
+## What I would do next
+
+- Read chapters 09 and 10 to model wallet allocation order/traceability and progressive-billing over-credit exactly
+  (only the amounts in the shipped vectors are covered now).
+- Extend the commitment simulator: trials, plan changes (upgrade/downgrade), zone-change continuity, fixed charges,
+  payment-gated invoices; cross-check against the `periods` and `pricing` areas' rules.
+- Add property tests of the rounding islands (compat vs corrected) and a self-written vector set for hidden-vector
+  risks listed in KIT-GAPS.md (zero-credit coupon rows, skipped-coupon output, error-field mapping).
