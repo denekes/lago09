@@ -15,7 +15,8 @@ production runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)); ADR-001 is
 `ep-test.sh` is an accepted gate (DECIDED OD-5 (owner, 2026-10-02)). Every fix is a CANDIDATE until merged with evidence. Code facts as
 of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on top
 (`git log --oneline 5308258..HEAD -- events-processor` prints nothing). lago-api at the pin `591ae90`
-(2026-09-08). Verified 2026-10-01; decisions, cache-mode and ClickHouse measurements 2026-10-02.
+(2026-09-08). Verified 2026-10-01; decisions, cache-mode and ClickHouse measurements, the opt-in ledger cases
+15-16 and the re-implementation kit's corrected-profile gate 2026-10-02.
 
 ## When to use / when NOT to use
 
@@ -55,6 +56,7 @@ Do NOT use it for:
 | baseline / target | the Phase-0 measurement (2026-10-01; cache rows 2026-10-02) / the campaign goal; targets are NOT current state |
 | OD-n | an owner decision in `change-control` §9: OD-1 to OD-5 are each `DECIDED OD-n (owner, 2026-10-02)`; OPEN DECISION OD-1b (owner) = the production CDC config; DEFAULT APPLIED OD-20 = W6 lives here; any other bare `OD-n` here (OD-6, OD-8) reads as OPEN DECISION OD-n (owner) |
 | ADR-001 | the delivery contract, ACCEPTED (delegated by owner 2026-10-02): `reference/delivery-options.md` s.0 |
+| kit gate | the second acceptance gate: the `events-processor-spec` black-box suite in its corrected profile (EPC scenarios whose assertions carry `reimplementation-kit` RBD ids), run on the candidate binary: `reference/ledger-and-matrix.md` s.7 |
 | `$API` | pinned lago-api checkout: `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)` |
 | BM, subscription, pay-in-advance | see `domain-reference` |
 
@@ -93,11 +95,30 @@ scoreboard: moved=0 unmeasured=0 targets_missed=13 (baseline 2026-10-01, cache_*
 | 7 | non-retryable failure while the DLQ topic rejects (`dlq-produce-failure`) | **SENTRY_ONLY** / same: committed after a failed DLQ produce | `event_producer_service.go:70-73` |
 
 Accounted today (controls and DLQ paths): 2 `retryable-only-batch`, 3 `retryable-stale-12h`,
-6 `enriched-produce-failure`, 9 `redis-flag-only-batch`, 10 `missing-bm-nonretryable`. Case numbers are the
-rows of `reference/ledger-and-matrix.md` s.3; names as printed by `run.sh accounting-probe -list`.
+6 `enriched-produce-failure`, 9 `redis-flag-only-batch`, 10 `missing-bm-nonretryable`. OPT-IN cases (named
+with `-case`, outside the baseline so the numbers other skills quote stay put): 15 `db-connection-exhaustion`
+(DB mode: a 200-record burst against a role `CONNECTION LIMIT 30` with the default pool 200 loses 164-170 of
+200, `processors/main_processor.go:134`) and 16 `non-finite-timestamp` (`"NaN"`: SENTRY_ONLY in both modes,
+`utils/time.go:56-58`). Case numbers are the rows of `reference/ledger-and-matrix.md` s.3; names as printed
+by `run.sh accounting-probe -list`.
 Paths are under `events-processor/` (processor files in `processors/events_processor/`) unless they start
 with `connectors/`. Cache-mode defects the ledger does not see (Debezium update zeroes `pay_in_advance`,
 boundary millisecond, empty snapshot DLQs everything; `smoke-binary.sh`, 2026-10-02): `reference/memory-cache-w6.md` s.1.
+
+## Second gate: the kit's corrected profile (next to `scoreboard.sh`)
+
+The re-implementation kit grades the real binary black-box against ADR-001 and the decided rebuild decisions;
+it covers what the ledger cannot (start-up, a burst against a connection limit, CDC rows, 25 value literals).
+Build the candidate from your tree and run both modes (full commands and the per-phase pass list:
+`reference/ledger-and-matrix.md` s.7):
+```bash
+source .claude/skills/build-and-env/scripts/ep-env.sh; b=$(mktemp -d) && (cd events-processor && go build -o "$b/ep" .)
+bash .claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd "$b/ep" --impl-env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" --mode db --profile corrected
+# today: failing=12 (EPC-04, 07, 08, 09, 10, 14, 15, 16, 17, 18, 19, 30) unruled=1 (EPC-20), exit=3; --mode cache:
+# failing=7 (EPC-04, 07, 08, 09, 17, 18, 19) unruled=2 (EPC-20, 31)   (re-run 2026-10-02, ~90 s per mode)
+```
+Each phase's exit gate names the EPC scenarios it must turn PASS; scenarios that pass today (EPC-11, 12, 13,
+21, 26-29) must stay PASS in every PR. TARGET: `failing=0` in both modes.
 
 ## Phase map
 
@@ -155,6 +176,8 @@ Prove one symptom instead of the whole baseline (a support case, a review):
 ```bash
 $S/run.sh accounting-probe -list                                         # the 10 case names (-mode cache -list: the 7 with a cache counterpart)
 $S/run.sh accounting-probe -case numeric-precise-total-amount-cents      # one SENTRY_ONLY row, UNACCOUNTED=1, exit 1 (= expected)
+$S/run.sh accounting-probe -case non-finite-timestamp                    # OPT-IN case 16: SENTRY_ONLY, exit 1 (same with -mode cache)
+$S/run.sh accounting-probe -case db-connection-exhaustion                # OPT-IN case 15: "burst=200 ... LOST=164-170", exit 99 (capped); needs CREATEROLE
 $S/run.sh value-corpus -mode value -value 2000000000000                  # one customer value: go_value 2e+12, ch 0, FORMAT+CH_ZERO
 ```
 The probe's exit code is the UNACCOUNTED count, so 1 is the expected result for one fault row. `-value`
@@ -165,11 +188,12 @@ If you see X instead, branch to Y (build, pin, coverage and leftover-database ca
 | You see | It means | Do |
 |---|---|---|
 | probe exit 100 + `postgres unreachable` (or `CREATE DATABASE … role needs CREATEDB`); scoreboard exit 2 + `NOT MEASURED` rows | Postgres down or no CREATEDB (DB mode only; `-mode cache` needs no Postgres) | `build-and-env` (start PG), re-run; `--no-accounting --no-coverage` gives the corpus and cache-ledger metrics alone (not a gate: with `--check-baseline` it exits 5, `unmeasured=8`) |
-| probe exit 100 + `unknown case(s) for -mode cache` (`scripts/accounting-probe/main.go:737`) | cases 1-3 inject at the Postgres edge: DB mode only | drop `-mode cache` for them |
+| probe exit 100 + `unknown case(s) for -mode cache` (`scripts/accounting-probe/main.go:834`) | cases 1-3 and opt-in case 15 inject at the Postgres edge: DB mode only | drop `-mode cache` for them |
+| probe exit 100 + `CREATE ROLE … role needs CREATEROLE` (`scripts/accounting-probe/main.go:389`) | opt-in case 15 creates a throwaway connection-limited role | run it with a role that has CREATEROLE, or rely on the kit's EPC-30 (same mechanism, `reference/ledger-and-matrix.md` s.7) |
 | value-corpus exit 2 + `setup error: ruby: exec: "ruby": executable file not found` or `clickhouse local: fork/exec …: no such file or directory` | no Ruby on PATH / wrong `-ch-bin` path | install Ruby >= 3.3 or drop `-ruby`; use `ch-local.sh --path` or drop `-ch-bin` (`scoreboard.sh` uses neither) |
 | UNACCOUNTED or a fault row differs on unchanged code | flake or a behaviour change you did not expect | run 3 times; if stable, `git log --oneline 5308258..HEAD -- events-processor`, compare per case with `reference/ledger-and-matrix.md` s.3-4 |
 | `smoke-binary.sh cache-cdc` differs on `tx_A` | the Debezium column list or the CDC row shape changed | expected only with W6-1; otherwise a regression (`reference/memory-cache-w6.md`) |
-| `NOTE: sentinel not committed within timeout` (`scripts/accounting-probe/main.go:553`) | the partition is blocked (PENDING) | never expected: today nothing blocks; after step 4c it means a SYSTEMIC pause that did not resume (a bug) |
+| `NOTE: sentinel not committed within timeout` (`scripts/accounting-probe/main.go:642`) | the partition is blocked (PENDING) | never expected: today nothing blocks; after step 4c it means a SYSTEMIC pause that did not resume (a bug) |
 | `corpus_value_mismatches` != 13 or `totime` != 496 | value/time code changed | the PR must carry Phase 2/3 evidence and update `rails-go-parity` rows |
 
 Exit gate: the table equals the baseline, or each moved metric is tied to a commit. Evidence: the
@@ -254,7 +278,8 @@ and this skill's CH emulation follows it (`scripts/value-corpus/main.go:117`, `r
 s.6.5); then 0, or the 3 policy rows if NULL is chosen (they need an exception marker that both
 `value-corpus/main.go` and `rails_semantics.rb` honour: not built, CANDIDATE, C1 change to this skill). Any
 other row moved -> stop, explain it.
-Exit gate: value metrics at target or approved exceptions; `rails-go-parity` value rows (P10-P13: closing
+Exit gate: value metrics at target or approved exceptions; kit gate EPC-07 PASS in both modes (RBD-13);
+`rails-go-parity` value rows (P10-P13: closing
 a DIVERGE row triggers change-control's cross-repo protocol) and its EXPECTED block updated in the same PR;
 change-control N9 gate; before/after corpus in the PR (change-control C3). Rollback: revert; rows written
 meanwhile keep the new format (unique_count transition: write it in the PR); the ClickHouse column is
@@ -268,9 +293,9 @@ Entry: Phase 0. Coordinate with Phase 2: if `json.Number` reaches `Timestamp`, b
 Problem: `utils.ToTime` float math puts 496/1000 ms-precision strings 1 ms early (`utils/time.go:20-23,48`);
 the RFC3339 branch returns un-normalised times (`:25-29`). Rails sends `to_f.to_s` timestamps
 (`$API/app/services/events/kafka_producer_service.rb:43`) and matches with `date_trunc('millisecond', …)`
-(`$API/app/services/events/post_process_service.rb:50-53`). Parsing is a MATCH, but on Ruby 3.3.6
-`to_f.to_s` itself puts 129/1000 ms values 1 ms early after millisecond truncation (CANDIDATE drift,
-`rails-go-parity` P22, `domain-reference` MC17; lago-api pins Ruby 4.0.6, UNVERIFIED there).
+(`$API/app/services/events/post_process_service.rb:50-53`). Parsing is a MATCH, but `to_f.to_s` itself
+puts 129/1000 ms values 1 ms early after millisecond truncation, identically on Ruby 3.3.6 and on the pinned
+Ruby 4.0.6 (EXECUTED 2026-10-02 with the kit oracle's Ruby; `rails-go-parity` P22, `domain-reference` MC17).
 `utils/time_test.go:31-35` uses `.344`, a value that round-trips, so the unit tests pass today. Cache mode
 compares subscription bounds at full precision (W6-4), so fix both together when the boundary moves.
 
@@ -282,7 +307,10 @@ $S/scoreboard.sh --check-baseline     # exit 3, moved=2 (the two time metrics) a
 ```
 Then run `rails-go-parity`'s time and subscription probes: its scenarios B (float ms rounding) and C (RFC3339
 offset) are the rows that should move. Exit gate: time metrics at target, no other metric moved, parity rows
-updated. Rollback: revert (subscription attribution of offset/boundary events reverts too).
+updated, kit gate EPC-04 assertions RBD-15 and RBD-16 PASS (DB mode; cache mode: `reference/ledger-and-matrix.md`
+s.7 known blocker). Both boundary effects are EXECUTED today by kit unit vectors (`events-processor-spec`
+ep.match_subscription.003/.004: an event 1 ms after the `terminated_at` millisecond is still attached in both
+modes; .016/.017: offsets are wall clock in DB mode, instants in cache mode); details `reference/value-and-time.md` s.3. Rollback: revert (subscription attribution of offset/boundary events reverts too).
 
 ## Phase 4 - Delivery semantics (W1, C4): implement ADR-001
 
@@ -313,6 +341,10 @@ Step 4c gates (commands from the repo root; full list and implementation constra
 $S/run.sh accounting-probe                  # x3 + once with GOFLAGS=-race: LOST=0 SKIPPED_RETRY=0 PENDING=0 SENTRY_ONLY=2 (cases 4, 5; 1 if Phase 2 item 3 is in), exit 2
 $S/run.sh accounting-probe -mode cache      # x3 + race: same rows, SENTRY_ONLY=2, exit 2
 $S/scoreboard.sh --check-baseline           # exit 3; moved exactly: unaccounted 5->2, lost 1->0, skipped_retry 1->0, sentry_only 3->2, cache_unaccounted 4->2
+$S/run.sh accounting-probe -case db-connection-exhaustion   # OPT-IN case 15: LOST=0 (SYSTEMIC pause), every burst row ENRICHED
+bash .claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd "$b/ep" --impl-env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" --mode db --profile corrected --only 'EPC-(1[0-9]|30)'
+                                            # $b/ep = the candidate built as in "Second gate"; kit gate: EPC-10..19 and 30 PASS
+                                            # (EPC-20 may stay UNRULED); same with --mode cache (EPC-17, 18, 19)
 .claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 ./config/kafka/... ./processors/...   # in-repo kfake test ok, incl. revoke during a pause
 $D/kfake-run.sh happy-path -n 50000 -partitions 4    # cache mode (default) and -store db, before/after: PASS; >10 % slower needs an explanation (CANDIDATE threshold)
 ```
@@ -377,10 +409,10 @@ gates: `reference/memory-cache-w6.md`. As-is defects: `architecture-contract` WP
 | Sub-phase | Scope | Class | Exit gate (measured today -> target) |
 |---|---|---|---|
 | W6-0 | measure (Phase 0 cache block, `run.sh cache-bench`, `kfake-run.sh cdc-brokers`, empty-snapshot smoke); OD-1b to the owner | C1 | outputs as `reference/memory-cache-w6.md` s.4 |
-| W6-1 | Debezium `column.include.list` + `pay_in_advance`, `accepts_target_wallet`, `recurring`; guard test against every `SelectFields` | C4 (K9) | `smoke-binary.sh cache-cdc` `tx_A in_advance=no` -> `yes` |
+| W6-1 | Debezium `column.include.list` + `pay_in_advance`, `accepts_target_wallet`, `recurring`; guard test against every `SelectFields` | C4 (K9) | `smoke-binary.sh cache-cdc` `tx_A in_advance=no` -> `yes`; kit EPC-31 UNRULED -> PASS once RBD-21 is ruled |
 | W6-2 | CDC clients via `kafka.NewKafkaClient` (broker split, SASL/TLS, logger); no per-start UUID groups | C4 | `cdc-brokers` `brokers=2 visible=false` -> `true`; smoke `+ 6 lago_evp_…` -> `+ 0` |
 | W6-3 | snapshot errors fail start-up | C3 | empty-snapshot smoke: 7/9 DLQ `fetch_billable_metric(Key not found)` -> exit before consuming |
-| W6-4 | cache subscription bounds at ms (and exact external-id match) | C3 | smoke cache `tx_H subscription_id=""` -> the DB-mode id |
+| W6-4 | cache subscription bounds at ms (and exact external-id match) | C3 | smoke cache `tx_H subscription_id=""` -> the DB-mode id; kit EPC-04 `sm_started_ms` (RBD-17) FAIL -> PASS in cache mode |
 | W6-5 | memory budget | C1 / C3 | `cache-bench -n 1000000` `rss_mb=792` -> not above (+10 %) unless the owner budget allows |
 <!-- evidence-check: on -->
 
@@ -418,7 +450,8 @@ updates the `diagnostics-and-tooling` smoke expected files it moves, in the same
 3. Gates: change-control N9, its one "Pre-PR gate for events-processor code" block (`ep-test.sh`, `-race`,
    `go vet`, `gofmt -l`, golangci-lint `--new-from-rev=$BASE` per OPEN DECISION OD-6 (owner), the guards); C3
    parity evidence (`rails-go-parity`); C4: ADR-001 referenced (or the contract change's ADR) + both ledgers
-   and the corpus before/after + the kfake test when commit logic changes (change-control N7) + one
+   and the corpus before/after + the kit gate summary lines in both modes (`reference/ledger-and-matrix.md`
+   s.7) + the kfake test when commit logic changes (change-control N7) + one
    `GOFLAGS=-race` ledger run per mode (the unit suite never runs `processRecordsAndCommit`) + a paired PR in
    each repo that depends on the changed contract, with the deploy order (change-control N6,
    DECIDED OD-4 (owner, 2026-10-02)); the owner only for a deviation from ADR-001.
@@ -435,7 +468,7 @@ updates the `diagnostics-and-tooling` smoke expected files it moves, in the same
 | Script | Purpose | Example | Expected (2026-10-02) |
 |---|---|---|---|
 | `scripts/run.sh` | builds a probe with a temp `-modfile` into a temp dir (CGO env from `ep-env.sh`), runs it, passes its exit code; `--check` = vet + gofmt + franz-go pin | `run.sh --check` | `run.sh: check OK`, exit 0 |
-| `scripts/accounting-probe/` | fault-matrix ledger: 10 cases, real consumer group + processor, kfake + miniredis; `-mode db` (default, scratch Postgres) or `-mode cache` (seeded memory cache, cases 4-10, no Postgres); a candidate change runs through `GOFLAGS=-overlay=<json>` (Phase 4) | `run.sh accounting-probe [-mode db\|cache] [-case A,B] [-list] [-v]` | DB: `TOTALS rows=36 … LOST=1 SKIPPED_RETRY=1 SENTRY_ONLY=3 … UNACCOUNTED=5`, exit 5; cache: `TOTALS rows=26 … SKIPPED_RETRY=1 SENTRY_ONLY=3 … UNACCOUNTED=4`, exit 4 (exit = UNACCOUNTED, 100 = setup error) |
+| `scripts/accounting-probe/` | fault-matrix ledger: 10 cases, real consumer group + processor, kfake + miniredis; `-mode db` (default, scratch Postgres) or `-mode cache` (seeded memory cache, cases 4-10, no Postgres); OPT-IN cases 15 `db-connection-exhaustion` (DB, needs CREATEROLE) and 16 `non-finite-timestamp` run only with `-case`; a candidate change runs through `GOFLAGS=-overlay=<json>` (Phase 4) | `run.sh accounting-probe [-mode db\|cache] [-case A,B] [-list] [-v]` | DB: `TOTALS rows=36 … LOST=1 SKIPPED_RETRY=1 SENTRY_ONLY=3 … UNACCOUNTED=5`, exit 5; cache: `TOTALS rows=26 … SKIPPED_RETRY=1 SENTRY_ONLY=3 … UNACCOUNTED=4`, exit 4 (exit = UNACCOUNTED, 100 = setup error) |
 | `scripts/value-corpus/` | `corpus.tsv` through real unmarshal + `EnrichEvent`; Rails-derived expectations; CH emulation; `ToTime` count; `-value` triages ad hoc values (needs Ruby) | `run.sh value-corpus [-mode value\|time] [-ruby] [-ch-bin PATH] [-value JSON]… [-fail-on-mismatch]` | `SUMMARY corpus_rows=27 value_mismatches=13 go_decimal_mismatches=2 ch_zeroed=4 end_to_end_decimal_mismatches=6 totime_mismatches=496/1000 rfc3339_utc_ms=false`, exit 0 (1 with `-fail-on-mismatch`; 2 setup error: Ruby, ClickHouse, bad `-value`) |
 | `scripts/ch-schema-candidate.sh` | the Phase 2 ClickHouse column CANDIDATE on the corpus + 6 edge values with `clickhouse local`, against Postgres `numeric(40,15)`; today's column, candidate, re-derivation from stored strings | `ch-schema-candidate.sh [--no-pg] [--ch-bin PATH] [-q]` | `SUMMARY corpus_rows=27 edge_rows=6 today_corpus_mismatches=6 cand_mismatches=0 cand_policy_null=3 rederive_needs_re_enrichment=2 rederive_policy_null=3 pg_reference=postgres`, exit 0 (~7 s; 2 = setup error) |
 | `scripts/cache-bench/` | memory-cache warm-up time, Go heap and RSS for N subscriptions (W6-5) | `run.sh cache-bench [-n 1000000]` | `n=1000000 insert=13.66s (73208/s) heap_inuse_mb=406 rss_mb=792 lookup_ok=true …`, exit 0 (insert time varies with host load: 13-19 s) |
@@ -475,8 +508,12 @@ All scripts are read-only on the repo; outputs go to `mktemp -d` dirs and scratc
   - Debezium gap: `grep -c 'pay_in_advance' extra/debezium_config.json` -> `0`
   - Rails value: `grep -n '|| 0' "$API/app/services/events/enrich_service.rb"` -> `59:`
   - pins in sync: `$S/run.sh --check` -> `run.sh: check OK`
+  - opt-in case 15: `$S/run.sh accounting-probe -case db-connection-exhaustion 2>/dev/null | grep '^db-connection'` -> `burst=200 ENRICHED=30-36 LOST=164-170` (timing-dependent; 4 runs)
+  - opt-in case 16: `$S/run.sh accounting-probe -case non-finite-timestamp 2>/dev/null | grep '^non-finite'` -> `SENTRY_ONLY` (also `-mode cache`)
+  - kit gate: the two `run-suite.sh ... --profile corrected` runs in `reference/ledger-and-matrix.md` s.7 -> `failing=12 unruled=1` (db), `failing=7 unruled=2` (cache) on the unchanged tree
 - Update triggers: any change to the files listed in Sources; a franz-go or Go bump in
   `events-processor/go.mod`; a change to the `diagnostics-and-tooling` harness API (`kfx`, `fixture`,
-  `pipeline`), its smoke expected files, or `ch-local.sh --path`; an `api` gitlink bump; a lago-api
+  `pipeline`), its smoke expected files, or `ch-local.sh --path`; a re-mint of the `events-processor-spec`
+  goldens or assertions, or a ruling on a `reimplementation-kit` RBD the kit gate cites; an `api` gitlink bump; a lago-api
   ClickHouse migration touching `decimal_value`; an owner answer to OD-1b, OD-8 or OD-20, or an amendment of
   ADR-001; any scoreboard metric that moves.

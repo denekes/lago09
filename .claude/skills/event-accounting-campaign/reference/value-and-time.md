@@ -4,7 +4,8 @@ Read when you work on Phase 2 (including the ClickHouse schema change, s.6) or P
 for a `value` string or a timestamp. Code facts as of 5308258 (events-processor tree 83e012866f29); the
 working branch may carry skills-only commits on top; lago-api at the pin `591ae90` (2026-09-08, `$API`).
 Verified 2026-10-01 with Ruby 3.3.6, ClickHouse 26.2.9.9 and 26.2.19.43; s.6 (ClickHouse migration track,
-DECIDED OD-3 (owner, 2026-10-02)) verified 2026-10-02 with ClickHouse 26.2.19.43 and PostgreSQL 16.14.
+DECIDED OD-3 (owner, 2026-10-02)) verified 2026-10-02 with ClickHouse 26.2.19.43 and PostgreSQL 16.14; s.3 kit
+evidence (`events-processor-spec` vectors, cited by id) added 2026-10-02.
 
 ## 1. How a property becomes billed quantity (today)
 
@@ -79,16 +80,27 @@ ToTime("2025-03-03T15:03:29.123456+02:00") = 2025-03-03T15:03:29.123456+02:00 (u
   `ToTime`; the emitted `timestamp` uses `ToFloat64Timestamp` (`time.go:51-78`), whose string branch
   truncates correctly (rails-go-parity measures 0/1000 there).
 - Rails sends `timestamp: event.timestamp.to_f.to_s` (`$API/app/services/events/kafka_producer_service.rb:43`;
-  on Ruby 3.3.6 that string itself lands 129/1000 ms values of epoch second 1727787600 1 ms early after
-  millisecond truncation: CANDIDATE drift,
-  `rails-go-parity` P22, `domain-reference` MC17; lago-api pins Ruby 4.0.6, UNVERIFIED there)
+  that string itself lands 129/1000 ms values of epoch second 1727787600 1 ms early after
+  millisecond truncation, identically on Ruby 3.3.6 and the pinned Ruby 4.0.6 (EXECUTED 2026-10-02 with the
+  kit oracle's Ruby; `rails-go-parity` P22, `domain-reference` MC17)
   and matches subscriptions with `date_trunc('millisecond', started_at) <= ts`
   (`$API/app/services/events/post_process_service.rb:50-53`); Go DB mode uses the same SQL
   (`events-processor/models/subscriptions.go:29-34`). So a 1 ms-early `ToTime` only matters at a window
   boundary: an event in the `started_at` millisecond misses its subscription (measured by `rails-go-parity`,
-  its sub-probe B), and, by the same SQL, an event in the millisecond right after `terminated_at` would still
-  match (inference, not probed here). Boundary-parity scenarios (DB vs cache vs Rails SQL) are
+  its sub-probe B), and an event in the millisecond right after `terminated_at` is still attached to the
+  terminated subscription, in both modes: EXECUTED 2026-10-02 by the re-implementation kit
+  (`events-processor-spec` vectors ep.match_subscription.003 (DB) and .004 (cache): `"1748736000.001"` with
+  `terminated_at` `…00.0007` matches). Boundary-parity scenarios (DB vs cache vs Rails SQL) are
   measured by `rails-go-parity` (its subscription probe); this skill only counts `ToTime`.
+- Mode deltas the W3 change must keep in mind (EXECUTED by the same kit vectors; table:
+  `architecture-contract` memory-cache.md §1a): an RFC 3339 offset is compared as the wall clock of that offset
+  in DB mode and as an instant in cache mode (ep.match_subscription.016 / .017:
+  `"2025-03-01T00:30:00+01:00"` picks the new subscription in DB mode, the old one in cache mode); `started_at` is
+  compared at ms in DB mode and at µs in cache mode (ep.match_subscription.009 / .010, W6-4).
+- Non-finite and non-decimal spellings: `strconv.ParseFloat` also accepts `"NaN"`, `"Inf"` and hexadecimal floats
+  (`events-processor/utils/time.go:20,56`). `"NaN"` / `"Inf"` then fail when the enriched record is marshalled:
+  nothing is produced, no DLQ, committed (ledger case 16, SENTRY_ONLY in both modes; kit EPC-08). A hex float such
+  as `"0x1.9f0e3a8p+30"` is accepted as seconds (kit EPC-08; whether to reject it is an open kit owner question).
 
 ## 4. The UseNumber trap (VERIFIED 2026-10-01)
 
@@ -155,11 +167,18 @@ W3 time (Phase 3):
 1. Parse `"<sec>.<frac>"` without floats (split on `.`, right-pad/truncate the fraction to 3 digits), or
    `math.Round(f*1000)` with a proof over the corpus; target `totime_mismatches=0/1000`.
 2. RFC3339 branch: `.UTC().Truncate(time.Millisecond)`; target `rfc3339_utc_ms=true`. This changes which
-   subscription matches events sent with an offset (DB mode compares the wall clock today). C3 (C4 if the
-   enriched `timestamp` payload format changes); run the rails-go-parity subscription probe before and after.
+   subscription matches events sent with an offset (DB mode compares the wall clock today: EXECUTED,
+   ep.match_subscription.016; cache mode already compares instants, .017). C3 (C4 if the enriched `timestamp`
+   payload format changes); run the rails-go-parity subscription probe and the kit gate EPC-04
+   (`ledger-and-matrix.md` s.7) before and after.
 3. CANDIDATE: add a `json.Number` case to `ToTime`/`ToFloat64Timestamp` if W2 lands first (section 4).
 4. Optional sanity bound on epoch magnitude (`events-processor/utils/time.go:20-23`): `utils.ToTime("1741007009123")` (a ms epoch) succeeds today
    with year 57140 (VERIFIED 2026-10-01 with a scratch module); a new DLQ cause = C4 and an owner call.
+5. CANDIDATE: non-finite timestamps (`"NaN"`, `"Inf"`): reject them in both time functions
+   (`events-processor/utils/time.go:20,56`) so the record is DLQ'd as
+   `build_enriched_event` (PERMANENT under ADR-001; `reimplementation-kit` RBD-4, decided). It changes
+   disposition, so C4 under change-control's precedence rule. Gate: ledger case 16 SENTRY_ONLY -> DLQ in both
+   modes, kit EPC-08 PASS.
 
 ## 6. ClickHouse migration track (Phase 2; DECIDED OD-3 (owner, 2026-10-02); design CANDIDATE)
 

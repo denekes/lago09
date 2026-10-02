@@ -25,6 +25,17 @@ the decision is ACCEPTED, the code is CANDIDATE until merged with evidence.
 - Ledger today (`.claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe [-mode cache]`, 2026-10-02): DB mode `UNACCOUNTED=5` (1 LOST, 1 SKIPPED_RETRY,
   3 SENTRY_ONLY); memory-cache mode `UNACCOUNTED=4` (cases 4, 5, 7 SENTRY_ONLY, case 8 SKIPPED_RETRY).
   Mechanism: section 1. "Commit every record" measured: `UNACCOUNTED` 5 -> 7 (SKILL.md Phase 4 overlay).
+- SYSTEMIC failures are not hypothetical (2026-10-02): a 200-record burst against a Postgres role with
+  `CONNECTION LIMIT 30` and the default pool of 200 (`events-processor/processors/main_processor.go:134`) loses
+  164-170 of 200 records (opt-in ledger case 15,
+  `.claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe -case db-connection-exhaustion`); the
+  kit measured 85-170 of 201 on the reference binary (`events-processor-spec` EPC-30). Every refused connection
+  is a retryable lookup failure that today's commit rule skips (section 1); under this ADR it is SYSTEMIC (pause,
+  back off, commit nothing past the first record without a disposition).
+- A non-finite `timestamp` (`"NaN"`) is committed with no output: `strconv.ParseFloat` accepts it
+  (`events-processor/utils/time.go:56-58`) and the marshal error of the enriched record is only logged
+  (`events-processor/processors/events_processor/event_producer_service.go:77-79`). Opt-in ledger case 16: SENTRY_ONLY
+  in both modes; kit `events-processor-spec` EPC-08. A PERMANENT failure that must reach the DLQ with a cause.
 - Repo facts that shape the choice (verified 2026-10-02):
 
 | Fact | Evidence | Consequence |
@@ -59,9 +70,9 @@ Cited as practice, not as proof. The pages were not fetchable from this sandbox 
 
 | Class | What it is | Action | Ledger cases |
 |---|---|---|---|
-| SYSTEMIC | a dependency is unavailable (Postgres or the cache source, Redis, Kafka produce to the DLQ or retry topic), or most of a batch fails with the same retryable error | route nothing; pause the affected partitions (`PauseFetchPartitions`); commit nothing past the first un-dispositioned record; exponential backoff with jitter (default 1 s doubling to a 60 s cap); probe the dependency; resume when healthy. Head-of-line blocking is correct here: every record would fail | 7, new 13, 14 |
+| SYSTEMIC | a dependency is unavailable (Postgres or the cache source, Redis, Kafka produce to the DLQ or retry topic), or most of a batch fails with the same retryable error (e.g. connection exhaustion: refused connections) | route nothing; pause the affected partitions (`PauseFetchPartitions`); commit nothing past the first un-dispositioned record; exponential backoff with jitter (default 1 s doubling to a 60 s cap); probe the dependency; resume when healthy. Head-of-line blocking is correct here: every record would fail | 7, 15, new 13, 14 |
 | TRANSIENT | a retryable error on one record while its neighbours succeed | small in-place retry of the failed step (default 3 attempts, 100 ms -> 1 s, jittered; total far below the rebalance timeout because of `BlockRebalanceOnPoll`); then publish the ORIGINAL record to a retry topic (default name `<raw>-retry`) with headers `attempt`, `first_failed_at`, `last_error_code`, `not_before`; that publish IS the record's disposition. A retry consumer re-processes when due. After N attempts (default 5) or a max age (default 12 h from `ingested_at`, today's horizon) -> DLQ with the cause | 1, 2, 3, 8, 9, new 11, 12 |
-| PERMANENT | non-retryable: unknown billable metric, invalid payload, unmarshal error, expression error | DLQ at once with the cause. Unmarshal failures go to the DLQ with the raw bytes and the parse error, never a silent commit | 4, 5, 6, 10 |
+| PERMANENT | non-retryable: unknown billable metric, invalid payload (including a non-finite `timestamp`), unmarshal error, expression error | DLQ at once with the cause. Unmarshal failures go to the DLQ with the raw bytes and the parse error, never a silent commit | 4, 5, 6, 10, 16 |
 
 2. **Commit rule.** Commit offset N only when every record <= N has a DURABLE disposition acknowledged by
    Kafka with acks=all: enriched (+ in-advance) produced, OR retry-topic produced, OR DLQ produced. A failed
@@ -134,10 +145,14 @@ finally ENRICHED or DLQ after at least one hop through the retry topic (a new pr
 | 12 | `retryable-exhausts-retry-topic` (new: fault persists over 5 retry attempts; schedule compressed to ms) | LOST predicted / n/a | TRANSIENT | DLQ `retry_exhausted:fetch_subscription`, headers attempt=5 |
 | 13 | `systemic-outage` (new: every lookup or Redis call fails for a while, 20 records) | PENDING then REDELIVERED predicted / same | SYSTEMIC | 0 records on the retry topic or DLQ; partition paused, then all ENRICHED; systemic pause counter > 0 |
 | 14 | `retry-produce-failure` (new: case 11 while the retry topic rejects produces) | n/a (no retry topic) | SYSTEMIC | RETRIED (final ENRICHED) after the pause; never committed before |
+| 15 | `db-connection-exhaustion` (OPT-IN, built 2026-10-02: 200-record burst, role `CONNECTION LIMIT 30`, pool 200) | 164-170 of 200 LOST (measured) / n/a | SYSTEMIC | every burst row ENRICHED (pause and back off while connections are refused); 0 LOST, 0 duplicates; kit EPC-30 PASS |
+| 16 | `non-finite-timestamp` (OPT-IN, built 2026-10-02: `"timestamp": "NaN"`) | SENTRY_ONLY / SENTRY_ONLY (measured) | PERMANENT | DLQ with a non-empty cause (e.g. `build_enriched_event`); kit EPC-08 PASS |
 
 <!-- evidence-check: on -->
 Totals target: `LOST=0 SKIPPED_RETRY=0 SENTRY_ONLY=0 PENDING=0 ENRICHED+DLQ=0 UNACCOUNTED=0` in DB mode
-and in cache mode. "Predicted" rows are hypotheses until step 4a measures them.
+and in cache mode, for the default run and for the opt-in cases 15-16 (`ledger-and-matrix.md` s.3). "Predicted"
+rows are hypotheses until step 4a measures them. Second gate: the kit's corrected profile, run on the candidate
+binary (`ledger-and-matrix.md` s.7).
 
 ## 1. The mechanism (measured: ledger cases 1, 2, 8)
 
@@ -165,7 +180,7 @@ and the record is still committed.
 |---|---|---|
 | `BlockRebalanceOnPoll` | `consumer.go:245`; `AllowRebalance` at `:203` runs after dispatch | dispatch blocks on an unbuffered channel (`:122`, `:195`) until the partition consumer finished its previous batch, so rebalances that revoke partitions wait for roughly one batch of processing. franz-go: "you should ensure that you always process records quickly" (`franz-go@v1.20.5/pkg/kgo/config.go:1760-1781`). Any in-batch waiting (backoff, blocking retry) eats into the rebalance timeout, default 60 s (`config.go:595`), after which the member is kicked |
 | One partition consumer, sequential batches | `consumer.go:51-73,111-130` | a blocked partition blocks only itself, but also delays the poll loop's dispatch to every other partition (head-of-line through the unbuffered send, `:190-201`) |
-| Up to 10 000 records per poll, one goroutine each, no limit | `consumer.go:168`; `processor.go:38-44` (`errgroup.Group{}`, no `SetLimit` anywhere: `grep -rn SetLimit events-processor` = 0 hits) | a DB blip fails thousands of records at once; DB pool default 200 (`processors/main_processor.go:134`), Redis pool 10 (`config/redis/redis.go:38`) |
+| Up to 10 000 records per poll, one goroutine each, no limit | `consumer.go:168`; `processor.go:38-44` (`errgroup.Group{}`, no `SetLimit` anywhere: `grep -rn SetLimit events-processor` = 0 hits) | a DB blip fails thousands of records at once; DB pool default 200 (`processors/main_processor.go:134`), Redis pool 10 (`config/redis/redis.go:38`). Measured: a pool above the database's connection budget loses most of one burst (ledger case 15: 164-170 of 200), so the SYSTEMIC detector must see refused connections as a dependency failure, not as 200 TRANSIENT records for the retry topic |
 | Produce is synchronous with unbounded retries | `config/kafka/producer.go:62`; franz-go `recordRetries: math.MaxInt64` (`config.go:563`); events-processor sets no producer retry/timeout option (`config/kafka/producer.go:33-35`) | a broker outage blocks (does not lose); only non-retriable broker errors (ledger case 6) and, by franz-go's defaults, a topic that stays UNKNOWN_TOPIC_OR_PARTITION after 4 tries (`maxUnknownFailures: 4`, `config.go:564`; code-read, not probed) reach the DLQ path |
 | 12 h horizon from `ingested_at` | `processor.go:74`; zero `ingested_at` = immediate DLQ | measured in case 3. Raising it changes nothing in case 1 (the record is never re-polled). ADR-001 keeps 12 h as the default retry max age (DECIDED OD-2 (owner, 2026-10-02)) |
 | `SetOffsets` caveats | `franz-go@v1.20.5/pkg/kgo/consumer.go:665-681`: with group consuming, call it "outside of the context of a PollFetches loop", not concurrent with revokes or commits | a seek-back cannot be issued from a partition goroutine as the code is structured today |
@@ -272,6 +287,8 @@ Gates (all in the PR; commands from the repo root, `S=.claude/skills/event-accou
 | in-repo kfake test | `.claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 ./config/kafka/... ./processors/...` | ok; includes a revoke-during-pause case that finishes well below the 60 s rebalance timeout with no commit past the held record |
 | N9 | change-control "Pre-PR gate for events-processor code" | as stated there |
 | throughput | `.claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 50000 -partitions 4` (cache mode by default; also `-store db`) before and after | PASS; relative elapsed reported; more than 10 % slower needs an explanation (CANDIDATE threshold) |
+| connection exhaustion | `$S/run.sh accounting-probe -case db-connection-exhaustion` (x3) | `LOST=0`, every burst row ENRICHED (today 164-170 LOST) |
+| kit gate (second gate) | `.claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd <candidate binary> --impl-env LD_LIBRARY_PATH=... --profile corrected`, `--mode db` and `--mode cache` (`ledger-and-matrix.md` s.7) | EPC-10..19 and EPC-30 PASS (DB), EPC-17..19 PASS (cache); EPC-20 may stay UNRULED (RBD-7 proposed); after step 4d also EPC-08 and EPC-09 |
 
 Deploy order: step 4b everywhere first. Rollback: redeploy the previous image; offsets stay compatible;
 records parked on the retry topic are not consumed by the old binary, so drain the retry topic (or accept a

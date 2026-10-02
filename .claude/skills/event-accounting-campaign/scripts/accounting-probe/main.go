@@ -22,7 +22,15 @@
 //   - Kafka produce: kfake answers Produce requests for chosen topics with
 //     INVALID_RECORD (non-retriable), so kafka.Producer.Produce returns false;
 //   - payloads: invalid JSON, numeric precise_total_amount_cents, unknown code,
-//     ingested_at older than 12 h.
+//     ingested_at older than 12 h, a non-finite timestamp ("NaN");
+//   - Postgres connection limit (opt-in case db-connection-exhaustion): a throwaway
+//     non-superuser role with CONNECTION LIMIT 30 (superusers ignore the limit) and the
+//     binary's default pool of 200 (processors/main_processor.go:134), with a burst
+//     of 200 records in one poll.
+//
+// Opt-in cases (extraScenarios) run only when named with -case: they are kept out of
+// the default run so the Phase-0 baseline (rows=36 / UNACCOUNTED=5, cache rows=26 /
+// UNACCOUNTED=4) that scoreboard.sh and other skills quote does not move.
 //
 // Usage (CGO env required; use ../run.sh accounting-probe [flags]):
 //
@@ -43,7 +51,8 @@
 //
 // Exit codes: 0 every record accounted; 1..99 = UNACCOUNTED rows (capped at 99);
 // 100 setup error (Postgres unreachable in db mode, kfake/miniredis/cache start failure,
-// bad flag, a -case without a counterpart in the chosen -mode).
+// bad flag, a -case without a counterpart in the chosen -mode, no CREATEROLE for
+// db-connection-exhaustion).
 package main
 
 import (
@@ -99,6 +108,13 @@ const (
 	faultRedisOnce
 	faultProduceEnriched
 	faultProduceDLQ
+	faultConnBurst // burstSize records in one poll against a role with CONNECTION LIMIT connLimit, pool 200
+)
+
+const (
+	burstSize = 200 // records produced before the consumer starts: one poll, one batch
+	connLimit = 30  // CONNECTION LIMIT of the throwaway role (the events-processor-spec EPC-30 shape)
+	burstPool = 200 // LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS default (processors/main_processor.go:134)
 )
 
 type scenario struct {
@@ -158,6 +174,27 @@ func numericPTAC(tx string) []byte {
 	})
 }
 
+// nonFiniteTS sends timestamp "NaN": strconv.ParseFloat accepts it, so the event is
+// enriched, but json.Marshal of the enriched record fails (utils/time.go:56-58,
+// event_producer_service.go:77-79) and only a log line and a Sentry event remain.
+func nonFiniteTS(tx string) []byte {
+	return fixture.JSON(fixture.RawEvent{
+		OrganizationID: fixture.Org, ExternalSubscriptionID: fixture.SubExternal, TransactionID: tx,
+		Code: "api_calls", Properties: map[string]any{"amount": 5}, Timestamp: "NaN",
+		Source: "http_ruby", SourceMetadata: map[string]any{"api_post_processed": false},
+		IngestedAt: fixture.IngestedNow(),
+	})
+}
+
+// extraScenarios run only when named with -case (see the header): they do not
+// change the default TOTALS that scoreboard.sh baselines.
+var extraScenarios = []scenario{
+	{"db-connection-exhaustion", "burst of 200 records in one poll; Postgres role CONNECTION LIMIT 30 vs pool 200; 2 good records follow; restart (timing-dependent)",
+		faultConnBurst, good, true, "burst: LOST > 0 (timing-dependent)", ""},
+	{"non-finite-timestamp", "timestamp \"NaN\": enriched record cannot be marshalled",
+		faultNone, nonFiniteTS, true, "fault=SENTRY_ONLY", "fault=SENTRY_ONLY"},
+}
+
 var scenarios = []scenario{
 	{"retryable-then-later-batch", "transient DB error on the subscription lookup of a record alone in its batch; 2 good records follow; restart",
 		faultDBSubscriptionOnce, good, true, "fault=LOST", ""},
@@ -184,6 +221,7 @@ var scenarios = []scenario{
 // ---------- fault switches (edges only) ----------
 
 var (
+	burstDBURL     string       // connection-limited role URL (db-connection-exhaustion only)
 	subQueryFaults atomic.Int32 // remaining subscription queries to fail
 	failTopicsMu   sync.Mutex
 	failTopics     = map[string]bool{}
@@ -338,6 +376,30 @@ type scratchDB struct {
 	admin *sql.DB
 	name  string
 	url   string
+	role  string // throwaway connection-limited role (db-connection-exhaustion), "" if none
+}
+
+// limitedRoleURL creates a LOGIN role with CONNECTION LIMIT limit (not a superuser:
+// superusers ignore the limit), grants it SELECT on the fixture tables and returns
+// the scratch-database URL for it. The role is dropped by drop().
+func (s *scratchDB) limitedRoleURL(limit int) (string, error) {
+	name := s.name + "_conn"
+	pw := fmt.Sprintf("p%x", time.Now().UnixNano())
+	if _, err := s.admin.Exec(fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD '%s' CONNECTION LIMIT %d", name, pw, limit)); err != nil {
+		return "", fmt.Errorf("CREATE ROLE %s: %w (role needs CREATEROLE)", name, err)
+	}
+	s.role = name
+	db, err := sql.Open("pgx", s.url)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec("GRANT SELECT ON ALL TABLES IN SCHEMA public TO " + name); err != nil {
+		return "", fmt.Errorf("GRANT SELECT to %s: %w", name, err)
+	}
+	u, _ := url.Parse(s.url)
+	u.User = url.UserPassword(name, pw)
+	return u.String(), nil
 }
 
 func createScratchDB(adminURL string) (*scratchDB, error) {
@@ -378,6 +440,11 @@ func (s *scratchDB) drop() {
 	}
 	if _, err := s.admin.Exec("DROP DATABASE IF EXISTS " + s.name + " WITH (FORCE)"); err != nil {
 		fmt.Fprintf(os.Stderr, "accounting-probe: could not drop scratch database %s: %v\n", s.name, err)
+	}
+	if s.role != "" {
+		if _, err := s.admin.Exec("DROP ROLE IF EXISTS " + s.role); err != nil {
+			fmt.Fprintf(os.Stderr, "accounting-probe: could not drop scratch role %s: %v\n", s.role, err)
+		}
 	}
 	_ = s.admin.Close()
 	s.admin = nil
@@ -474,7 +541,11 @@ func runCase(sc scenario, mode, dbURL string, timeout time.Duration) (*caseResul
 		}
 		cfg.Cache = c
 	} else {
-		db, err := database.NewConnection(database.DBConfig{Url: dbURL, MaxConns: 20})
+		u, maxConns := dbURL, int32(20)
+		if sc.fault == faultConnBurst {
+			u, maxConns = burstDBURL, burstPool
+		}
+		db, err := database.NewConnection(database.DBConfig{Url: u, MaxConns: maxConns})
 		if err != nil {
 			return nil, fmt.Errorf("database.NewConnection: %w", err)
 		}
@@ -497,6 +568,19 @@ func runCase(sc scenario, mode, dbURL string, timeout time.Duration) (*caseResul
 	}
 
 	// ---- session 1 ----
+	// db-connection-exhaustion: the burst is on the topic BEFORE the consumer starts,
+	// so it arrives in one poll and runs as one batch of concurrent records.
+	var burstOffs []int64
+	if sc.fault == faultConnBurst {
+		for i := 0; i < burstSize; i++ {
+			tx := fmt.Sprintf("%s-b%03d", sc.name, i)
+			off, err := add("burst", tx, sc.payload(tx))
+			if err != nil {
+				return nil, err
+			}
+			burstOffs = append(burstOffs, off)
+		}
+	}
 	p1, err := pipeline.New(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("pipeline.New: %w", err)
@@ -515,9 +599,14 @@ func runCase(sc scenario, mode, dbURL string, timeout time.Duration) (*caseResul
 	case faultProduceDLQ:
 		setFailTopics(dlqTopic)
 	}
-	fOff, err := add("fault", sc.name+"-fault", sc.payload(sc.name+"-fault"))
-	if err == nil {
-		err = obs.waitDelivered([]int64{fOff}, 1, timeout)
+	if sc.fault == faultConnBurst {
+		err = obs.waitDelivered(burstOffs, 1, timeout)
+	} else {
+		var fOff int64
+		fOff, err = add("fault", sc.name+"-fault", sc.payload(sc.name+"-fault"))
+		if err == nil {
+			err = obs.waitDelivered([]int64{fOff}, 1, timeout)
+		}
 	}
 	// disarm: the fault was transient
 	subQueryFaults.Store(0)
@@ -705,18 +794,26 @@ func main() {
 		}
 		return sc.expected
 	}
-	pool := scenarios
-	if *mode == "cache" {
-		pool = nil
-		for _, sc := range scenarios {
+	inMode := func(scs []scenario) []scenario {
+		if *mode != "cache" {
+			return scs
+		}
+		var out []scenario
+		for _, sc := range scs {
 			if sc.cacheExp != "" {
-				pool = append(pool, sc)
+				out = append(out, sc)
 			}
 		}
+		return out
 	}
+	pool := inMode(scenarios)
+	extra := inMode(extraScenarios)
 	if *list {
 		for _, sc := range pool {
 			fmt.Printf("%-36s %s (today: %s)\n", sc.name, sc.what, expectedOf(sc))
+		}
+		for _, sc := range extra {
+			fmt.Printf("%-36s OPT-IN (-case only): %s (today: %s)\n", sc.name, sc.what, expectedOf(sc))
 		}
 		return
 	}
@@ -727,15 +824,21 @@ func main() {
 			want[strings.TrimSpace(n)] = true
 		}
 		selected = nil
-		for _, sc := range pool {
+		for _, sc := range append(append([]scenario{}, pool...), extra...) {
 			if want[sc.name] {
 				selected = append(selected, sc)
 				delete(want, sc.name)
 			}
 		}
 		if len(want) > 0 {
-			fmt.Fprintf(os.Stderr, "accounting-probe: unknown case(s) for -mode %s: %v (try -mode %s -list; cases 1-3 exist in db mode only)\n", *mode, keys(want), *mode)
+			fmt.Fprintf(os.Stderr, "accounting-probe: unknown case(s) for -mode %s: %v (try -mode %s -list; cases 1-3 and db-connection-exhaustion exist in db mode only)\n", *mode, keys(want), *mode)
 			os.Exit(100)
+		}
+	}
+	needBurstRole := false
+	for _, sc := range selected {
+		if sc.fault == faultConnBurst {
+			needBurstRole = true
 		}
 	}
 
@@ -760,6 +863,13 @@ func main() {
 			os.Exit(100)
 		}
 		dbu = sdb.url
+		if needBurstRole {
+			if burstDBURL, err = sdb.limitedRoleURL(connLimit); err != nil {
+				sdb.drop()
+				fmt.Fprintln(os.Stderr, "accounting-probe: setup error:", err)
+				os.Exit(100)
+			}
+		}
 	} else {
 		fmt.Printf("== mode: cache (memory-cache data source, fixture.SeedCache; no Postgres, no CDC; %d of %d cases have a cache-mode counterpart)\n\n", len(pool), len(scenarios))
 	}
@@ -780,6 +890,7 @@ func main() {
 		}
 		fmt.Printf("== case %d/%d %s: %s\n", i+1, len(selected), sc.name, sc.what)
 		fmt.Printf("%-6s %-9s %-44s %5s %-9s %8s %6s %4s %-50s %s\n", "offset", "role", "transaction_id", "deliv", "decision", "enriched", "in_adv", "dlq", "dlq_cause", "outcome")
+		burst := map[string]int{}
 		for _, r := range res.rows {
 			dec := "processed"
 			if !r.processed {
@@ -789,12 +900,29 @@ func main() {
 			if cause == "" {
 				cause = "-"
 			}
-			fmt.Printf("%-6d %-9s %-44s %5d %-9s %8d %6d %4d %-50s %s\n", r.offset, r.role, r.tx, r.deliveries, dec, r.enriched, r.inAdv, r.dlq, cause, r.outcome)
 			totals[r.outcome]++
 			rows++
+			if r.role == "burst" {
+				burst[r.outcome]++
+				if !*verbose { // 200 rows: aggregated below unless -v
+					continue
+				}
+			}
+			fmt.Printf("%-6d %-9s %-44s %5d %-9s %8d %6d %4d %-50s %s\n", r.offset, r.role, r.tx, r.deliveries, dec, r.enriched, r.inAdv, r.dlq, cause, r.outcome)
 			if r.role == "fault" {
 				faultLines = append(faultLines, fmt.Sprintf("%-36s %-14s (expected today: %s)", sc.name, r.outcome, expectedOf(sc)))
 			}
+		}
+		if len(burst) > 0 {
+			var parts []string
+			for _, n := range []string{"ENRICHED", "DLQ", "REDELIVERED", "LOST", "SKIPPED_RETRY", "SENTRY_ONLY", "PENDING", "ENRICHED+DLQ"} {
+				if burst[n] > 0 {
+					parts = append(parts, fmt.Sprintf("%s=%d", n, burst[n]))
+				}
+			}
+			summary := fmt.Sprintf("burst=%d %s", burstSize, strings.Join(parts, " "))
+			fmt.Printf("burst rows (offsets 0-%d, -v prints each): %s\n", burstSize-1, summary)
+			faultLines = append(faultLines, fmt.Sprintf("%-36s %s (expected today: %s)", sc.name, summary, expectedOf(sc)))
 		}
 		fmt.Printf("committed offset: after session 1 = %d, after restart = %d | sentry captures = %d | zset members = %d\n",
 			res.committed1, res.committed2, res.sentry, res.zset)

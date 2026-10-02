@@ -3,8 +3,8 @@
 Read when you run `accounting-probe`, read a ledger row, add a fault case, or need to know which
 code path a case exercises. Code facts as of 5308258 (events-processor tree 83e012866f29); the working
 branch may carry skills-only commits on top. Verified 2026-10-01 with franz-go v1.20.5, kfake pseudo-version
-`v0.0.0-20251123185109-2b5c574e9ddd`, Postgres 16; memory-cache mode (`-mode cache`) added and verified
-2026-10-02.
+`v0.0.0-20251123185109-2b5c574e9ddd`, Postgres 16; memory-cache mode (`-mode cache`) and the opt-in cases 15-16
+added and verified 2026-10-02.
 
 ## 1. What the probe drives (and what it does not touch)
 
@@ -22,9 +22,10 @@ branch may carry skills-only commits on top. Verified 2026-10-01 with franz-go v
   same tenant is written into a fresh cache per case by `fixture.SeedCache` (no Postgres; no Debezium
   snapshot or CDC traffic: `smoke-binary.sh cache-cdc` covers CDC, `memory-cache-w6.md` s.4).
 - Faults are injected only at the edges: a gorm `Query` callback (DB), `miniredis.SetError` (Redis), a kfake
-  `ControlKey(Produce)` answering `INVALID_RECORD` (Kafka produce), or the payload itself. No
+  `ControlKey(Produce)` answering `INVALID_RECORD` (Kafka produce), the payload itself, or (case 15) a
+  throwaway Postgres role with `CONNECTION LIMIT 30` used with the binary's default pool of 200. No
   events-processor file is modified (change-control N10).
-- Each case (`runCase`, `scripts/accounting-probe/main.go:437`): fresh kfake cluster, fresh miniredis, consumer group `acct_events-raw`.
+- Each case (`runCase`, `scripts/accounting-probe/main.go:504`): fresh kfake cluster, fresh miniredis, consumer group `acct_events-raw`.
   Session 1 produces the fault record alone and waits until `ProcessEvents` has seen it, disarms the
   fault (all faults are transient: they fire once), then (cases with neighbours) produces 2 good
   records and waits for them. Session 1 stops (real graceful shutdown). Session 2 restarts in the same
@@ -32,6 +33,10 @@ branch may carry skills-only commits on top. Verified 2026-10-01 with franz-go v
   the high watermark.
 - Cases 1-3 inject at the Postgres edge and have no cache-mode counterpart; `-mode cache` runs cases 4-10
   (`run.sh accounting-probe -mode cache -case retryable-only-batch` exits 100: "unknown case(s) for -mode cache").
+- Cases 15-16 are OPT-IN: they run only when named with `-case` (`-list` marks them `OPT-IN`), so the
+  default TOTALS, the `scoreboard.sh` baselines and the numbers other skills quote (`UNACCOUNTED=5`, `rows=36`)
+  do not move. Case 15 creates and drops its role (needs CREATEROLE) and exists in DB mode only; case 16 runs in
+  both modes.
 - Not modelled (UNVERIFIED by this probe): rebalance mid-batch, SIGKILL mid-batch, commit failure
   (`consumer.go:104-108` logs and captures, does not retry), multi-partition interleaving, CDC updates and
   snapshot failures in cache mode (smoke-level evidence only, `memory-cache-w6.md`), SASL/TLS. Add them as
@@ -76,6 +81,8 @@ expected result, not a failure.
 | 8 | `redis-flag-then-later-batch` | Redis error while the fault record is in flight | `processor.go:110-113` enriched produced first, `:128-131` retryable flag failure, then as case 1 | **SKIPPED_RETRY** (enriched=1, in_adv=1, refresh never retried) | REDELIVERED |
 | 9 | `redis-flag-only-batch` (control) | same, no neighbours | as case 2; the retry re-produces (`processor.go:110-126` runs again) | REDELIVERED, **enriched=2, in_adv=2** | REDELIVERED (duplicates absorbed downstream, see `delivery-options.md` s.4) |
 | 10 | `missing-bm-nonretryable` | unknown metric code | `models/billable_metrics.go:75-83` NonRetryable+NonCapturable -> DLQ | DLQ `fetch_billable_metric(record not found)` | DLQ |
+| 15 | `db-connection-exhaustion` (OPT-IN, DB mode) | 200 good records produced before the consumer starts (one poll), role `CONNECTION LIMIT 30`, pool 200 (`processors/main_processor.go:134` default); 2 good records follow | Postgres refuses connections (`too many connections for role`) -> retryable lookup failures -> `processor.go:74-78` withheld -> the neighbours' batch commits past them (case 1 at burst scale) | **164-170 of 200 LOST** (timing-dependent) | ADR-001 SYSTEMIC: pause, 0 LOST (kit `events-processor-spec` EPC-30, `reimplementation-kit` RBD-10) |
+| 16 | `non-finite-timestamp` (OPT-IN) | `"timestamp": "NaN"` | `utils/time.go:56-58` accepts it; `event_producer_service.go:77-79` marshal error, logged + captured, no produce, no DLQ; `processor.go:134` success | **SENTRY_ONLY** (both modes) | DLQ with a cause (ADR-001 PERMANENT; kit EPC-08, RBD-4) |
 
 Line references are under `events-processor/`; `processor.go`, `enrichment_service.go` and
 `event_producer_service.go` are in `processors/events_processor/`.
@@ -141,6 +148,28 @@ Per-case footers match DB mode for the shared cases (committed `3 -> 4`, case 9 
 case 7: 2, case 10: 0); the only text difference is the case-10 DLQ cause `fetch_billable_metric(Key not found)`
 (badger) instead of `(record not found)` (gorm).
 
+Opt-in cases (2026-10-02; case 15: 4 runs, one under `GOFLAGS=-race`; case 16: 2 runs per mode, one under
+`-race`):
+```
+$ .claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe -case db-connection-exhaustion
+...
+burst rows (offsets 0-199, -v prints each): burst=200 ENRICHED=31 LOST=169
+committed offset: after session 1 = 202, after restart = 203 | sentry captures = 169 | zset members = 1
+== fault-record outcome per case
+db-connection-exhaustion             burst=200 ENRICHED=31 LOST=169 (expected today: burst: LOST > 0 (timing-dependent))
+TOTALS rows=203 ENRICHED=34 DLQ=0 REDELIVERED=0 LOST=169 SKIPPED_RETRY=0 SENTRY_ONLY=0 PENDING=0 ENRICHED+DLQ=0 UNACCOUNTED=169
+$ echo $?
+99
+$ .claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe -case non-finite-timestamp      # and -mode cache
+...
+non-finite-timestamp                 SENTRY_ONLY    (expected today: fault=SENTRY_ONLY)
+TOTALS rows=4 ENRICHED=3 DLQ=0 REDELIVERED=0 LOST=0 SKIPPED_RETRY=0 SENTRY_ONLY=1 PENDING=0 ENRICHED+DLQ=0 UNACCOUNTED=1
+```
+Case 15: LOST was 169, 170, 170 and 164 (`-race`); exit 99 is the cap (`min(UNACCOUNTED, 99)`); `-v` prints
+every burst row and shows the Postgres refusals. The kit measured the same mechanism on the reference binary
+(`events-processor-spec` EPC-30: 85-170 of 201 records lost in nine runs). Case 16 committed `3 -> 4` with one
+Sentry capture in both modes.
+
 ## 5. Adding a case
 
 <!-- evidence-check: off procedure, not claims -->
@@ -159,6 +188,8 @@ case 7: 2, case 10: 0); the only text difference is the case-10 DLQ cause `fetch
 
 Planned for ADR-001 (step 4a, `delivery-options.md` s.6): the retry topic in the kfake topic list, the
 RETRIED / RETRY_PARKED outcomes, repeatable DB/Redis faults, cases 11-14 (`delivery-options.md` s.0.6).
+Folding cases 15-16 into the default run is a baseline change (rows, UNACCOUNTED and the "commit every
+record" overlay number move) that other skills quote: do it in one coordinated C1 PR with those skills.
 Ideas not built yet (each is a hypothesis to test, UNVERIFIED): commit failure via
 `ControlKey(OffsetCommit)`; crash after produce before commit (cancel inside a `Wrap`); 2 partitions with the
 fault on one; in-advance produce failure (expect ENRICHED+DLQ); a CDC update or a failed snapshot table in
@@ -173,3 +204,50 @@ cache mode (needs the CDC consumers on kfake, as `kfake-run.sh cdc-brokers` does
 | `--check` prints different franz-go versions | events-processor bumped franz-go | re-pin kfake per `diagnostics-and-tooling` (kfake technique, version trap), then `go mod tidy` in `scripts/` |
 | coverage of `ProcessEvents` > 0 | someone added a test | good: update the baseline in `scripts/scoreboard.sh` (same PR) |
 | leftover `acct_probe_*` databases | the probe was killed hard | `psql "${DATABASE_URL:-postgres://lago:lago@localhost:5432/lago}" -Atc "select datname from pg_database where datname like 'acct_probe%'"`, drop them |
+
+## 7. Second gate: the kit's corrected profile (runs next to `scoreboard.sh`)
+
+The re-implementation kit grades any events-processor BINARY black-box against ADR-001 and the decided rebuild
+decisions: `events-processor-spec` conformance suite, assertions tagged with `reimplementation-kit` RBD ids. It
+sees what this probe cannot (the real binary's start-up, a 200-record burst against a connection limit, CDC rows,
+25 value literals) and this probe sees what it cannot (per-offset outcome classes, `-overlay` candidates, the
+cache-mode ledger). Every W1-W3 and W6 PR runs both; a Phase 1 (signals) or W6-0 PR leaves both lists unchanged.
+
+Commands (repo root; needs Go >= 1.25 for the runner build, `psql`, a Postgres role with CREATEDB and CREATEROLE;
+the runner creates the cluster role `epconf_iut` and one scratch database per scenario, and writes only under
+`$LAGO_SKILLS_CACHE` or `--keep`):
+```bash
+source .claude/skills/build-and-env/scripts/ep-env.sh                      # CGO env; LD_LIBRARY_PATH for the binary
+b=$(mktemp -d) && (cd events-processor && go build -o "$b/ep" .)           # the candidate = your working tree
+K=.claude/skills/events-processor-spec/scripts/run-suite.sh
+bash "$K" --impl-cmd "$b/ep" --impl-env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" --mode db --profile corrected
+bash "$K" --impl-cmd "$b/ep" --impl-env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" --mode cache --profile corrected
+# today (tree 83e012866f29, re-run 2026-10-02, ~90 s per mode), last lines:
+#   run-suite: scenarios=31 failing=12 unruled=1 skipped=4 mode=db profile=corrected ... exit=3
+#   run-suite: scenarios=27 failing=7 unruled=2 skipped=8 mode=cache profile=corrected ... exit=3
+```
+`--only 'EPC-(07|08)'` narrows a run; `--keep DIR` keeps each scenario's `.out` file with the failed assertions
+(`FAIL <kind> <tx>: ... RBD-n decided`). Exit 3 = some decided assertion failed; UNRULED (only `proposed`
+assertions failed) never fails a run.
+
+Corrected pass list per phase (today = the reference, 2026-10-02; "DB only" scenarios are skipped in cache mode):
+
+<!-- evidence-check: off gate table (TARGET per phase); "today" column = the two run-suite runs above -->
+| Phase (workstream) | Must turn PASS (`reimplementation-kit` RBD) | Today DB / cache | Ledger twin |
+|---|---|---|---|
+| 2 value (W2) | EPC-07: 25 `value` literals (RBD-13) | FAIL / FAIL | value corpus (`value-and-time.md` s.2) |
+| 3 time (W3) | EPC-04 assertions `sm_ms_exact_str`, `sm_ms_exact_num`, `sm_term_after` (RBD-15) and `sm_ts_offset` (RBD-16) | FAIL / FAIL | `value-corpus -mode time` |
+| 4 delivery (W1), step 4c | EPC-10, EPC-14, EPC-15 (RBD-1), EPC-16 (RBD-8), EPC-17 (RBD-9), EPC-18 (RBD-6), EPC-19 (RBD-5), EPC-30 (RBD-10) | all FAIL / EPC-17, 18, 19 FAIL (the rest DB only) | cases 1, 8, 6, 7, 15 |
+| 4 delivery (W1), steps 4c-4d | EPC-08: `NaN` / `Inf` on the DLQ with a cause; EPC-09: undecodable records with a cause (RBD-4) | FAIL / FAIL | cases 16, 4, 5 |
+| 7 cache (W6-4) | EPC-04 assertion `sm_started_ms` (RBD-17) | PASS / FAIL | smoke `tx_H` (`memory-cache-w6.md` s.4) |
+| 7 cache (W6-1) | EPC-31 (RBD-21, proposed) | n/a / UNRULED | smoke `cache-cdc` `tx_A`; a gate once OPEN DECISION OD-1b and RBD-21 are ruled |
+| every PR: stay PASS | EPC-11, 12, 13 (RBD-1..3, DB only), EPC-21 (RBD-12), EPC-26..29 (RBD-23) | PASS / PASS | cases 2, 3 |
+| advisory | EPC-20 (RBD-7, proposed) | UNRULED / UNRULED | none (in-advance produce failure: not built) |
+<!-- evidence-check: on -->
+
+Campaign TARGET for this gate: `failing=0` in both modes, UNRULED only for proposed rulings. Known blocker
+(kit issue, reported 2026-10-02): in cache mode `sm_ts_offset` fails for a different reason, the subscription it
+expects (terminated 2025-03-01) is outside the cache's one-month snapshot window (`events-processor-spec` rule
+EP-H7, RBD-20 proposed), so EPC-04 cannot pass in cache mode on W3 + W6-4 alone; the per-mode offset rule
+itself is executed by unit vectors ep.match_subscription.016 / .017 (`architecture-contract` memory-cache.md
+§1a). The EPC-30 count is timing-dependent (164 of 201 lost in this run; the kit saw 85-170 in nine runs).
