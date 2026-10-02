@@ -16,7 +16,7 @@
 #             processors are not in the profile: no test binary links them)
 #   vet       go vet ./...            -> number of output lines
 #   gofmt     gofmt -l .              -> number of files listed
-#   lint      golangci-lint run ./... -> issues per linter (no repo config: v2 defaults)
+#   lint      golangci-lint run --allow-serial-runners ./... -> issues per linter (no repo config: v2 defaults)
 #
 # Compare rules. FAIL (= regression, exit 1):
 #   pass.total or any pass.<pkg> lower than baseline; fail.total > 0; a package that fails to build;

@@ -104,3 +104,24 @@ the ZADD. Not-found results are `NonCapturable().NonRetryable()` (`models/billab
 Duplicates (not losses): commit failure, SIGKILL mid-batch, rebalance before commit, group rename (new group starts
 at the earliest offset). They are absorbed only if downstream dedup on `transaction_id` holds (invariant I12, CONDITIONAL: `FINAL` only for
 orgs with `clickhouse_deduplication_enabled`).
+
+## 5. Producer settings in force (franz-go v1.20.5 defaults; EP passes no producer options)
+
+`NewProducer` builds its client with an empty option list (`events-processor/config/kafka/producer.go:33-35`), so
+every produce to `events_enriched`, `events_charged_in_advance` and `events_dead_letter` runs on the library
+defaults (`$(go env GOMODCACHE)/github.com/twmb/franz-go@v1.20.5/pkg/kgo/config.go`, verified 2026-10-02):
+
+| Setting | Default | `config.go` line |
+|---|---|---|
+| acks | all in-sync replicas | 557 |
+| idempotent producer | on (only `DisableIdempotentWrite()` turns it off; not called) | 221 |
+| max produce requests in flight per broker | 1 | 558 |
+| linger | 10 ms (max allowed 1 min) | 565 |
+| produce request timeout | 10 s | 562 |
+| record retries | `math.MaxInt64` (effectively unbounded; `Produce` calls `ProduceSync` with the batch `context.Background()`, `producer.go:62`, so no deadline bounds it: a non-retriable error or the 4-unknown-failures cap ends it) | 563-564 |
+| buffered records before `Produce` blocks | 10000 | 561 |
+| compression | snappy, fallback none | 559 |
+| max record batch bytes | 1000012 | 560 |
+
+Env knobs that would tune these do not exist today; adding one follows `config-and-flags` (add-a-variable
+checklist, "knob that tunes a library") and is C3 + C6 when its default equals the library default.

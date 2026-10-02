@@ -22,7 +22,7 @@ Of the 10 workflows, this is the only one with a `pull_request` trigger
 
 | Gap | Consequence | Local substitute |
 |---|---|---|
-| no golangci-lint, no config committed (OPEN DECISION OD-6 (owner)) | 21 issues today; new ones land silently | `scripts/baseline.sh`, `golangci-lint run --new-from-rev="$BASE"` |
+| no golangci-lint, no config committed (OPEN DECISION OD-6 (owner)) | 21 issues today; new ones land silently | `scripts/baseline.sh`, `golangci-lint run --allow-serial-runners --new-from-rev="$BASE"` |
 | no `-race` | concurrency regressions only show in production | `scripts/race-shuffle.sh` (unit suite only: it never runs `processRecordsAndCommit`); for the consumer path `GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4` (`RESULT: PASS`) |
 | no coverage | coverage can fall to anything | `scripts/baseline.sh` (`cover.*` rows) |
 | no gofmt / explicit vet | `go test` runs only a small vet subset | `gofmt -l`, `go vet ./...` |

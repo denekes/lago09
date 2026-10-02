@@ -84,7 +84,7 @@ echo "$W"                                          # outside the repo; delete it
 | gofmt | `gofmt -l .` | no output | whole tree (what `baseline.sh` counts); the PR gate scope is the changed `.go` files (change-control N9; SKILL.md §3 step 3) |
 | module hygiene | `go mod tidy -diff` | exit 0, empty diff | |
 | golangci-lint 2.5.0 | `GOLANGCI_LINT_CACHE="${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/golangci-cache" golangci-lint run --allow-serial-runners ./...` | exit 1, `21 issues: errcheck: 16, staticcheck: 5` | no config in the repo, ever (`git -C "$H" log --all --oneline -- '*golangci*'` prints nothing; `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`), so v2 defaults apply: errcheck, govet, ineffassign, staticcheck, unused. Works without the CGO env. `--cache-dir` is not a flag (exit 3); use `GOLANGCI_LINT_CACHE`. ~20 s cold, ~5 s with a warm cache |
-| lint gate | `golangci-lint run --new-from-rev="$BASE" ./...` | `0 issues.` at `--new-from-rev=HEAD` | the gate is "no NEW issues" (OPEN DECISION OD-6 (owner)) |
+| lint gate | `golangci-lint run --allow-serial-runners --new-from-rev="$BASE" ./...` | `0 issues.` at `--new-from-rev=HEAD` | the gate is "no NEW issues" (OPEN DECISION OD-6 (owner)) |
 
 The 21 issues (file:line, linter):
 

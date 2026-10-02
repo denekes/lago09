@@ -72,8 +72,9 @@ under both names:
 ```bash
 git -C "$H" log -G'return' --format='%h %ad %s' --date=short -- events-processor/config/kafka/consumer.go events_processor/config/kafka/consumer.go
 ```
-Output: `9acd83e`, `b6d3616`, `b604769`, `600e195`, `cec0eb2`, `4100da0`. That is the full commit-path
-chain (13 months).
+Output: `9acd83e`, `b6d3616`, `b604769`, `600e195`, `cec0eb2`, `4100da0`. That is the consumer.go side
+of the commit-path chain (13 months); the full chain A also has `656c829` (processor.go, unparseable
+records), which a consumer.go pathspec cannot see (`failure-archaeology` chain A, change-control N7).
 
 Then read each step: `git -C "$H" show --stat <sha>`, then `git -C "$H" show <sha> -- <file>`.
 

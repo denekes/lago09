@@ -72,7 +72,7 @@ git -C "$H" show --stat --format= 84b6eef      # .env.development.example => .en
 | CM2 | "The events-processor still produces to the expanded topic" (lago-api `6341824` body, 2026-09-24) | `d9c32b6` (2026-09-18) removed that producer here | A commit message in repo X is not evidence about repo Y |
 | CM3 | "misc: Bump version to 7 (#679)" (`449bf5b`) reads like a release | The diff is `redis:6-alpine` -> `redis:7-alpine` in `docker-compose.yml` (`git -C "$H" show 449bf5b -- docker-compose.yml`) | Read the diff; a subject alone is not evidence |
 
-## Cases where the brief or the environment moved under you
+## Cases where a stated fact or the environment moved under you
 
 | Case | Stated | Observed 2026-10-01 | Lesson |
 |---|---|---|---|

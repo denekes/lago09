@@ -103,8 +103,10 @@ CONTRACT FLAGs as intended.
   without lago-api (change-control N6).
 - Condition: billing reads `events_enriched` with `FINAL` only when the org has `clickhouse_deduplication_enabled`
   (`$API/app/services/billable_metrics/aggregations/base_service.rb:161-169`; default false,
-  `$API/app/models/organization.rb:348`; set at org creation only with `LAGO_CLICKHOUSE_ENABLED` +
-  `LAGO_DEFAULT_EVENT_STORE=clickhouse`, `$API/app/services/organizations/create_service.rb:17-19`; the dev seed CH org
+  `$API/app/models/organization.rb:348`; the only env-driven setter is org creation with `LAGO_CLICKHOUSE_ENABLED` +
+  `LAGO_DEFAULT_EVENT_STORE=clickhouse`, `$API/app/services/organizations/create_service.rb:17-19`; also set by the
+  clickhouse rake recipe `$API/lib/tasks/recipes/clickhouse.rake:109` and the enriched-store migration
+  `$API/app/services/events/stores/clickhouse/enriched_store_migration/comparison_service.rb:61-64`; the dev seed CH org
   leaves it false, `$API/db/seeds/01_base.rb:54`). Without it, redelivered duplicates are summed until a background
   merge. In-advance fees are idempotent through `PayInAdvanceService#already_processed?`
   (`$API/app/services/events/pay_in_advance_service.rb:15,55-57`); the job lock only blocks concurrent duplicates.

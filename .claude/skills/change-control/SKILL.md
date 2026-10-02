@@ -1,6 +1,6 @@
 ---
 name: change-control
-description: Change-control rules for the Lago umbrella repo (getlago/lago with the Go events-processor). Covers how to classify a change (C0-C7), the gates and evidence each class needs before commit, PR and merge, the non-negotiables N1-N13 with the incident behind each, commit/PR conventions as practised, the cross-repo contract protocol with lago-api, submodule and pin hygiene, review routing, and the owner OPEN decisions OD-1..OD-9. Use when about to commit, open or review a PR, or on "Subproject commit" in a diff, "M api"/"M front" in git status, a gitlink move, "bump lago-expression"/rust/go version, "@latest", go.mod expression-go, subscription_refreshed_v2, a topic or consumer-group rename, a Kafka commit/retry/DLQ change, force-push, "subject too long", misc type, ING-/INF- tickets, "paired lago-api PR", "what gates does this need". Not for running tests (validation-and-qa), CGO build errors (build-and-env), cutting a release (release-and-images), or incident narratives (failure-archaeology).
+description: "Change-control rules for the Lago umbrella repo: change classes C0-C7 and the gates and evidence each needs, non-negotiables N1-N13 with their incidents, commit/PR conventions, cross-repo contracts K1-K10, submodule and pin hygiene, and the owner OPEN DECISION register OD-1..OD-20 (who decides, defaults). Use before a commit or PR, on \"Subproject commit\" or \"M api\" in a diff, a gitlink move, a pin bump, a topic, group or Redis-key rename, force-push, \"what gates does this need\", \"who decides\". Not for running tests (use validation-and-qa) or cutting a release (use release-and-images)."
 ---
 # Change control: classes, gates, non-negotiables
 
@@ -102,7 +102,7 @@ How to apply the table:
   is C3 when (a) the diff changes no control flow, return value, `CommitRecords`/DLQ/produce
   call or payload field, and (b)
   `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline` prints
-  `moved=0` (paste it; about 20 s here, needs Postgres). Anything that alters commit, retry, DLQ
+  `moved=0 unmeasured=0` (paste it; about 20 s here, needs Postgres). Anything that alters commit, retry, DLQ
   or skip behaviour, or a contract K1-K10, is C4. Say in the PR which rule applied
   (`reference/change-classes.md` §1 step 6).
 - **`value` string formatting** (`enrichment_service.go:114`) is C3 + C4: contract K4 (N6),
@@ -274,7 +274,7 @@ The sources disagree: <= 72 (`CONTRIBUTING.md:170`) vs <= 50 (`$API/AGENTS.md:52
 squashed commit and `fix/`/`feature/` branches (`PULL_REQUEST_TEMPLATE.md:8,12`). Practice
 follows none of them. Of the 293 non-merge commits since 2025-01-01 (`commit-msg-check.sh
 --report`), 29 subjects exceed 72 and 142 exceed 50; 88% are conventional; `misc` 69 (279
-all-time), `release:` 8; 64% have no body; 0 of 48 merges come from `fix/` or `feature/`.
+all-time with the strict regex `^misc(\([^)]*\))?: `; 283 with `^misc(\(|:|!)`), `release:` 8; 64% have no body; 0 of 48 merges come from `fix/` or `feature/`.
 The stated-vs-practised table and its commands: `reference/commit-pr-conventions.md` §1-§2.
 
 Defaults we operate under until the owner decides OD-7:
@@ -334,12 +334,12 @@ were release-and-images REL-1..REL-6 (OD-(9+n)); OD-16..OD-19 come from
 | OD-4 | Is a paired lago-api PR mandatory for cross-repo contract changes? | YES (conservative), N6 | owner | written policy recorded here |
 | OD-5 | Is `ep-test.sh` (Docker-free) an accepted pre-PR gate, or is `lago exec events-processor go test ./...` mandatory? | accepted: same SHAPE as CI (host-built `libexpression_go.so`, `go test ./...` against Postgres, no Docker), not identical (CI `.github/workflows/events-processor-tests.yml`: `postgres:14-alpine` service `:25`, whole lago-expression workspace built with the runner's unpinned Rust `:49`, `go test -v` `:64`; `ep-env.sh`: the expression-go crate with local cargo, local Postgres). `lago exec` stays valid | owner, with the EP maintainer | owner confirmation, then fix `events-processor/CLAUDE.md:10` (C0) |
 | OD-6 | golangci-lint policy and config (none committed, ever; 21 issues today) | "no NEW issues vs base" (`--new-from-rev`). No config file without approval | owner, with the EP maintainer | proposed `.golangci.yml` + full-run count + CI job PR |
-| OD-7 | Subject limit 50 or 72; is `misc` sanctioned; branch-name policy | <= 72 hard, <= 50 preferred; `misc` allowed (279 uses); branch names not enforced | owner | CONTRIBUTING.md / PULL_REQUEST_TEMPLATE.md rewritten (C0) |
+| OD-7 | Subject limit 50 or 72; is `misc` sanctioned; branch-name policy | <= 72 hard, <= 50 preferred; `misc` allowed (279 uses, strict regex `^misc(\([^)]*\))?: `); branch names not enforced | owner | CONTRIBUTING.md / PULL_REQUEST_TEMPLATE.md rewritten (C0) |
 | OD-8 | Prod state of lago-api flags `pre_filter_events`, `lazy_charge_usage_cache`, `enriched_events_aggregation` | UNKNOWN. Drift findings say "impact depends on OD-8" | owner / lago-api maintainers | per-org flag state from prod |
 | OD-9 | Was the `LAGO_LICENSE` value (`16c8b68` -> `6dd7e56`) rotated? Was ING-123 (`9ef876a`) a cross-tenant leak? | UNKNOWN, labelled UNVERIFIED. Never print the value | owner (security) | rotation record (date only); ING-123 ticket text |
 | OD-10 | Is the all-in-one `getlago/lago` image still supported? Backfill the tags never published (list: `release-and-images`)? Alert on a failed release build? (was REL-1) | status quo: keep publishing, no backfill, no alert | owner + release owner | support statement; backfill run or "no backfill" note; alert job PR |
 | OD-11 | Delete the dead `release.yml` `repository_dispatch` (no receiver; still needs `GH_TOKEN`)? (was REL-2) | keep it; it is inert | owner + CI/release owner | deletion PR (C5) or "keep" note |
-| OD-12 | Release-day fix policy: dispatch the build from `main` (image != tag) or always cut a patch release (image == tag)? (was REL-3) | none chosen; both are used: say which in the release notes | owner + release owner | written policy here |
+| OD-12 | Release-day fix policy: dispatch the build from `main` (image != tag) or always cut a patch release (image == tag)? May a published tag ever be moved or deleted (default: no)? (was REL-3) | none chosen; both are used: say which in the release notes | owner + release owner | written policy here |
 | OD-13 | Maintenance releases on an older line and the `latest` tag (both Docker Hub workflows re-tag `latest`) (was REL-4) | do not re-tag `latest` by hand without the owner | owner + release owner | written policy; `latest` restore procedure |
 | OD-14 | Pin lago-front's `@main` call of `docker-build-multi-arch.yaml` (K10) to a tag or SHA? (was REL-5) | unpinned: treat every edit of that workflow as C4 and tell the lago-front owners | owner + lago-front owner | lago-front PR pinning the ref |
 | OD-15 | Were v1.52.1 (stale pins) and v1.41.x intended? Who owns the `deploy/*.yml` image tags (still `getlago/api:v1.27.1`)? (was REL-6) | untouched by bump PRs | owner + release owner | owner note; a deploy/ tag policy |
@@ -427,7 +427,7 @@ why in the PR. A release bump is the expected case: the hook runs without `--rel
   - PR CI scope: `sed -n 7,13p .github/workflows/events-processor-tests.yml` -> `pull_request` with `paths: "events-processor/**"`.
   - Lint baseline, in `events-processor/`: `golangci-lint run --allow-serial-runners ./... | tail -3` -> `21 issues:` (errcheck 16, staticcheck 5; v2.5.0, no ep-env.sh needed).
   - Patch float: `curl -fsS https://hub.docker.com/v2/repositories/library/golang/tags/1.25 | grep -o '"digest":"[^"]*'` -> same digest as tag `1.25.14` (needs network).
-  - C3-vs-C4 baseline: `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline | tail -1` -> `scoreboard: moved=0 targets_missed=12 …`, exit 0.
+  - C3-vs-C4 baseline: `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline | tail -1` -> `scoreboard: moved=0 unmeasured=0 targets_missed=12 …`, exit 0 (a `--check-*` run with skipped rows exits 5, never 0).
   - Pass count: `.claude/skills/build-and-env/scripts/ep-test.sh -v -count=1 ./... 2>&1 | grep -c -- '--- PASS'` -> `235`.
   - N4 residual: `sed -n 59,66p events-processor/models/billable_metrics.go` -> still `.First(`.
   - N7 gap: `grep -rn "processRecordsAndCommit" --include=*_test.go events-processor` -> no output.

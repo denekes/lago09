@@ -1,6 +1,6 @@
 ---
 name: build-and-env
-description: Recreates the Lago umbrella-repo working environment from zero and catalogs its build and environment traps. Covers the Docker-free events-processor recipe (CGO + libexpression_go.so via ep-env.sh, ep-test.sh, doctor.sh), Postgres for tests, the Go/Rust/lago-expression/Postgres/ClickHouse/Node version matrix, dev-stack prerequisites (SSH submodules or HTTPS rewrite, mkcert certs, hosts, the lago alias, lago_front_pnpm_store) and what each Dockerfile is for. Use when setting up a sandbox, CI-like host or dev machine, or on "cannot find -lexpression_go", "libexpression_go.so cannot open shared object file", "build constraints exclude all Go files", "no such tool covdata", "go.mod requires go >= 1.25.0", "toolchain not available", "lago command not found", "unknown command exec for lago", "cannot run ssh", empty api/ or front/, or a TestNewConnection nil-pointer panic. Not for test policy or baselines (validation-and-qa), publishing images (release-and-images) or running services (run-and-operate).
+description: "Recreates the Lago umbrella-repo environment from zero; start here in a fresh session or sandbox. Docker-free events-processor recipe (CGO + libexpression_go.so via ep-env.sh, ep-test.sh, doctor.sh), Postgres for tests, versions, dev-stack prereqs. Use for \"where do I start\", or on \"cannot find -lexpression_go\", \"libexpression_go.so: cannot open shared object file\", \"build constraints exclude all Go files\", \"go.mod requires go >= 1.25.0\", \"lago exec\" failing, \"Permission denied (publickey)\", empty api/ or front/, a TestNewConnection panic. Not for test policy (use validation-and-qa)."
 ---
 # Build and environment: recreate the workspace from zero
 
@@ -9,6 +9,8 @@ local image build, and what breaks on the way (with exact error text). It owns t
 `ep-env.sh`, `ep-test.sh`, `doctor.sh` and the alias-free compose wrapper `dc.sh`.
 Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
 skills-only commits on top. Verified 2026-10-01 unless marked.
+New here? Run section 1, then pick the next skill from the start-here table in `.claude/skills/README.md`
+(if the Skill tool does not list a skill, read `.claude/skills/<name>/SKILL.md` directly).
 
 ## When to use / when NOT to use
 

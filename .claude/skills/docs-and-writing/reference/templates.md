@@ -114,7 +114,7 @@ C<n> (+C7 if security-relevant). Gates applied: see change-control's class table
 <Paste commands and their key output. See change-control N9 and change-control N13. For example:>
 - `.claude/skills/build-and-env/scripts/ep-test.sh` -> ok x6
 - `.claude/skills/build-and-env/scripts/ep-test.sh -race -count=1 ./...` -> ok x6
-- `go vet ./...` -> clean; `gofmt -l <changed files>` -> empty; `golangci-lint run --new-from-rev=$BASE` -> 0 issues
+- `go vet ./...` -> clean; `gofmt -l <changed files>` -> empty; `golangci-lint run --allow-serial-runners --new-from-rev=$BASE ./...` -> 0 issues
 - `.claude/skills/docs-and-writing/scripts/doc-drift-check.sh --only SC-NN` -> before `STALE`, after `PASS`
 - <probe / ledger / parity output for C3-C4>
 
@@ -290,7 +290,7 @@ Checklist (the format contract every skill in this library follows):
    - Run `.claude/skills/docs-and-writing/scripts/doc-drift-check.sh -q`.
    - `git status --porcelain` shows only the skill directory.
    - If you added or renamed a skill, a script or an ID namespace, update the library index
-     `.claude/skills/README.md` (routing table, ID registry) when it exists, and
+     `.claude/skills/README.md` (start-here table, index, ID registry), and
      `grep -rn '<old name or ID>' .claude/skills` for inbound references.
 8. **Commit.**
    - Subject `misc(skills): <summary>`, <= 72 characters, no WIP or fixup (check with

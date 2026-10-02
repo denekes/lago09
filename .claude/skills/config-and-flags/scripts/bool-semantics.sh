@@ -98,7 +98,7 @@ done
 
 API_SHA=""; [ "$USE_API" = 1 ] && API_SHA="$(git -C "$API_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
 export VAR API_SHA SETS
-export EP_SHA="$(git -C "$ROOT" rev-parse --short HEAD)"
+export EP_SHA="$(git -C "$ROOT" log -1 --format=%h -- events-processor 2>/dev/null)"
 
 perl -e '
 use strict; use warnings;

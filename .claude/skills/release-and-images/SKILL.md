@@ -1,6 +1,6 @@
 ---
 name: release-and-images
-description: Release train and published images of the Lago umbrella repo, covering a release vX.Y.Z (api/front tags first, bump PR moving the api/front gitlinks and docker-compose.yml image tags, tag, GitHub Release "released"), what the 10 workflows publish (Docker Hub getlago/lago and lago-events-processor with latest, GHCR amd64-only, ECR, Pages), the reusable docker-build-multi-arch.yaml that lago-front calls @main, the all-in-one docker/Dockerfile and its Ruby/Node/Bundler/pnpm sync, events-processor Dockerfile/.dev/.staging, registry checks. Use on "bump version", "cut a release", "getlago/lago image missing", "latest tag", "Your Ruby version is ... but your Gemfile specified", "pnpm@latest", "linux-arm64", "release-docker-image.yml", "release-images.yml", "repository_dispatch", "Dockerfile.staging", "maintenance release". Not for commit/PR rules (change-control), local CGO builds (build-and-env), running images (run-and-operate), test policy (validation-and-qa), secrets audits (security-and-supply-chain).
+description: "Release train and published images of the Lago umbrella repo: cutting vX.Y.Z (bump PR moving the api/front gitlinks and compose image tags, tag, GitHub Release), what the 10 workflows publish (Docker Hub, GHCR, ECR, latest), the reusable multi-arch workflow, the all-in-one docker/Dockerfile version sync, registry checks, actionlint. Use on \"cut a release\", \"bump version\", an image tag missing on Docker Hub, release notes, editing .github/workflows, \"run actionlint\", a maintenance release. Not for commit rules (use change-control) or supply-chain audits (use security-and-supply-chain)."
 ---
 # Release train and published images
 
@@ -16,7 +16,7 @@ skills-only commits on top. 5308258 is the fork head; upstream getlago/lago `mai
 
 Use it when you:
 - cut a minor, patch or maintenance release, or review a "bump version" PR;
-- edit anything under `.github/workflows/`, `docker/`, `events-processor/Dockerfile*` or `connectors/Dockerfile`;
+- edit anything under `.github/workflows/` (lint it with `scripts/actionlint-local.sh`), `docker/`, `events-processor/Dockerfile*` or `connectors/Dockerfile`;
 - investigate a missing or wrong image (`getlago/lago`, `lago-events-processor`, GHCR, `latest`);
 - bump Ruby/Node/Bundler/pnpm in lago-api or lago-front and need to know what breaks here.
 

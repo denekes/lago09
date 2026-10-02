@@ -146,7 +146,7 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
   needs a workaround; five of six tested packages need no CGO at all.
 - **Tell-tale.** `cannot find -lexpression_go`, `libexpression_go.so: cannot open shared object file`,
   `go: no such tool "covdata"`.
-- **Shortcut.** `.claude/skills/build-and-env/scripts/ep-test.sh` (mirrors CI). Accepted as the local
+- **Shortcut.** `.claude/skills/build-and-env/scripts/ep-test.sh` (same shape as CI, not identical: CI uses a PG 14 service and builds the whole lago-expression workspace). Accepted as the local
   gate by default (OPEN DECISION OD-5 (owner)).
 - **Rule.** change-control N9 (pre-PR gate) and change-control N3 (do not "fix" `go.mod`'s expression-go v0.1.4).
 
@@ -159,7 +159,7 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
   `database_test.go:24`.
 - **Shortcut.** Scroll UP: the real line is `dial tcp ...: connect: connection refused` (or `password
   authentication failed`). `pg_isready -d "$DATABASE_URL"`; `pg_ctlcluster 16 main start` (owner row:
-  `build-and-env` B6).
+  `build-and-env` B6; the test's nil dereference itself is harness defect `validation-and-qa` HD5).
 
 ## T11. A single subtest fails, the whole test passes
 
@@ -217,6 +217,8 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
 - **Rule.** change-control N3 (no floating tools).
 
 ## T15. Dev email: Mailpit is up, delivery still fails (CANDIDATE, found 2026-10-01)
+
+Doc correction: `docs-and-writing` SC-39.
 
 - **Story.** `8f8334e` (#777, 2026-09-03) replaced the `mailhog` dev service with `mailpit` (behind a
   profile) and added a doc note that delivery raises while Mailpit is down. lago-api's development

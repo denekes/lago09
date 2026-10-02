@@ -1,6 +1,6 @@
 ---
 name: run-and-operate
-description: Runbooks and output map for running the Lago umbrella repo - picking a variant (dev docker-compose.dev.yml + profiles, root docker-compose.yml, stale deploy/ + deploy.sh, all-in-one getlago/lago, events-processor binary, connectors, agentic-ai demo), bring-up and known breakages, where output lands (topics, consumer groups, Redis keys, Postgres/ClickHouse tables, DLQ, logs, Sentry, volumes, ports, *.lago.dev), events-processor ops (startup panics, SIGTERM drain, group reset = replay, DLQ, scaling, memory-cache), pg_partman maintenance, monitoring reality. Use on "docker compose up", "unknown flag --profile", "start.pdf.worker.sh", "deploy.sh", "lago_front_pnpm_store", "LAGO_RSA_PRIVATE_KEY", "Private key is blank", "brokers not found", "events_dead_letter", "replay", "pg_partman", "enriched_events_default", "/metrics". Not for variable meaning (use config-and-flags), image builds or releases (use release-and-images), hardening (use security-and-supply-chain) or pipeline internals (use architecture-contract).
+description: "Runbooks and output map for running the Lago umbrella repo: pick a variant (dev compose + profiles, root docker-compose.yml, stale deploy/, all-in-one image, events-processor binary, connectors), bring-up, where output lands (topics, groups, Redis keys, tables, DLQ, logs), events-processor ops (SIGTERM drain, group reset = replay, scaling), pg_partman. Use on \"docker compose up\", \"which compose file\", \"reset the consumer group\", \"replay the DLQ\", \"unknown flag: --profile\", \"Neither PUB key nor PRIV key\". Not for variable meaning (use config-and-flags) or images (use release-and-images)."
 ---
 # Run and operate Lago
 
@@ -237,7 +237,7 @@ Check any database: `psql "<url>" -X -q -f .claude/skills/run-and-operate/script
 | browser cert error or wrong site on `*.lago.dev` | no mkcert certs / no hosts entry | `dev-preflight.sh`, then `build-and-env` §2b steps 3-4 |
 | api/worker exit `Private key is blank` | no RSA key (root has no rsa-keys service) | add `LAGO_RSA_PRIVATE_KEY` (one-line base64) |
 | `Neither PUB key nor PRIV key` at boot | raw PEM, or base64 wrapped over unquoted lines, in `.env` | `selfhost-preflight.sh .env`, regenerate with `openssl base64 -A` |
-| dev: emails never arrive, delivery errors | pinned lago-api sends dev SMTP to `mailhog:1025` (`$API/config/environments/development.rb:70-73`); the service is `mailpit` since `8f8334e` (#777), no `mailhog` alias (inferred, not run) | runbooks R1 step 8 |
+| dev: emails never arrive, delivery errors | pinned lago-api sends dev SMTP to `mailhog:1025` (`$API/config/environments/development.rb:70-73`); the service is `mailpit` since `8f8334e` (#777), no `mailhog` alias (inferred, not run) | runbooks R1 step 8; doc correction `docs-and-writing` SC-39 |
 | db restarts: data files incompatible with server | PG 14 volume under PG 15 image (`97d1f0b`) | dump/restore, runbooks R2 |
 | compose: `line N: unexpected character` in `.env` | deploy.sh wrote status lines into `.env` | delete non `KEY=VALUE` lines (`selfhost-preflight.sh` lists them) |
 | production `pdf-worker` restart loop | `start.pdf.worker.sh` does not exist | point it at `./scripts/start.pdfs.worker.sh` (C6 change) |

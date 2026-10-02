@@ -21,9 +21,9 @@ id: build-loader
 area: build
 match: error while loading shared libraries: libexpression_go\.so
 title: built fine, but the dynamic loader cannot find libexpression_go.so (binary or test binary)
-cause: LD_LIBRARY_PATH lacks the .so directory (shell did not source ep-env.sh); image built without the COPY to /usr/lib; ep-env.sh sourced from outside the repo (it returns 1, exports nothing)
+cause: LD_LIBRARY_PATH lacks the .so directory (shell did not source ep-env.sh); image built without the COPY to /usr/lib
 confirm: echo "$LD_LIBRARY_PATH"; ldd <binary> | grep expression  -> "not found"
-fix: cd to the repo root, then: source .claude/skills/build-and-env/scripts/ep-env.sh  (images: events-processor/Dockerfile:22 copies it to /usr/lib); owner row: build-and-env B2
+fix: source .claude/skills/build-and-env/scripts/ep-env.sh  (works from any cwd; it falls back to its own checkout) (images: events-processor/Dockerfile:22 copies it to /usr/lib); owner row: build-and-env B2
 see: SKILL.md section 6; reference/build-and-test.md BT2
 evidence: VERIFIED 2026-10-01 (binary exit 127; env -u LD_LIBRARY_PATH go test ./processors/events_processor/)
 example: <tmp>/ep: error while loading shared libraries: libexpression_go.so: cannot open shared object file: No such file or directory
@@ -118,7 +118,7 @@ area: startup
 match: Error connecting to the flag store.*dial tcp
 title: Redis flag store unreachable at startup (LAGO_REDIS_STORE_URL; empty URL means localhost:6379)
 cause: wrong LAGO_REDIS_STORE_URL; Redis down; empty URL (go-redis default 127.0.0.1:6379)
-confirm: env | grep -E '^LAGO_REDIS_STORE_(URL|DB|TLS)='  (never print LAGO_REDIS_STORE_PASSWORD) ; redis-cli -u "redis://${LAGO_REDIS_STORE_URL#*://}" ping ; ~2-3 s of plain "redis: ... failed to dial after 5 attempts" lines precede the panic
+confirm: printenv LAGO_REDIS_STORE_DB LAGO_REDIS_STORE_TLS; [ -n "$LAGO_REDIS_STORE_URL" ] && echo 'LAGO_REDIS_STORE_URL set (value not shown)'  (never print LAGO_REDIS_STORE_PASSWORD or a URL that may embed it) ; redis-cli -u "redis://${LAGO_REDIS_STORE_URL#*://}" ping ; ~2-3 s of plain "redis: ... failed to dial after 5 attempts" lines precede the panic
 fix: fix the URL / start Redis
 see: SKILL.md section 2
 evidence: VERIFIED 2026-10-01 (real binary, LAGO_REDIS_STORE_URL=127.0.0.1:1 and unset)
@@ -130,7 +130,7 @@ match: Error connecting to the flag store.*EOF
 match: failed to dial after [0-9]+ attempts: EOF
 title: TLS handshake against a plaintext Redis (or the reverse): the flag store client speaks TLS because LAGO_REDIS_STORE_TLS is true or, when it is unset/unparsable, because ENV=production (legacy default)
 cause: ENV=production with a plaintext Redis and LAGO_REDIS_STORE_TLS unset (processors/main_processor.go:84-91); rediss:// in the URL does NOT enable TLS (config/redis/redis.go:25-28)
-confirm: env | grep -E '^(ENV|LAGO_REDIS_STORE_TLS)=' ; the error is a bare EOF
+confirm: printenv ENV LAGO_REDIS_STORE_TLS ; the error is a bare EOF
 fix: set LAGO_REDIS_STORE_TLS=false (or true for a TLS Redis) explicitly; note TLS skips cert verification (redis.go:44)
 see: SKILL.md section 2
 evidence: VERIFIED 2026-10-01 (real binary, ENV=production against plaintext Redis)
@@ -177,7 +177,7 @@ match: "kafka-topic-consumer":""
 match: "group":"_"
 title: process runs but consumes nothing: LAGO_KAFKA_RAW_EVENTS_TOPIC and/or LAGO_KAFKA_CONSUMER_GROUP are empty (no validation)
 cause: env var missing; group id becomes "<group>_<topic>" = "_" or "<group>_"
-confirm: env | grep -E '^LAGO_KAFKA_(RAW_EVENTS_TOPIC|CONSUMER_GROUP)=' ; code config/kafka/consumer.go:237
+confirm: printenv LAGO_KAFKA_RAW_EVENTS_TOPIC LAGO_KAFKA_CONSUMER_GROUP ; code config/kafka/consumer.go:237
 fix: set both. WARNING: changing either value creates a NEW group that starts at the EARLIEST offset and replays the retained raw topic
 see: SKILL.md section 2
 evidence: VERIFIED 2026-10-01 (real binary with both unset: idles, group "_")
@@ -366,7 +366,7 @@ match: Error when committing offets to kafka
 title: CommitRecords failed (note the code typo "offets"); records are reprocessed after restart/rebalance = duplicates downstream
 cause: rebalance in progress; coordinator moved; broker outage
 confirm: code config/kafka/consumer.go:104-108
-fix: usually transient. The redelivered records are duplicates: events_enriched (ReplacingMergeTree) collapses them only at merge time, and billing deduplicates at query time only for orgs with clickhouse_deduplication_enabled (default false; set at org creation only with LAGO_CLICKHOUSE_ENABLED + LAGO_DEFAULT_EVENT_STORE=clickhouse, $API/app/services/organizations/create_service.rb:17-19). Check the org flag before dismissing a double count
+fix: usually transient. The redelivered records are duplicates: events_enriched (ReplacingMergeTree) collapses them only at merge time, and billing deduplicates at query time only for orgs with clickhouse_deduplication_enabled (default false; the only env-driven setter is org creation with LAGO_CLICKHOUSE_ENABLED + LAGO_DEFAULT_EVENT_STORE=clickhouse, $API/app/services/organizations/create_service.rb:17-19; also the clickhouse rake recipe and the enriched-store migration). Check the org flag before dismissing a double count
 see: SKILL.md section 3
 evidence: CODE consumer.go:106 (synthetic example built from it)
 example: {"level":"ERROR","msg":"Error when committing offets to kafka. Error: REBALANCE_IN_PROGRESS topic: events-raw partition: 0 offset: 42\n","service":"post_process","kafka-topic-consumer":"events-raw"}
@@ -390,7 +390,7 @@ area: runtime
 match: UNKNOWN_TOPIC_OR_PARTITION
 title: a topic EP produces to (or consumes) does not exist on the cluster
 cause: topic not created (dev: redpandacreatetopics, docker-compose.dev.yml:391-409 + scripts/create-topics.sh); name mismatch (events_raw vs events-raw, events-processor/README.md:41 is stale)
-confirm: rpk topic list (dev, needs a daemon) ; env | grep -E '^LAGO_KAFKA_[A-Z_]+_TOPIC='
+confirm: rpk topic list (dev, needs a daemon) ; printenv | grep -E '^LAGO_KAFKA_[A-Z_]+_TOPIC='  (topic names only)
 fix: create the topic or fix the name. For a produce target this yields DLQ rows with empty error_code (dlq-empty-code)
 see: SKILL.md section 3
 evidence: VERIFIED 2026-10-01 (real binary, missing produce topic)

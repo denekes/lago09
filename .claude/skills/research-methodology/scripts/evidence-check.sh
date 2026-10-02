@@ -57,7 +57,7 @@ SIBLINGS="$siblings" QUIET=$quiet EXPLAIN=$explain SKIP="$skip" perl -e '
 use strict; use warnings;
 my ($quiet,$explain,$skip) = ($ENV{QUIET},$ENV{EXPLAIN},$ENV{SKIP});
 my %sib = map { $_ => 1 } split /\s+/, ($ENV{SIBLINGS} // "");
-my $cmd = qr{^(?:[A-Z_][A-Z0-9_]*=\S*\s+)*(?:git|grep|rg|sed|awk|curl|go|gofmt|golangci-lint|docker|psql|pg_isready|pg_ctlcluster|bash|sh|make|find|ls|cat|jq|python3?|perl|gh|cargo|ldd|env|export|source|cd|wc|sort|diff|head|tail|echo|printf|kubectl|clickhouse|actionlint|shellcheck|mise|rpk|bundle|rails|rspec|stat|uniq|tr|cut|xargs|timeout|mktemp|openssl|redis-cli|readlink|command|type|npm|pnpm|test|\.{0,2}/\S+|\.claude/\S+|\$[A-Za-z_]+/\S+|\S+\.sh)(?:\s|$)};
+my $cmd = qr{^(?:[A-Z_][A-Z0-9_]*=\S*\s+)*(?:git|grep|rg|sed|awk|curl|go|gofmt|golangci-lint|docker|psql|pg_isready|pg_ctlcluster|bash|sh|make|find|ls|cat|jq|python3?|perl|gh|cargo|ldd|env|export|source|cd|wc|sort|diff|head|tail|echo|printf|kubectl|clickhouse|actionlint|shellcheck|mise|rpk|bundle|rails|rspec|stat|uniq|tr|cut|xargs|timeout|mktemp|openssl|redis-cli|readlink|command|type|npm|pnpm|test|ruby|printenv|\.{0,2}/\S+|\.claude/\S+|\$[A-Za-z_]+/\S+|\S+\.sh)(?:\s|$)};
 my $total = 0;
 for my $file (@ARGV) {
   open(my $fh, "<", $file) or die "cannot read $file\n";

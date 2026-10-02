@@ -1,6 +1,6 @@
 ---
 name: architecture-contract
-description: As-is architecture contract of the Go events-processor and its edges - topology (raw topic -> events_enriched / events_charged_in_advance / events_dead_letter + Redis ZSET subscription_refreshed_v2), where topic/group/key names come from, fail-fast startup panics, per-partition/per-record concurrency, the Kafka commit algorithm and per-record disposition (where records are silently lost), DB mode vs memory-cache mode (badger + Debezium CDC), load-bearing design decisions with their recorded WHY, invariants I1-I15, known weak points. Use when reading or changing events-processor consumer.go, processor.go, main_processor.go, cache/ or models SQL, or on "brokers not found", "variable is required", "No commitable record in batch", "fetch_billable_metric", "LAGO_USE_MEMORY_CACHE", "lago_evp_", "BlockRebalanceOnPoll", "consumer group". Not for Rails/ClickHouse parity (use rails-go-parity), env-var registry (use config-and-flags), fixing loss (use event-accounting-campaign), live triage (use debugging-playbook).
+description: "As-is architecture contract of the Go events-processor: topology (raw topic -> enriched, in-advance and dead-letter topics + Redis ZSET), name sources, startup order (only partly fail-fast), concurrency, the Kafka commit algorithm and per-record disposition, DB vs memory-cache mode, design decisions, invariants I1-I15, weak points. Use when reading or changing consumer.go, processor.go, main_processor.go, cache/ or models SQL, or for \"how does the events-processor work\", \"what happens to a record when\". Not for live triage (use debugging-playbook) or fixes (use event-accounting-campaign)."
 ---
 # Architecture contract: events-processor
 
@@ -121,7 +121,7 @@ each step. `#` is the step number of
   (dial 5 s, read/write 3 s, pool wait 4 s; `config/redis/redis.go:35-39`).
 - Shutdown: cancel (`main.go:94-98`) → poll exits → close each `quit`, wait `done` → `client.Close()` (leave group)
   (`consumer.go:207-225,261-272`) → deferred closes.
-- Details, goroutine tree, franz-go defaults: [reference/concurrency-and-commit.md](reference/concurrency-and-commit.md)
+- Details, goroutine tree, franz-go consumer defaults; producer defaults (acks, linger, retries) in §5: [reference/concurrency-and-commit.md](reference/concurrency-and-commit.md)
   (read before touching `config/kafka/` or the per-record fan-out).
 
 ## 4. Commit algorithm, disposition, and where records are lost
@@ -277,7 +277,7 @@ DLQ record = `{event, initial_error_message, error_message, error_code, failed_a
 | SQL in `models/*.go` | C3, change-control N4 | I1-I3 | exact sqlmock pin + `invariants-grep.sh` |
 | topic names, keys, payload, Redis key/bucket | C4, change-control N6, OD-4 paired lago-api PR | §1, I10-I12 | `topic-map.sh`, `rails-go-parity` |
 | `cache/`, `extra/debezium_config.json` | C3/C4, OD-1 | §5, `memory-cache.md` | parity harness in `rails-go-parity` |
-| startup / new env var | C3 (+C6 for compose) | §2, `config-and-flags` checklist | `startup-contract.sh` (update expected steps) |
+| startup / new env var | optional knob whose default preserves behaviour: C3 + C6 ("C4 by path, C3 by behaviour", change-control `reference/change-classes.md` worked case); C4 if it alters commit/retry/DLQ/skip or a topic/group/key/payload name | §2, `config-and-flags` checklist | `startup-contract.sh` (update expected steps) |
 | `value` string formatting (`processors/events_processor/enrichment_service.go:114`) | C3 + C4 (cross-repo contract, change-control N6); paired lago-api PR (OPEN DECISION OD-4 (owner)); CH schema only via OPEN DECISION OD-3 (owner) | `rails-go-parity`, `event-accounting-campaign` W2 | value probe + corpus before/after |
 | time parsing (`utils/time.go`: `ToTime`, `ToFloat64Timestamp`) | C3 (C4 if the enriched `timestamp` payload format changes) | `rails-go-parity` | time + subscription probes |
 | a new DLQ `error_code` or DLQ cause (§9) | C4 (changes disposition): ADR + owner acceptance (OPEN DECISION OD-3 (owner) for CH-overflow detection); DLQ rows are not replayable today | §4, §9 | accounting-probe ledger + value corpus before/after (`event-accounting-campaign`); kfake test only if commit logic changes |

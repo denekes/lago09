@@ -36,14 +36,23 @@ Three of these do not apply to this umbrella repo:
 | Same, after stripping the ` (#NNN)` squash suffix | > 72: 11; > 50: 110 | `sed -E 's/ \(#[0-9]+\)$//'` then count |
 | Conventional-Commits form | 258 of 293 (88%); 211 of those carry a scope | same tool, `non-conventional: 35` |
 | Types | chore 74, **misc 69**, fix 55, feat 43, release 8, docs 3, ci 2, test 1, hotfix 1, doc 1, bug 1 | `TYPES` line of the same tool |
-| `misc` all-time | 279 subjects | `git -C "$H" log --format=%s \| grep -cE '^misc(\([^)]*\))?: '` |
+| `misc` all-time | 279 subjects (strict regex; 283 with `^misc(\(\|:\|!)`) | block M1 below |
 | Squash merges `(#NNN)` | 216 of 293 non-merge subjects (74%) | `grep -cE '\(#[0-9]+\)$'` |
-| First-parent commits with no PR number | 24 (all CI, image, dev-env or docs changes; e.g. `4955f79`, `5ee8e98`, `8cff5c1`, `5308258`) | `git -C "$H" log --first-parent --no-merges --since=2025-01-01 --format='%h %s' \| grep -vE '\(#[0-9]+\)$'`. Rebase-merge vs direct push is UNVERIFIED (no GitHub API here) |
+| First-parent commits with no PR number | 24 (all CI, image, dev-env or docs changes; e.g. `4955f79`, `5ee8e98`, `8cff5c1`, `5308258`) | block M2 below. Rebase-merge vs direct push is UNVERIFIED (no GitHub API here) |
 | Branch prefixes in the 48 merge subjects | misc 13, chore 6, release 4, bump 4, feat 3, data 3, others 1-2; **0 `fix/`, 0 `feature/`** | `grep -oE 'from [^ ]+'` on merge subjects |
 | Empty commit bodies | 187 of 293 (64%) | loop over `%b` |
 | Bodies with `## Context` | 18 | same loop |
 | `Co-authored-by` trailers | 28 (4 of them Claude) | same loop |
-| `[ci skip]` | 1 subject in all history | `git -C "$H" log --format=%s \| grep -c '\[ci skip\]'` |
+| `[ci skip]` | 1 subject in all history | block M3 below |
+
+Commands for the rows above (kept out of the table so the pipes copy cleanly; `H` from
+`.claude/skills/research-methodology/scripts/history-setup.sh`):
+
+```bash
+git -C "$H" log --format=%s | grep -cE '^misc(\([^)]*\))?: '                                   # M1 -> 279
+git -C "$H" log --first-parent --no-merges --since=2025-01-01 --format='%h %s' | grep -vE '\(#[0-9]+\)$'   # M2 -> 24 lines
+git -C "$H" log --format=%s | grep -c '\[ci skip\]'                                              # M3 -> 1
+```
 
 Ticket references (Linear):
 

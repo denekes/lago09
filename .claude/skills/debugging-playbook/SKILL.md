@@ -1,6 +1,6 @@
 ---
 name: debugging-playbook
-description: Symptom-to-fix triage for the Lago umbrella repo - a "what are you looking at?" router and tables mapping exact log lines, panics, DLQ error_codes, SQLSTATEs and build/test/dev/CI/release errors to ranked causes, a confirm command and the fix or owning skill, plus the costly traps with their stories. Ships explain-error.sh (paste an error, get its entry) and triage-ep-log.sh (buckets events-processor JSON logs). Use when the events-processor panics at startup ("brokers not found", "variable is required", kgo.validateCfg, "Error connecting to the flag store"), the DLQ grows (fetch_billable_metric, evaluate_expression, flag_subscription_refresh, empty error_code), events are missing or 0 / "1e+06" in ClickHouse, "No commitable record in batch", SQLSTATE 0A000, "context canceled", stale memory cache, "cannot find -lexpression_go", covdata, TestNewConnection panic, or dev stack, CI or release image broken. Not for building probes (use diagnostics-and-tooling) or history narratives (use failure-archaeology).
+description: "Symptom-to-fix triage for the Lago umbrella repo; start here when something is broken and you hold an error, a log or a wrong count. Maps panics, logs, DLQ codes and dev/CI/release errors to cause, check and fix or owner (explain-error.sh). Use on \"brokers not found\", \"variable is required\", \"Error connecting to the flag store\", \"No commitable record in batch\", SQLSTATE 0A000, \"context canceled\", fetch_billable_metric or an empty error_code in events_dead_letter, raw events missing downstream, \"Your Ruby version is\", a red CI job. Not for probes (use diagnostics-and-tooling)."
 ---
 # Debugging playbook: symptom -> cause -> confirm -> fix
 
@@ -50,7 +50,7 @@ reproduced that day with the real binary.
 ## 0. Triage protocol
 
 1. Capture the FIRST failing line, not the last. A panic stack is the result. The cause is usually
-   the line above it.
+   the line above it (example: the `TestNewConnection` panic hides `connection refused`, `build-and-env` B6).
 2. Run `.claude/skills/debugging-playbook/scripts/explain-error.sh "<that line>"`. For a whole log,
    run `.claude/skills/debugging-playbook/scripts/triage-ep-log.sh <file>`.
 3. Run the row's **confirm** command before you change anything (change-control N13).
@@ -64,6 +64,7 @@ reproduced that day with the real binary.
 
 ## 1. What are you looking at?
 
+<!-- evidence-check: off routing table (symptom -> section); evidence lives in the target sections -->
 | You are looking at | First command | Go to |
 |---|---|---|
 | events-processor exits or restarts at startup (panic, exit 2, exit 127) | `explain-error.sh "<first ERROR or panic line>"` | section 2 |
@@ -78,6 +79,7 @@ reproduced that day with the real binary.
 | CI red | the job name, then `reference/dev-ci-release.md` rows CI1-CI5 | section 7 |
 | release image (`getlago/lago`) build broken | the failing Dockerfile step | section 7, `reference/traps.md` T14 |
 | self-host compose / `deploy/` broken | `docker compose -f <file> config -q` | section 7 |
+<!-- evidence-check: on -->
 
 ## 2. events-processor startup
 
@@ -87,9 +89,10 @@ next. Some bad values are accepted silently (empty topic or group, swallowed sna
 without a log line (SCRAM). The order with captured output is `reference/events-processor.md` E1.
 Never print secret env vars (`*_PASSWORD`, `DATABASE_URL`) while checking.
 
+<!-- evidence-check: off triage table; per-row evidence = the Entry id's "evidence:" line in scripts/patterns.txt (explain-error.sh --id <entry>) and reference/events-processor.md E1 -->
 | Symptom (exact text) | Likely causes, ranked | Confirm | Fix / owner | Entry |
 |---|---|---|---|---|
-| `error while loading shared libraries: libexpression_go.so` (exit 127) | 1 `LD_LIBRARY_PATH` not set; 2 image without the `.so` | `ldd <bin> \| grep expression` | `source .claude/skills/build-and-env/scripts/ep-env.sh` from inside the repo | `build-loader` |
+| `error while loading shared libraries: libexpression_go.so` (exit 127) | 1 `LD_LIBRARY_PATH` not set; 2 image without the `.so` | `ldd <bin> \| grep expression` | `source .claude/skills/build-and-env/scripts/ep-env.sh` (any cwd) | `build-loader` |
 | `panic: brokers not found` | `LAGO_KAFKA_BOOTSTRAP_SERVERS` empty | `printenv LAGO_KAFKA_BOOTSTRAP_SERVERS` | set it (`config-and-flags`) | `start-brokers` |
 | `panic: LAGO_KAFKA_<X>_TOPIC variable is required` | that topic var is empty. The order is enriched, then in-advance, then dead-letter | the name is in the message | set it | `start-topic-var` |
 | `panic: runtime error: invalid memory address ...` + frame `kgo.validateCfg` (no JSON line before it) | `LAGO_KAFKA_SCRAM_ALGORITHM` is not exactly `SCRAM-SHA-256` or `SCRAM-SHA-512` (`config/kafka/kafka.go:56-63`) | `printenv LAGO_KAFKA_SCRAM_ALGORITHM` | fix the value; vocabulary in `config-and-flags` | `start-scram` |
@@ -97,8 +100,9 @@ Never print secret env vars (`*_PASSWORD`, `DATABASE_URL`) while checking.
 | `Error converting max connections into integer` | `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` is not an int | `printenv LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` | plain integer (default 200) | `start-maxconns` |
 | `Error connecting to the database` (in cache mode it comes BEFORE the Kafka checks) | 1 PG down; 2 wrong URL; 3 `SQLSTATE 28P01` bad password; 4 empty `DATABASE_URL`: ``user=root database=`` | `pg_isready -d "$DATABASE_URL"` | fix PG or URL | `start-db-connect`, `start-db-url-empty` |
 | `Error connecting to the flag store` + `dial tcp` | Redis unreachable. An empty URL means localhost:6379 | `redis-cli -u "redis://${LAGO_REDIS_STORE_URL#*://}" ping` | fix URL or Redis | `start-redis-dial` |
-| `Error connecting to the flag store` + `EOF` | TLS against a plaintext Redis: `ENV=production` turns TLS on when `LAGO_REDIS_STORE_TLS` is unset. `rediss://` does NOT turn it on | `env \| grep -E '^(ENV\|LAGO_REDIS_STORE_TLS)='` | set `LAGO_REDIS_STORE_TLS` explicitly | `start-redis-tls` |
-| process runs, consumes nothing, logs `"kafka-topic-consumer":""` / `"group":"_"` | raw topic or consumer group empty | `env \| grep -E '^LAGO_KAFKA_(RAW_EVENTS_TOPIC\|CONSUMER_GROUP)='` | set both. A NEW group name replays the raw topic from the earliest offset | `start-empty-topic` |
+| `Error connecting to the flag store` + `EOF` | TLS against a plaintext Redis: `ENV=production` turns TLS on when `LAGO_REDIS_STORE_TLS` is unset. `rediss://` does NOT turn it on | `printenv ENV LAGO_REDIS_STORE_TLS` | set `LAGO_REDIS_STORE_TLS` explicitly | `start-redis-tls` |
+| process runs, consumes nothing, logs `"kafka-topic-consumer":""` / `"group":"_"` | raw topic or consumer group empty | `printenv LAGO_KAFKA_RAW_EVENTS_TOPIC LAGO_KAFKA_CONSUMER_GROUP` | set both. A NEW group name replays the raw topic from the earliest offset | `start-empty-topic` |
+<!-- evidence-check: on -->
 
 ## 3. events-processor runtime: DLQ codes and log lines
 
@@ -108,6 +112,7 @@ lookups go to the DLQ at once; DB, badger and Redis errors are neither committed
 while `ingested_at` is less than 12 h old, so they feed section 4. Full table with live evidence:
 `reference/events-processor.md` E2-E3.
 
+<!-- evidence-check: off triage table; per-row evidence = the Entry id's "evidence:" line in scripts/patterns.txt and reference/events-processor.md E2-E3 -->
 | `error_code` / line | Likely causes, ranked | Confirm | Entry |
 |---|---|---|---|
 | `build_enriched_event` | timestamp is neither unix seconds nor RFC3339, e.g. `"2025-03-06 12:00:00"` | DLQ `.event.timestamp` | `dlq-build-enriched-event` |
@@ -124,6 +129,7 @@ while `ingested_at` is less than 12 h old, so they feed section 4. Full table wi
 | ERROR `Fetch error` (main consumer), then the process exits | broker-side error; there is no in-process recovery (`config/kafka/consumer.go:175-183`) | the `error` field | `run-fetch-panic` |
 | `Error when committing offets to kafka` (typo is in the code) | rebalance or coordinator move. The result is duplicates, not loss; billing dedups them only for orgs with `clickhouse_deduplication_enabled` | - | `run-commit-error` |
 | INFO `heartbeat errored ... context canceled`, `Context canceled during fetch` | a normal shutdown | followed by `Event processor stopped` | `run-shutdown-ctx` |
+<!-- evidence-check: on -->
 
 ## 4. Events missing or wrong downstream
 
@@ -133,6 +139,7 @@ The pipeline loses records silently in several ways. Only some leave a log line.
 ClickHouse reads as 1970 (production audit: `event-accounting-campaign`
 `reference/observability-and-production.md` section 3).
 
+<!-- evidence-check: off triage table; per-row evidence = the Entry id's "evidence:" line in scripts/patterns.txt and reference/events-processor.md -->
 | Symptom | Mechanism (ranked by how often it explains the gap) | Confirm | Owner |
 |---|---|---|---|
 | raw count > enriched + DLQ | L1: a retryable failure was committed past by a later batch. Measured 2026-10-01: the offset is never redelivered and never on the DLQ | `events_raw` NOT IN query (E4.1); retryable ERROR lines; `No commitable record` WARNs | `event-accounting-campaign` W1; OPEN DECISION OD-2 (owner) |
@@ -143,9 +150,11 @@ ClickHouse reads as 1970 (production audit: `event-accounting-campaign`
 | unique_count too high | `"1e+06"` vs `"1000000"`, and `"<nil>"`, are compared as raw strings | E5 query | `rails-go-parity` |
 | event not matched to its subscription at a boundary (L7) | `ToTime` float math lands 1 ms early; RFC3339 offset not normalized; cache mode compares at microsecond precision | `rails-go-parity` time and subscription probes | `rails-go-parity` |
 | wallets / alerts / lifetime usage never refresh | lago-api's clock consumes the ZSET only if BOTH `LAGO_REDIS_STORE_URL` and `LAGO_CLICKHOUSE_ENABLED` are present (`$API/clock.rb:209-215`) | `redis-cli -n <db> ZCARD subscription_refreshed_v2` grows | `run-and-operate` |
+<!-- evidence-check: on -->
 
 ## 5. Memory-cache mode (OPEN DECISION OD-1 (owner): production use UNKNOWN; hardening unowned, OPEN DECISION OD-20 (owner))
 
+<!-- evidence-check: off triage table; per-row evidence = the Entry id's "evidence:" line in scripts/patterns.txt and architecture-contract WP6-WP10 -->
 | Symptom | Cause | Confirm | Entry |
 |---|---|---|---|
 | EVERY event DLQs `fetch_billable_metric` `Key not found` | the snapshot failed and was swallowed (`cache/cache.go:78-106`), so the cache is empty | `triage-ep-log.sh`: `snapshot loads: started 6, completed 0` | `cache-snapshot-failed`, T4 |
@@ -154,6 +163,7 @@ ClickHouse reads as 1970 (production audit: `event-accounting-campaign`
 | pay-in-advance stops after a charge edit; recurring fallback stops after a metric edit | `extra/debezium_config.json:2` omits `pay_in_advance`, `accepts_target_wallet`, `recurring` | print the column list (E6) | T6 |
 | event at the exact ms a subscription starts: matched in DB mode, not in cache mode | full-precision compare (`cache/subscriptions.go:56-66`) | binary smoke row H | - |
 | `LAGO_USE_MEMORY_CACHE=TRUE` or `1` runs DB mode | only the literal `true` enables it (`main.go:67`) | no `Starting snapshot load` lines | - |
+<!-- evidence-check: on -->
 
 ## 6. Build and test failures
 
@@ -162,6 +172,7 @@ and `-v` shows 235 `--- PASS`. This section is a router: the fix for each row li
 (build, toolchain and Postgres-for-tests: `build-and-env` B#; test harness: `validation-and-qa` HD# /
 section 10). Lookup table with row ids BT1-BT14: `reference/build-and-test.md`.
 
+<!-- evidence-check: off lookup table; owner rows with reproductions are build-and-env B# and validation-and-qa HD# -->
 | Exact text | Cause | Fix: owner row | Entry |
 |---|---|---|---|
 | `/usr/bin/ld: cannot find -lexpression_go` | `CGO_LDFLAGS` lacks `-L` | `build-and-env` B1 (`source .claude/skills/build-and-env/scripts/ep-env.sh`) | `build-link` |
@@ -174,11 +185,13 @@ section 10). Lookup table with row ids BT1-BT14: `reference/build-and-test.md`.
 | `could not match actual sql` | the SQL changed and the sqlmock pin did not | update the pin in the same PR: a change-class C3 change (change-control N4; `validation-and-qa` section 10) | `test-sqlmock-mismatch` |
 | `Error: unknown flag: --cache-dir` | golangci-lint v2 | `build-and-env` B14 (`GOLANGCI_LINT_CACHE=<dir> golangci-lint run --allow-serial-runners ./...`; lint policy OPEN DECISION OD-6 (owner)) | `test-lint-cache-dir` |
 | `ERROR Failed to cache item ... DB Closed` in a PASSING run | deliberate negative tests | nothing (`validation-and-qa`) | - |
+<!-- evidence-check: on -->
 
 ## 7. Dev stack, CI, release image, self-host
 
 All rows with text and commands are in `reference/dev-ci-release.md` (rows DEV, CI, RD, SH). These cost the most time:
 
+<!-- evidence-check: off triage table; per-row evidence = the Entry id's "evidence:" line in scripts/patterns.txt and reference/dev-ci-release.md -->
 | Symptom | Cause | Fix | Entry |
 |---|---|---|---|
 | `lago: command not found` / `unknown command "exec" for "lago"` | `lago` is a shell alias (`docs/dev_environment.md:53`) | `docker compose -f docker-compose.dev.yml ...` | `dev-lago-alias` |
@@ -194,12 +207,14 @@ All rows with text and commands are in `reference/dev-ci-release.md` (rows DEV, 
 | release image: `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` / Ruby or Node mismatch / Bundler `--without` | `docker/Dockerfile` is built only at release; ARGs `:1-2` lag api/front; `pnpm@latest` (`:12`, inert while front pins `packageManager`) | compare ARGs before tagging (`release-and-images`) | `rel-*`, T14 |
 | `unknown flag: --profile` | `deploy/README.md` syntax | `docker compose -f <file> --profile all up -d` | `selfhost-profile-flag` |
 | `unexpected character "\x1b" in variable name` | `deploy/deploy.sh` wrote status lines into `.env` | delete those lines | `selfhost-env-escape` |
+<!-- evidence-check: on -->
 
 ## 8. Traps that cost real time
 
 Each trap has its story, tell-tale and shortcut in `reference/traps.md`. Read it before you sink an
 hour into one of these areas.
 
+<!-- evidence-check: off trap index; story, shas and evidence per trap in reference/traps.md -->
 | # | Trap | What it cost | Tell-tale |
 |---|---|---|---|
 | T1 | a retryable failure is silently skipped | 401-day, 6-commit chain ending in a production segfault (`cec0eb2`..`9acd83e`, ING-15); the skip is still live | `No commitable record`; retryable codes with no DLQ rows |
@@ -218,6 +233,7 @@ hour into one of these areas.
 | T14 | the all-in-one image breaks on release day | 10 `fix` commits under `docker/` since 2025-05; `getlago/lago` v1.33.0-v1.33.2 and v1.48.0-v1.50.0 never published (as of 2026-10-01; list: `release-and-images`) | red release workflow |
 | T15 | Mailpit is up, but dev mail still fails (CANDIDATE) | new 2026-10-01 | delivery error with Mailpit running |
 | T16 | deleted billable metrics still matched | 18 days (`fff5858`..`8ceca4b`) | enrichment for a deleted code |
+<!-- evidence-check: on -->
 
 ## 9. Escalation: when to stop debugging and open an owner question
 

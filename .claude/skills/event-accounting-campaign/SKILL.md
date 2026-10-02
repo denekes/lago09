@@ -1,6 +1,6 @@
 ---
 name: event-accounting-campaign
-description: Executable, decision-gated campaign for the hardest live problem - event accounting in the Go events-processor - every raw-topic record must end on events_enriched with a faithful value, on the DLQ with a cause, or in a bounded retry; never a silent skip, drop or zero. Numbered phases, exact commands, EXPECTED numbers, "if you see X, branch to Y" gates; a kfake fault-matrix ledger (accounting-probe), a golden value corpus vs Rails plus a utils.ToTime count (value-corpus), one scoreboard.sh; ranked delivery menu, fenced-off wrong paths. Use for "events lost", "LOST", "retryable failure skipped", "commit past failed offset", "No commitable record in batch", "Sentry only", "precise_total_amount_cents number", "1e+06", "<nil>", "Decimal(38,26) zero", "ToTime 1 ms early", "retry topic", "12 h horizon", OD-2. Not for as-is architecture (architecture-contract), parity rows (rails-go-parity), harness blocks (diagnostics-and-tooling), live triage (debugging-playbook), gates (change-control).
+description: "Decision-gated campaign (W1-W5) to FIX event accounting in the Go events-processor: every raw-topic record must end with a faithful value, on the DLQ with a cause, or in a bounded retry. Phases with exact commands and expected numbers, a kfake fault-matrix ledger, a value corpus, scoreboard.sh, a delivery menu. Use when planning or reviewing a change to commit/retry/DLQ/skip behaviour or to how value and time are derived: \"fix lost events\", \"retry topic or block the partition\", \"12 h horizon\", OD-2. Not for as-is behaviour (use architecture-contract) or triage (use debugging-playbook)."
 ---
 # Event accounting campaign (W1-W5)
 
@@ -46,6 +46,7 @@ Do NOT use it for:
 | faithful value | the `value` string Rails' own enrichment would produce (`$API/app/services/events/enrich_service.rb:59-60`) |
 | baseline / target | the 2026-10-01 measurement / the campaign goal; targets are NOT current state |
 | OD-n | an owner OPEN DECISION: read every bare `OD-n` here as OPEN DECISION OD-n (owner), never settled; list and gate in `change-control` |
+| decision brief | what the owner gets to decide OD-2/OD-3: the Phase-0 ledger `TOTALS` line + scoreboard table, `reference/delivery-options.md` §3 (ranked menu) and §5 (ADR checklist), raised as a GitHub issue "OD-2: delivery contract"; "owner" as defined in change-control Terms |
 | `$API` | pinned lago-api checkout: `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)` |
 | BM, subscription, pay-in-advance | see `domain-reference` |
 

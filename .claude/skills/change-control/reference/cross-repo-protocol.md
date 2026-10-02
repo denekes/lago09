@@ -17,6 +17,8 @@ pin `591ae90` (2026-09-08)". Reading it needs network access; see `research-meth
 
 All anchors were verified on 2026-10-01. The behaviour of each side is described in
 `rails-go-parity` and `architecture-contract`; this table only says who must move together.
+The `rails-go-parity` P rows carry these K-IDs (its SKILL.md §2 "Contract (change-control K#)"
+column; `rails-go-parity` `reference/contract-table.md` has the K -> P index).
 
 | # | Contract | Writer | Reader(s) | Go anchor | lago-api anchor |
 |---|---|---|---|---|---|
