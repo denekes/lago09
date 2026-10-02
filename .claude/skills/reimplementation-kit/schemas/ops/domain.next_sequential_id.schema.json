@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.next_sequential_id.schema.json",
+  "title": "domain.next_sequential_id",
+  "description": "Next sequence value assigned in a numbering scope (BE-DM-34, 37, 38, 44). customer: 1 + max over all customers of the organization, soft-deleted included. invoice: 1 + max over the customer's invoices in the same billing entity, any status (assigned when an invoice is finalized). billing_entity_invoice: 1 + max over the billing entity's non-self-billed invoices whose status is finalized or voided (drafts holding a value are ignored; never reset by month). credit_note: 1 + max over the credit notes of the same invoice, any status. Empty scope: 1.",
+  "x-kit": {
+    "area": "domain",
+    "op": "next_sequential_id",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "enum": [
+            "customer",
+            "invoice",
+            "billing_entity_invoice",
+            "credit_note"
+          ]
+        },
+        "existing": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "seq"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "seq": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "description": "The row's sequence value in the scope (customer sequential id, invoice sequential id, billing-entity sequential id or credit-note sequential id)."
+              },
+              "status": {
+                "type": "string",
+                "default": "finalized",
+                "description": "Invoice or credit-note status of the row (invoice/credit_note scopes)."
+              },
+              "deleted": {
+                "type": "boolean",
+                "default": false,
+                "description": "Soft-deleted row (customer scope)."
+              },
+              "self_billed": {
+                "type": "boolean",
+                "default": false,
+                "description": "Self-billed invoice (billing_entity_invoice scope)."
+              },
+              "other_scope": {
+                "type": "boolean",
+                "default": false,
+                "description": "The row belongs to another scope: another organization (customer), another billing entity (invoice, billing_entity_invoice) or another invoice (credit_note)."
+              }
+            }
+          },
+          "description": "Rows already present."
+        }
+      },
+      "required": [
+        "scope",
+        "existing"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "next": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

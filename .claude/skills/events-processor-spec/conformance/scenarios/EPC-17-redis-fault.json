@@ -1,0 +1,25 @@
+{
+  "name": "EPC-17-redis-fault",
+  "id": "EPC-17",
+  "description": "Redis error while the refresh flag is written; a later batch commits.",
+  "rules": ["EP-L5", "EP-J3"],
+  "rbd": ["RBD-9"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "warm", "code": "count_calls", "timestamp": "1759320000", "external_subscription_id": "sub_ext_multi"}}
+    ]},
+    {"wait": "quiescent"},
+    {"redis_error": "ERR epconf injected redis failure"},
+    {"produce": [
+      {"json": {"transaction_id": "f_redis", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}}}
+    ]},
+    {"wait": "quiescent"},
+    {"redis_error": ""},
+    {"produce": [
+      {"json": {"transaction_id": "n1", "code": "count_calls", "timestamp": "1759320000", "external_subscription_id": "sub_ext_multi"}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

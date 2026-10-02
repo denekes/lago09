@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.default_properties.schema.json",
+  "title": "pricing.default_properties",
+  "description": "Properties given to a charge created without properties (BE-PR-81); null for custom.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "default_properties",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "enum": [
+            "standard",
+            "graduated",
+            "graduated_percentage",
+            "package",
+            "percentage",
+            "volume",
+            "dynamic",
+            "custom"
+          ],
+          "description": "Charge model."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload"
+        }
+      }
+    }
+  }
+}

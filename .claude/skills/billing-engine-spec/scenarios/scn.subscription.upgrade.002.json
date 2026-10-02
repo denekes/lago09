@@ -1,0 +1,37 @@
+{
+  "kit_schema": 1,
+  "id": "scn.subscription.upgrade.002",
+  "area": "scn",
+  "title": "termination fee of a subscription started mid-period is prorated on the whole period",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-DM-15","BE-SP-52"],
+  "rbd": ["RBD-62"],
+  "tags": [],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/subscriptions/upgrade_proration_spec.rb:60","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2024-05-20T10:00:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": false,
+    "store": "pg",
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"quarterly","amount_cents":91000,"amount_currency":"EUR","pay_in_advance":false}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1","billing_time":"calendar"}}},
+    {"at":"2024-06-20T10:00:00Z","op":"api","method":"DELETE","path":"/api/v1/subscriptions/cust_1"}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2024-06-20","payment_due_date":"2024-06-20","currency":"EUR","fees_amount_cents":32000,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":32000,"sub_total_including_taxes_amount_cents":32000,"total_amount_cents":32000,"total_due_amount_cents":32000,"billing_periods":[{"subscription_from_datetime":"2024-05-20T00:00:00Z","subscription_to_datetime":"2024-06-20T10:00:00Z","charges_from_datetime":"2024-05-20T10:00:00Z","charges_to_datetime":"2024-06-20T10:00:00Z","invoicing_reason":"subscription_terminating"}],"fees":[{"item":{"type":"subscription"},"amount_cents":32000,"units":"1.0","taxes_amount_cents":0,"from_date":"2024-05-20T00:00:00+00:00","to_date":"2024-06-20T10:00:00+00:00"}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": [],
+    "subscriptions": [
+      {"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_1","status":"terminated","billing_time":"calendar","subscription_at":"2024-05-20T10:00:00Z","started_at":"2024-05-20T10:00:00.000Z","terminated_at":"2024-06-20T10:00:00Z"}
+    ]
+  }
+}

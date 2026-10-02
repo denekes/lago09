@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/ep.value_string.schema.json",
+  "title": "ep.value_string",
+  "description": "Enriched `value` string and `aggregation_type` label for a billable metric and the event properties (EP-F1, EP-F2, EP-F4). Type code 0 (`count`): `value` is \"1\" whatever the properties. Any other code (including the retired 4, unknown codes and 7 `custom`): the text of `properties[field_name]`, one literal key (a dotted name is not a path). Reference text: strings verbatim, numbers as binary64 shortest digits in exponent form `d.ddde±XX` (at least two exponent digits) when the decimal exponent is below -4 or at least 6, booleans `true`/`false`, objects and arrays in the reference's internal rendering, missing key, null value or null properties `<nil>`. Corrected (RBD-13): integer literals exactly, other numbers as shortest round-trip digits in plain notation, \"0\" for a missing key or null; booleans, objects and arrays have no corrected contract. Label: 0 count, 1 sum, 2 max, 3 unique_count, 5 weighted_sum, 6 latest, 7 custom, any other code \"\" (RBD-22). Full table: events-processor-spec reference/value-corpus.md.",
+  "x-kit": {
+    "area": "ep",
+    "op": "value_string",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "events-processor-spec reference/processing-rules.md (EP)",
+    "stateful": false
+  },
+  "x-kit-errors": [
+    {
+      "code": "undecodable",
+      "when": "properties_json is not a JSON object or null (EP-C1)"
+    }
+  ],
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "aggregation_type": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "description": "The STORED aggregation type code of the metric, as a decimal string (\"1\" = sum)."
+        },
+        "field_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "The metric's field name (one literal key, a dotted name is not a path); null or absent = the metric has none, so a non-count metric finds no property (EP-F2 missing-key case)."
+        },
+        "properties_json": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "description": "Exact JSON text of the event's `properties` (an object, or `null`)."
+        }
+      },
+      "required": [
+        "aggregation_type",
+        "properties_json"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "The enriched `value` text (compared as text)."
+        },
+        "aggregation_label": {
+          "enum": [
+            "count",
+            "sum",
+            "max",
+            "unique_count",
+            "weighted_sum",
+            "latest",
+            "custom",
+            ""
+          ],
+          "description": "Enriched `aggregation_type` label (EP-F4)."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

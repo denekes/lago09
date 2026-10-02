@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/events.validate.schema.json",
+  "title": "events.validate",
+  "description": "Outcome of submitting ONE event (POST /api/v1/events with body {\"event\": <event>}) to an organization with the given store, metrics and already-stored events: HTTP status, error details, and the event as accepted.",
+  "x-kit": {
+    "area": "events",
+    "op": "validate",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/02-events-ingestion.md (BE-EV)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store",
+        "event",
+        "received_at"
+      ],
+      "properties": {
+        "store": {
+          "enum": [
+            "pg",
+            "ch"
+          ],
+          "description": "Event store of the organization: pg (events persisted in the relational store, the normative variant) or ch (events only published to the raw topic for the events-processor / columnar store)."
+        },
+        "event": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "The `event` member of the request body, as sent (JSON types matter: numbers, strings, objects)."
+        },
+        "received_at": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Wall clock of the API when the request arrives (whole seconds). Used as the event time when the request carries no usable timestamp, and as the ingestion instant of the raw message."
+        },
+        "metrics": {
+          "type": "array",
+          "default": [],
+          "description": "Billable metrics of the organization before the call (default none).",
+          "items": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "aggregation_type": {
+                "enum": [
+                  "count_agg",
+                  "sum_agg",
+                  "max_agg",
+                  "unique_count_agg",
+                  "weighted_sum_agg",
+                  "latest_agg"
+                ],
+                "default": "sum_agg"
+              },
+              "field_name": {
+                "type": "string",
+                "default": "value",
+                "description": "Ignored for count_agg."
+              },
+              "expression": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null,
+                "description": "Metric expression (BE-EX); null or empty = none."
+              },
+              "deleted": {
+                "type": "boolean",
+                "default": false,
+                "description": "The metric was deleted (soft delete) before the call."
+              }
+            }
+          }
+        },
+        "existing": {
+          "type": "array",
+          "default": [],
+          "description": "Events already stored for the organization before the call (pg store). Only the idempotency-relevant fields are given.",
+          "items": {
+            "type": "object",
+            "required": [
+              "transaction_id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "transaction_id": {
+                "type": "string"
+              },
+              "external_subscription_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null,
+                "x-kit-absent": "null: stored without a subscription id"
+              },
+              "code": {
+                "type": "string",
+                "default": "kit_code"
+              },
+              "timestamp": {
+                "$ref": "../common.schema.json#/$defs/instant",
+                "x-kit-absent": "irrelevant to the rules exercised"
+              },
+              "deleted": {
+                "type": "boolean",
+                "default": false,
+                "description": "The stored event was soft-deleted (for example when its metric was deleted)."
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "http_status": {
+          "type": "integer",
+          "description": "200 accepted; 422 validation error; 400 `event` member missing or empty; 500 the request fails with an internal error."
+        },
+        "error_details": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "422 only: the `error_details` member of the error body: an object {field: [codes]} (single event), an object {\"<index>\": {field: [codes]} | \"<text>\"} (batch), or a TEXT `expression_evaluation_failed: <engine message>` (single event whose expression failed)."
+        },
+        "persisted": {
+          "type": "boolean",
+          "description": "200 only: the event was stored in the relational store (pg) or only published (ch)."
+        },
+        "stored_event": {
+          "type": "object",
+          "description": "The event as accepted: fields after parameter filtering and type coercion, timestamp at microsecond precision, properties after expression evaluation.",
+          "properties": {
+            "transaction_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "code": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "external_subscription_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "timestamp": {
+              "$ref": "../common.schema.json#/$defs/instant"
+            },
+            "properties": {
+              "$ref": "../common.schema.json#/$defs/payload"
+            },
+            "precise_total_amount_cents": {
+              "anyOf": [
+                {
+                  "$ref": "../common.schema.json#/$defs/decimal"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "echo_timestamp": {
+          "type": "string",
+          "description": "200 only: `event.timestamp` of the response body (ISO-8601 UTC with exactly 3 fractional digits)."
+        }
+      }
+    }
+  }
+}

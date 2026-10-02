@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.to_local.schema.json",
+  "title": "domain.to_local",
+  "description": "An instant expressed in an IANA zone (BE-DM-14), using the zone's UTC offset in force at that instant (daylight saving and historical rules included). Encodings: `local` = local wall clock with seconds precision and a numeric offset `YYYY-MM-DDTHH:MM:SS+HH:MM` (never `Z`, fractions dropped; compared as text); `local_date` = the local calendar date; `utc_offset_seconds` = offset east of UTC in seconds.",
+  "x-kit": {
+    "area": "domain",
+    "op": "to_local",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "instant": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "The instant to convert."
+        },
+        "timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone",
+          "description": "Target IANA zone."
+        }
+      },
+      "required": [
+        "instant",
+        "timezone"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "local": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2}$"
+        },
+        "local_date": {
+          "$ref": "../common.schema.json#/$defs/local_date"
+        },
+        "utc_offset_seconds": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

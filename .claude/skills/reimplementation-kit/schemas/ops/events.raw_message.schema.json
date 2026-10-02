@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/events.raw_message.schema.json",
+  "title": "events.raw_message",
+  "description": "The message published on the raw events topic for one accepted event (POST /api/v1/events at ingested_at). The message has no key; its value is a JSON object.",
+  "x-kit": {
+    "area": "events",
+    "op": "raw_message",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/02-events-ingestion.md (BE-EV)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store",
+        "organization_id",
+        "event",
+        "ingested_at"
+      ],
+      "properties": {
+        "store": {
+          "enum": [
+            "pg",
+            "ch"
+          ],
+          "description": "Event store of the organization: pg (events persisted in the relational store, the normative variant) or ch (events only published to the raw topic for the events-processor / columnar store)."
+        },
+        "organization_id": {
+          "type": "string",
+          "description": "Organization id (UUID text) written into the message."
+        },
+        "event": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "The `event` member of the request body, as sent."
+        },
+        "ingested_at": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Wall clock of the API when it accepts the event (whole seconds)."
+        },
+        "metrics": {
+          "type": "array",
+          "default": [],
+          "description": "Billable metrics of the organization before the call (default none).",
+          "items": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "aggregation_type": {
+                "enum": [
+                  "count_agg",
+                  "sum_agg",
+                  "max_agg",
+                  "unique_count_agg",
+                  "weighted_sum_agg",
+                  "latest_agg"
+                ],
+                "default": "sum_agg"
+              },
+              "field_name": {
+                "type": "string",
+                "default": "value",
+                "description": "Ignored for count_agg."
+              },
+              "expression": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null,
+                "description": "Metric expression (BE-EX); null or empty = none."
+              },
+              "deleted": {
+                "type": "boolean",
+                "default": false,
+                "description": "The metric was deleted (soft delete) before the call."
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "topic": {
+          "type": "string",
+          "description": "Name of the configured raw topic (the kit runs with `events-raw`)."
+        },
+        "has_key": {
+          "type": "boolean"
+        },
+        "message": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "The JSON value of the message (decoded); number-like members are JSON strings whose spelling is part of the contract."
+        }
+      }
+    }
+  }
+}

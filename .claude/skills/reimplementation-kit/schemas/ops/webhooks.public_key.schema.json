@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/webhooks.public_key.schema.json",
+  "title": "webhooks.public_key",
+  "description": "Bodies of the two public-key endpoints for an installation key (BE-WH-16): `text` = MIME Base64 (lines of 60 characters, each ending with a line feed, including the last) of the PEM public key (SubjectPublicKeyInfo, 'BEGIN PUBLIC KEY', 64-character lines, final newline), served as text/plain; `json_body` = {\"webhook\":{\"public_key\": <the same text>}}.",
+  "x-kit": {
+    "area": "webhooks",
+    "op": "public_key",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/12-webhooks.md (BE-WH)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rsa_private_key_pem"
+      ],
+      "properties": {
+        "rsa_private_key_pem": {
+          "type": "string"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json_body": {
+          "$ref": "../common.schema.json#/$defs/json_text"
+        },
+        "text_content_type": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

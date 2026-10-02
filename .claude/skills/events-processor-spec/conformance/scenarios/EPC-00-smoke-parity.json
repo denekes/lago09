@@ -1,0 +1,23 @@
+{
+  "name": "EPC-00-smoke-parity",
+  "id": "EPC-00",
+  "description": "Nine mixed records (metric found / unknown, bad timestamp, undecodable bytes, expression failure, unknown subscription, API-post-processed, started_at millisecond, expression success) in one batch.",
+  "rules": ["EP-C2", "EP-D1", "EP-E1", "EP-G1", "EP-G3", "EP-H4", "EP-H5", "EP-J1", "EP-P1", "EP-P5"],
+  "rbd": ["RBD-4"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "tx_A", "code": "api_calls", "properties": {"amount": 0.0000001}, "timestamp": "1759320000.123", "source": "probe"}},
+      {"json": {"transaction_id": "tx_B", "code": "nope", "timestamp": "1759320000"}},
+      {"json": {"transaction_id": "tx_C", "code": "api_calls", "timestamp": "2025-03-06 12:00:00"}},
+      {"raw": "{not json", "label": "tx_D"},
+      {"json": {"transaction_id": "tx_E", "code": "expr_metric", "properties": {"a": 2, "flag": true}, "timestamp": 1759320000}},
+      {"json": {"transaction_id": "tx_F", "code": "count_calls", "external_subscription_id": "unknown_sub", "timestamp": 1759320000}},
+      {"json": {"transaction_id": "tx_G", "code": "api_calls", "properties": {"amount": 5}, "timestamp": "1759320000.5", "source": "http_ruby", "source_metadata": {"api_post_processed": true}}},
+      {"json": {"transaction_id": "tx_H", "code": "count_calls", "timestamp": "1735689600.000"}},
+      {"json": {"transaction_id": "tx_I", "code": "expr_metric", "properties": {"a": 2}, "timestamp": 1759320000}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

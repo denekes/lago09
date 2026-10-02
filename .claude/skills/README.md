@@ -57,6 +57,9 @@ output.
 | verifying a claim, mining history, reading lago-api | `research-methodology` | `H=$(.claude/skills/research-methodology/scripts/history-setup.sh); git -C "$H" rev-list --count HEAD` | `776` |
 | editing or trusting a doc; writing a commit, PR, ADR | `docs-and-writing` | `.claude/skills/docs-and-writing/scripts/doc-drift-check.sh -q` | `SUMMARY doc-drift-check: entries=42 STALE=40 PASS=0 RECHECK=0 OPEN=1 KNOWN=1 SKIP=0 ...`, exit 40 (= STALE count; known) |
 | hardening a self-host; secrets, pinning, PII | `security-and-supply-chain` | `.claude/skills/security-and-supply-chain/scripts/secret-defaults-scan.sh` | `SUMMARY secret-defaults-scan: placeholders=50 (selfhost=35) sensitive_ports=18 (selfhost=12) redis_noauth=4 history_literal=0`, exit 0 |
+| rebuilding, re-platforming or porting Lago from the kit (clean room) | `reimplementation-kit` | `.claude/skills/reimplementation-kit/scripts/kit-selftest.sh` | `SUMMARY kit-selftest: steps=7 pass=7 fail=0 skip=0`, exit 0, ~12 s |
+| implementing or grading an events-processor | `events-processor-spec` | `eval "$(.claude/skills/events-processor-spec/scripts/maintainer/build-go-reference.sh --print-env)"; .claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd "$EP_REF_BIN" --impl-env LD_LIBRARY_PATH=$EP_REF_LD_LIBRARY_PATH --only EPC-00` (the Go reference as the implementation under test) | `EPC-00-smoke-parity compat=MATCH`, `run-suite: scenarios=1 failing=0 ... exit=0`, ~2 s warm (first build several minutes) |
+| implementing or checking billing logic (pricing, periods, invoices ...) | `billing-engine-spec` | `python3 .claude/skills/reimplementation-kit/scripts/validate-vectors.py --rule-coverage \| grep '^COVERAGE'` | one `COVERAGE <chapter> rules=N with_vectors=N prose_only=N uncovered=0 holdout_only=0` line per chapter (14 billing, 6 events-processor) |
 <!-- evidence-check: on -->
 
 Typical chains:

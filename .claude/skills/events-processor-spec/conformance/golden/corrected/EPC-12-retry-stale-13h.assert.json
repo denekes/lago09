@@ -1,0 +1,4 @@
+[
+ {"kind": "all_done", "why": "a record past the retry horizon is dispositioned", "rbd": ["RBD-3"], "ruling": "decided"},
+ {"kind": "done_with_cause", "tx": "f_stale", "why": "enriched after an in-place retry, or dead-lettered with a cause", "rbd": ["RBD-3"], "ruling": "decided"}
+]

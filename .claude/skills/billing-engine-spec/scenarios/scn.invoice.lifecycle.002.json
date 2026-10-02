@@ -1,0 +1,35 @@
+{
+  "kit_schema": 1,
+  "id": "scn.invoice.lifecycle.002",
+  "area": "scn",
+  "title": "changing a customer's grace period moves the finalization of its draft invoice",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-IV-6","BE-IV-33","BE-IV-37","BE-IV-39"],
+  "rbd": ["RBD-71"],
+  "tags": ["premium"],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/customers/update_invoice_grace_period_spec.rb:14","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2022-12-15T00:00:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": true,
+    "store": "pg",
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":100,"amount_currency":"EUR","pay_in_advance":true}],
+    "customers": [{"external_id":"cust_1","currency":"EUR","billing_configuration":{"invoice_grace_period":3}}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1"}}},
+    {"at":"2023-01-01T00:00:00Z","op":"snapshot","expect":{"invoices":[{"invoice_type":"subscription","status":"draft","total_amount_cents":55}]},"note":"the grace period keeps the invoice draft"},
+    {"op":"api","method":"POST","path":"/api/v1/customers","body":{"customer":{"external_id":"cust_1","billing_configuration":{"invoice_grace_period":0}}}}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2023-01-01","payment_due_date":"2023-01-01","currency":"EUR","fees_amount_cents":55,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":55,"sub_total_including_taxes_amount_cents":55,"total_amount_cents":55,"total_due_amount_cents":55,"billing_periods":[{"subscription_from_datetime":"2022-12-15T00:00:00Z","subscription_to_datetime":"2022-12-31T23:59:59Z","charges_from_datetime":"2022-12-15T00:00:00Z","charges_to_datetime":"2022-12-15T00:00:00Z","invoicing_reason":"subscription_starting"}],"fees":[{"item":{"type":"subscription"},"pay_in_advance":true,"amount_cents":55,"units":"1.0","taxes_amount_cents":0,"from_date":"2022-12-15T00:00:00+00:00","to_date":"2022-12-31T23:59:59+00:00"}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": []
+  }
+}

@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.schema.json",
+  "title": "kit common definitions",
+  "description": "Shared value encodings of the re-implementation kit (vector-format.md section 3). Referenced as ../common.schema.json#/$defs/<name> from op schemas and as common.schema.json#/$defs/<name> from the envelope schemas.",
+  "$defs": {
+    "decimal": {
+      "description": "Canonical decimal: no exponent, no plus sign, no leading zeros; trailing zeros allowed and not significant unless the compare mode is text.",
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+    },
+    "instant": {
+      "description": "ISO-8601 instant with a zone; expected values are written in UTC with Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "local_date": {
+      "description": "Local calendar date; meaningful only together with an IANA time zone given in the same object or the op input.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "timezone": {
+      "description": "IANA time-zone name (e.g. Europe/Paris) or UTC.",
+      "type": "string",
+      "pattern": "^(UTC|[A-Za-z_]+(/[A-Za-z0-9_+-]+){1,2})$"
+    },
+    "currency": {
+      "description": "ISO 4217 alphabetic code.",
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "cents": {
+      "description": "Money in minor units of the currency given alongside; |x| < 2^53.",
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "json_text": {
+      "description": "A string holding the exact text of a JSON value (literal number spelling preserved).",
+      "type": "string"
+    },
+    "payload": {
+      "description": "Raw JSON payload passed as-is (charge properties, event properties, raw records). JSON floats are allowed here only.",
+      "x-kit-payload": true
+    },
+    "error": {
+      "description": "A domain error result: the reference's error code plus the offending field when the reference names one.",
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "field": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "vector_id": {
+      "type": "string",
+      "pattern": "^(domain|events|expression|aggregation|pricing|periods|invoice|credit_notes|wallets|progressive|alerts|api|webhooks|clock|ep)(\\.[a-z0-9_]+)+\\.[0-9]{3}x?$"
+    },
+    "scenario_id": {
+      "type": "string",
+      "pattern": "^scn(\\.[a-z0-9_]+)+\\.[0-9]{3}x?$"
+    },
+    "area": {
+      "enum": [
+        "domain",
+        "events",
+        "expression",
+        "aggregation",
+        "pricing",
+        "periods",
+        "invoice",
+        "credit_notes",
+        "wallets",
+        "progressive",
+        "alerts",
+        "api",
+        "webhooks",
+        "clock",
+        "ep"
+      ]
+    },
+    "profile": {
+      "enum": [
+        "both",
+        "compat",
+        "corrected"
+      ]
+    },
+    "run_profile": {
+      "enum": [
+        "compat",
+        "corrected"
+      ]
+    },
+    "rule_id": {
+      "type": "string",
+      "pattern": "^(BE-(DM|EV|EX|AG|PR|SP|IV|CN|WL|PB|AL|API|WH|CK|IF)-[0-9]+[a-z]?|EP-[A-Z][0-9]+[a-z]?)$"
+    },
+    "rbd_id": {
+      "type": "string",
+      "pattern": "^RBD-[0-9]+$"
+    },
+    "tag": {
+      "description": "Known tags: core (must pass 100 %), boundary, float-island, premium, literal, optional, store-ch, slow, unexecuted, test-key, order-dependent. Other lowercase tags are allowed (validator warning TAG-UNKNOWN).",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "kind",
+        "by",
+        "ref",
+        "pin",
+        "runtime",
+        "executed_at"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "EXECUTED",
+            "RECOMPUTED",
+            "EXTRACTED"
+          ]
+        },
+        "by": {
+          "enum": [
+            "oracle-adapter",
+            "spec-green",
+            "harness",
+            "go-binary",
+            "go-unit",
+            "ep-oracle",
+            "replay-on-lago",
+            "recompute",
+            "sql-recompute",
+            "stdlib",
+            "spec-read",
+            "code-read"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pin": {
+          "type": "string",
+          "pattern": "^(591ae9005110|ep:83e012866f29)$"
+        },
+        "runtime": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executed_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "spec": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

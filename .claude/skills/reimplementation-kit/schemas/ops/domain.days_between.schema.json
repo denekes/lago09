@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.days_between.schema.json",
+  "title": "domain.days_between",
+  "description": "Whole local days between two instants in a zone (DST-aware); one day fewer for a subscription terminated by upgrade. Rule: (1) if `to` falls exactly on a local midnight of `timezone`, move it one second later (a period that ends at midnight counts the day that starts there); (2) take the local wall-clock duration from `from` to `to`, i.e. the elapsed time corrected by the change of UTC offset between the two instants, so a DST change neither adds nor removes a day; (3) divide by 24 hours and round up to an integer (any fraction of a day counts as a whole day); (4) with `terminated_upgraded: true`, subtract 1 and floor at 0.",
+  "x-kit": {
+    "area": "domain",
+    "op": "days_between",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Start instant of the period."
+        },
+        "to": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "End instant of the period (see rule step 1 for an end exactly at local midnight)."
+        },
+        "timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone",
+          "description": "IANA zone whose local midnights and UTC offsets are used (the effective time zone of the customer)."
+        },
+        "terminated_upgraded": {
+          "type": "boolean",
+          "default": false,
+          "description": "The period belongs to a subscription that was terminated by an upgrade to another plan."
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "timezone"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "description": "Number of days (integer)."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

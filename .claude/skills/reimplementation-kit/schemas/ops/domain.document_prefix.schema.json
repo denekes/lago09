@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.document_prefix.schema.json",
+  "title": "domain.document_prefix",
+  "description": "Document-number prefix of an organization or billing entity (BE-DM-32, BE-DM-33). Without a supplied prefix: the first three characters of the name (fewer if the name is shorter; spaces kept) upper-cased, a dash, and the last four characters of the record id upper-cased. A supplied prefix is upper-cased and must be 1-10 characters (longer: domain error value_is_too_long, empty: value_is_too_short, both on field document_number_prefix).",
+  "x-kit": {
+    "area": "domain",
+    "op": "document_prefix",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Organization or billing-entity name."
+        },
+        "record_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "description": "The record's UUID (lowercase hex)."
+        },
+        "supplied_prefix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Prefix given at creation; null or absent = generate one."
+        }
+      },
+      "required": [
+        "name",
+        "record_id"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

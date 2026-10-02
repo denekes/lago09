@@ -1,0 +1,42 @@
+{
+  "kit_schema": 1,
+  "id": "scn.subscription.trial.001",
+  "area": "scn",
+  "title": "free trial: the subscription fee is billed at the end of the trial",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-SP-61"],
+  "rbd": [],
+  "tags": [],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/subscriptions/free_trial_billing_spec.rb:56","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2024-03-05T12:12:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": false,
+    "store": "pg",
+    "billable_metrics": [{"name":"metric_1","code":"metric_1","aggregation_type":"count_agg"}],
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":5000000,"amount_currency":"EUR","trial_period":10.0,"pay_in_advance":true,"charges":[{"code":"charge_1","billable_metric_id":"{{bm:metric_1}}","charge_model":"standard","properties":{"amount":"10"}}]}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1"}}},
+    {"at":"2024-03-10T12:12:00Z","op":"tick","jobs":["billing"]},
+    {"at":"2024-03-15T12:02:00Z","op":"snapshot","expect":{"invoices":[]},"note":"nothing billed during the trial"},
+    {"op":"tick","jobs":["billing"]},
+    {"at":"2024-03-15T13:02:00Z","op":"snapshot","expect":{"invoices":[]},"note":"nothing billed before the trial end instant"},
+    {"op":"tick","jobs":["billing"]}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2024-03-15","payment_due_date":"2024-03-15","currency":"EUR","fees_amount_cents":2741935,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":2741935,"sub_total_including_taxes_amount_cents":2741935,"total_amount_cents":2741935,"total_due_amount_cents":2741935,"billing_periods":[{"subscription_from_datetime":"2024-03-05T00:00:00Z","subscription_to_datetime":"2024-03-31T23:59:59Z","charges_from_datetime":"2024-03-05T12:12:00Z","charges_to_datetime":"2024-03-05T12:12:00Z","invoicing_reason":"subscription_starting"}],"fees":[{"item":{"type":"subscription"},"pay_in_advance":true,"amount_cents":2741935,"units":"1.0","taxes_amount_cents":0,"from_date":"2024-03-05T00:00:00+00:00","to_date":"2024-03-31T23:59:59+00:00"}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": [],
+    "subscriptions": [
+      {"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_1","status":"active","billing_time":"calendar","subscription_at":"2024-03-05T12:12:00Z","started_at":"2024-03-05T12:12:00.000Z","trial_ended_at":"2024-03-15T12:12:00Z"}
+    ]
+  }
+}

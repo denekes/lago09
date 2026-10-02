@@ -1,0 +1,23 @@
+{
+  "name": "EPC-13-retry-no-ingested-at",
+  "id": "EPC-13",
+  "description": "Same database fault, no ingested_at: counts as older than the horizon.",
+  "rules": ["EP-L1", "EP-D5"],
+  "rbd": ["RBD-3"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "modes": ["db"],
+  "db_fault_tables": ["subscriptions"],
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "warm", "code": "count_calls", "timestamp": "1759320000"}}
+    ]},
+    {"wait": "quiescent"},
+    {"db_fault": {"table": "subscriptions", "times": 1}},
+    {"produce": [
+      {"json": {"transaction_id": "f_noing", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}, "ingested_at": "$ABSENT"}}
+    ]},
+    {"wait_db_fault_fired": "subscriptions"},
+    {"wait": "quiescent"}
+  ]
+}

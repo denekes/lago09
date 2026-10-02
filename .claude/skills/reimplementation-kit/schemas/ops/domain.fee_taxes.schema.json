@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.fee_taxes.schema.json",
+  "title": "domain.fee_taxes",
+  "description": "Taxes of one fee (BE-DM-27..30). For each tax in input order: amount_cents of the row = round_half_away((amount_cents - precise_coupons_amount_cents) x rate / 100) and precise_amount_cents = (precise_amount_cents - precise_coupons_amount_cents) x rate / 100 (unrounded). Fee totals: taxes_amount_cents = round_half_away(sum of the UNROUNDED row amounts computed from amount_cents), which can differ from the sum of the rounded rows; taxes_precise_amount_cents = sum of precise rows; taxes_rate = sum of rates. No tax: empty rows, totals 0.",
+  "x-kit": {
+    "area": "domain",
+    "op": "fee_taxes",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents",
+          "description": "Fee amount in minor units."
+        },
+        "precise_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Unrounded fee amount in minor units.",
+          "x-kit-absent": "equal to amount_cents"
+        },
+        "precise_coupons_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Coupon share already allocated to this fee, in minor units (5 decimal places)."
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "description": "Fee currency.",
+          "default": "EUR"
+        },
+        "taxes": {
+          "type": "array",
+          "description": "Applicable taxes in application order (selection is chapter 07).",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "rate"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "rate": {
+                "$ref": "../common.schema.json#/$defs/decimal",
+                "description": "Rate in percent (\"20\" = 20 %)."
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "amount_cents",
+        "precise_coupons_amount_cents",
+        "taxes"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "applied": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "amount_cents": {
+                "$ref": "../common.schema.json#/$defs/cents"
+              },
+              "precise_amount_cents": {
+                "$ref": "../common.schema.json#/$defs/decimal"
+              }
+            }
+          }
+        },
+        "taxes_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "taxes_precise_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "taxes_rate": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

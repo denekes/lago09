@@ -1,0 +1,67 @@
+# epconf golden v1 scenario=EPC-07-value-corpus mode=db
+[ledger] label partition:offset class enriched/in_advance/dlq committed
+v_int_42 p0:o0 ENRICHED e=1 a=0 d=0 committed=true
+v_int_999999 p0:o1 ENRICHED e=1 a=0 d=0 committed=true
+v_int_1e6 p0:o2 ENRICHED e=1 a=0 d=0 committed=true
+v_int_12345678 p0:o3 ENRICHED e=1 a=0 d=0 committed=true
+v_int_1e12_minus_1 p0:o4 ENRICHED e=1 a=0 d=0 committed=true
+v_int_1e12 p0:o5 ENRICHED e=1 a=0 d=0 committed=true
+v_int_2p53_plus_1 p0:o6 ENRICHED e=1 a=0 d=0 committed=true
+v_int_20_digits p0:o7 ENRICHED e=1 a=0 d=0 committed=true
+v_exp_1e21 p0:o8 ENRICHED e=1 a=0 d=0 committed=true
+v_dec_0.1 p0:o9 ENRICHED e=1 a=0 d=0 committed=true
+v_dec_0.0001 p0:o10 ENRICHED e=1 a=0 d=0 committed=true
+v_dec_1e-5 p0:o11 ENRICHED e=1 a=0 d=0 committed=true
+v_dec_1e-7 p0:o12 ENRICHED e=1 a=0 d=0 committed=true
+v_dec_1234567.5 p0:o13 ENRICHED e=1 a=0 d=0 committed=true
+v_dec_2.0 p0:o14 ENRICHED e=1 a=0 d=0 committed=true
+v_dec_18_sig p0:o15 ENRICHED e=1 a=0 d=0 committed=true
+v_neg_5 p0:o16 ENRICHED e=1 a=0 d=0 committed=true
+v_neg_1e12 p0:o17 ENRICHED e=1 a=0 d=0 committed=true
+v_str_12 p0:o18 ENRICHED e=1 a=0 d=0 committed=true
+v_str_1000000 p0:o19 ENRICHED e=1 a=0 d=0 committed=true
+v_str_1e12 p0:o20 ENRICHED e=1 a=0 d=0 committed=true
+v_str_exp p0:o21 ENRICHED e=1 a=0 d=0 committed=true
+v_str_abc p0:o22 ENRICHED e=1 a=0 d=0 committed=true
+v_null p0:o23 ENRICHED e=1 a=0 d=0 committed=true
+v_missing p0:o24 ENRICHED e=1 a=0 d=0 committed=true
+v_bool_true p0:o25 ENRICHED e=1 a=0 d=0 committed=true
+v_object p0:o26 ENRICHED e=1 a=0 d=0 committed=true
+[unattributed outputs] 0
+[topic events_enriched] 27 record(s)
+key="11111111-1111-1111-1111-111111111111-v_bool_true" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":true},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_bool_true","value":"true"}
+key="11111111-1111-1111-1111-111111111111-v_dec_0.0001" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":0.0001},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_dec_0.0001","value":"0.0001"}
+key="11111111-1111-1111-1111-111111111111-v_dec_0.1" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":0.1},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_dec_0.1","value":"0.1"}
+key="11111111-1111-1111-1111-111111111111-v_dec_1234567.5" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":1234567.5},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_dec_1234567.5","value":"1.2345675e+06"}
+key="11111111-1111-1111-1111-111111111111-v_dec_18_sig" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":0.12345678901234568},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_dec_18_sig","value":"0.12345678901234568"}
+key="11111111-1111-1111-1111-111111111111-v_dec_1e-5" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":0.00001},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_dec_1e-5","value":"1e-05"}
+key="11111111-1111-1111-1111-111111111111-v_dec_1e-7" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":1e-7},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_dec_1e-7","value":"1e-07"}
+key="11111111-1111-1111-1111-111111111111-v_dec_2.0" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":2},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_dec_2.0","value":"2"}
+key="11111111-1111-1111-1111-111111111111-v_exp_1e21" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":1e+21},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_exp_1e21","value":"1e+21"}
+key="11111111-1111-1111-1111-111111111111-v_int_12345678" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":12345678},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_int_12345678","value":"1.2345678e+07"}
+key="11111111-1111-1111-1111-111111111111-v_int_1e12" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":1000000000000},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_int_1e12","value":"1e+12"}
+key="11111111-1111-1111-1111-111111111111-v_int_1e12_minus_1" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":999999999999},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_int_1e12_minus_1","value":"9.99999999999e+11"}
+key="11111111-1111-1111-1111-111111111111-v_int_1e6" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":1000000},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_int_1e6","value":"1e+06"}
+key="11111111-1111-1111-1111-111111111111-v_int_20_digits" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":12345678901234567000},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_int_20_digits","value":"1.2345678901234567e+19"}
+key="11111111-1111-1111-1111-111111111111-v_int_2p53_plus_1" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":9007199254740992},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_int_2p53_plus_1","value":"9.007199254740992e+15"}
+key="11111111-1111-1111-1111-111111111111-v_int_42" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":42},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_int_42","value":"42"}
+key="11111111-1111-1111-1111-111111111111-v_int_999999" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":999999},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_int_999999","value":"999999"}
+key="11111111-1111-1111-1111-111111111111-v_missing" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_missing","value":"<nil>"}
+key="11111111-1111-1111-1111-111111111111-v_neg_1e12" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":-1000000000000},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_neg_1e12","value":"-1e+12"}
+key="11111111-1111-1111-1111-111111111111-v_neg_5" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":-5},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_neg_5","value":"-5"}
+key="11111111-1111-1111-1111-111111111111-v_null" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":null},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_null","value":"<nil>"}
+key="11111111-1111-1111-1111-111111111111-v_object" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":{"x":1}},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_object","value":"map[x:1]"}
+key="11111111-1111-1111-1111-111111111111-v_str_1000000" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":"1000000"},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_str_1000000","value":"1000000"}
+key="11111111-1111-1111-1111-111111111111-v_str_12" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":"12"},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_str_12","value":"12"}
+key="11111111-1111-1111-1111-111111111111-v_str_1e12" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":"1000000000000"},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_str_1e12","value":"1000000000000"}
+key="11111111-1111-1111-1111-111111111111-v_str_abc" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":"abc"},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_str_abc","value":"abc"}
+key="11111111-1111-1111-1111-111111111111-v_str_exp" {"aggregation_type":"sum","code":"api_calls","external_subscription_id":"no_such_sub","organization_id":"11111111-1111-1111-1111-111111111111","plan_id":"","precise_total_amount_cents":"","properties":{"amount":"1e6"},"subscription_id":"","timestamp":1759320000,"transaction_id":"v_str_exp","value":"1e6"}
+[topic events_charged_in_advance] 0 record(s)
+[topic events_dead_letter] 0 record(s)
+[commits] group=epconf_events-raw
+p0 end=27 committed=27
+[redis subscription_refreshed_v2] 0 distinct masked member(s), 0 invalid
+[process]
+exit_after_sigterm=0
+starts=1
+group_present=true other_groups=0

@@ -1,0 +1,37 @@
+# events-processor value corpus (kit copy; data rows are kept identical to the
+# event-accounting-campaign corpus and checked with `gen-scenarios.py --check-corpus <that file>`).
+# Columns (tab-separated): id, json, want_value, want_decimal, note.
+#   json          the JSON text of properties.amount on the raw topic, or MISSING (key absent)
+#   want_value    corrected-profile `value` string: the exact plain decimal of the parsed literal
+#                 (integers exact, JSON floats as the shortest round-trip binary64 text), "0" for
+#                 missing or null, a JSON string verbatim, "n/a" where no string contract exists
+#   want_decimal  the decimal the billing engine derives from the same literal (non-numeric -> 0)
+# The compat value (reference behaviour) is listed in reference/value-corpus.md and the
+# EPC-07 goldens. Metric under test: fixture `api_calls` (sum of field "amount").
+int_42	42	42	42	small integer
+int_999999	999999	999999	999999	largest integer %v prints without exponent
+int_1e6	1000000	1000000	1000000	%v switches to exponent form at 1e6
+int_12345678	12345678	12345678	12345678
+int_1e12_minus_1	999999999999	999999999999	999999999999	largest integer that fits CH Decimal(38,26)
+int_1e12	1000000000000	1000000000000	1000000000000	first integer CH Decimal(38,26) cannot hold
+int_2p53_plus_1	9007199254740993	9007199254740993	9007199254740993	float64 cannot represent it
+int_20_digits	12345678901234567890	12345678901234567890	12345678901234567890
+exp_1e21	1e21	1000000000000000000000	1000000000000000000000
+dec_0.1	0.1	0.1	0.1
+dec_0.0001	0.0001	0.0001	0.0001	smallest magnitude %v prints without exponent
+dec_1e-5	0.00001	0.00001	0.00001
+dec_1e-7	0.0000001	0.0000001	0.0000001
+dec_1234567.5	1234567.5	1234567.5	1234567.5
+dec_2.0	2.0	2	2
+dec_18_sig	0.123456789012345678	0.12345678901234568	0.12345678901234568	Rails also parses a Float: same rounding as Go
+neg_5	-5	-5	-5
+neg_1e12	-1000000000000	-1000000000000	-1000000000000
+str_12	"12"	12	12	numeric string
+str_1000000	"1000000"	1000000	1000000	re-enrichment form of 1000000 (unique_count pair with int_1e6)
+str_1e12	"1000000000000"	1000000000000	1000000000000	exact string, still beyond CH Decimal(38,26)
+str_exp	"1e6"	1e6	1000000
+str_abc	"abc"	abc	0	non-numeric string passes through
+null	null	0	0
+missing	MISSING	0	0
+bool_true	true	n/a	0
+object	{"x":1}	n/a	0

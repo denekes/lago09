@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/ep.commit_offset.schema.json",
+  "title": "ep.commit_offset",
+  "description": "Offset committed after one batch of one partition (EP-B2..B4). Each record carries its offset and whether it reached a disposition (`processed`, EP-B2). Reference (EP-B3): every record processed -> commit the offset after the last record; otherwise commit the offset after the highest processed record that lies below the lowest unprocessed record, or nothing when there is none. `pending_before` is ignored, so a later batch commits past unprocessed records of earlier batches (silent loss, EP-B4). Corrected (RBD-1): never commit past a record without a disposition: the lowest unprocessed offset is taken over the batch AND `pending_before`, so a pending earlier offset leaves nothing to commit. `commit` is the offset to commit (the next offset to read) or null = commit nothing.",
+  "x-kit": {
+    "area": "ep",
+    "op": "commit_offset",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "events-processor-spec reference/processing-rules.md (EP)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Record offset."
+              },
+              "processed": {
+                "type": "boolean",
+                "description": "The record has a durable disposition (output produced, dead-lettered or intentionally dropped)."
+              }
+            },
+            "required": [
+              "offset",
+              "processed"
+            ],
+            "additionalProperties": false
+          },
+          "description": "The batch's records of one partition, in offset order (offsets may have gaps)."
+        },
+        "pending_before": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "default": [],
+          "description": "Offsets of earlier batches of the same partition still without a disposition."
+        }
+      },
+      "required": [
+        "records"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "commit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Offset to commit (next offset to read), or null = commit nothing."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

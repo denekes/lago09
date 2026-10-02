@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/ep.decode.schema.json",
+  "title": "ep.decode",
+  "description": "Decode one raw-topic record value (EP-C1..C5, EP-D5). Rule: the bytes must be one JSON object (the literal `null` decodes to an event whose fields are all empty, EP-C3); recognised fields and accepted JSON types per EP-C1 (strings with JSON null read as \"\", `precise_total_amount_cents` string only in the reference, `properties` object or null, `source_metadata` {api_post_processed: boolean} or null, `timestamp` any JSON value kept as received, `ingested_at` per EP-D5); unknown keys are dropped and a repeated key keeps its last value (EP-C4). Anything else (invalid JSON, empty value, array or scalar, a recognised field of the wrong type, an unparsable `ingested_at`) is the domain error `undecodable` in both profiles. The output is the dead-letter copy of the decoded event (wire-formats.md section 4, field `event`) in the suite's canonical form (wire-formats.md section 7, EP-W7): object keys sorted, no insignificant whitespace, no HTML escaping, number literals as the implementation writes them (reference: binary64 shortest text, EP-C5; corrected RBD-14: the literal text).",
+  "x-kit": {
+    "area": "ep",
+    "op": "decode",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "events-processor-spec reference/processing-rules.md (EP)",
+    "stateful": false
+  },
+  "x-kit-errors": [
+    {
+      "code": "undecodable",
+      "when": "the record value is not a decodable event object (EP-C2)"
+    }
+  ],
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "raw_b64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "description": "The exact record value bytes, standard base64 with padding (\"\" = empty value)."
+        }
+      },
+      "required": [
+        "raw_b64"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "event_json": {
+          "type": "string",
+          "description": "Canonical JSON text of the decoded event (sorted keys, literal number text, no HTML escaping); compared as text."
+        },
+        "event": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Optional: the same event as a JSON object (not graded by the v1 vectors)."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

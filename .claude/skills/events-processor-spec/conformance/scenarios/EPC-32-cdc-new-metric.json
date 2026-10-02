@@ -1,0 +1,22 @@
+{
+  "name": "EPC-32-cdc-new-metric",
+  "id": "EPC-32",
+  "description": "Memory-cache mode: a billable metric created after start becomes visible through CDC.",
+  "rules": ["EP-N3", "EP-N1", "EP-A8"],
+  "rbd": [],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "modes": ["cache"],
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "before_create", "code": "fresh_metric", "timestamp": "1759320000"}}
+    ]},
+    {"wait": "quiescent"},
+    {"cdc": {"table": "billable_metrics", "row": {"id": "aaaaaaaa-0000-0000-0000-0000000000a1", "organization_id": "11111111-1111-1111-1111-111111111111", "code": "fresh_metric", "aggregation_type": 0, "field_name": null, "expression": null, "created_at": "$NOW_US", "updated_at": "$NOW_US", "deleted_at": null, "__deleted": "false", "__table": "billable_metrics", "__lsn": 2}}},
+    {"wait_cdc_applied": "billable_metrics"},
+    {"produce": [
+      {"json": {"transaction_id": "after_create", "code": "fresh_metric", "timestamp": "1759320000"}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

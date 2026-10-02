@@ -1,0 +1,61 @@
+{
+  "kit_schema": 1,
+  "id": "scn.invoice.coupons.001",
+  "area": "scn",
+  "title": "three limited and unlimited coupons split over the fees of two subscriptions with two tax rates",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-DM-27","BE-DM-28","BE-IV-11","BE-IV-19","BE-IV-22","BE-IV-25"],
+  "rbd": ["RBD-68","RBD-69"],
+  "tags": ["premium"],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/coupons_breakdown_spec.rb:14","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2026-09-15T10:00:01Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": true,
+    "store": "pg"
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"Name","code":"bm1","aggregation_type":"sum_agg","field_name":"total1"}},"capture":{"v1":"billable_metric.lago_id"}},
+    {"at":"2026-09-15T10:00:02Z","op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"Name","code":"bm2","aggregation_type":"sum_agg","field_name":"total2"}},"capture":{"v2":"billable_metric.lago_id"}},
+    {"at":"2026-09-15T10:00:03Z","op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"Name","code":"bm3","aggregation_type":"sum_agg","field_name":"total3"}},"capture":{"v3":"billable_metric.lago_id"}},
+    {"at":"2026-09-15T10:00:04Z","op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"Name","code":"bm4","aggregation_type":"sum_agg","field_name":"total4"}},"capture":{"v4":"billable_metric.lago_id"}},
+    {"at":"2026-09-15T10:00:05Z","op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"Name","code":"bm5","aggregation_type":"sum_agg","field_name":"total5"}},"capture":{"v5":"billable_metric.lago_id"}},
+    {"at":"2026-09-15T10:00:06Z","op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"Name","code":"bm6","aggregation_type":"sum_agg","field_name":"total6"}},"capture":{"v6":"billable_metric.lago_id"}},
+    {"at":"2026-09-15T10:00:07Z","op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"Name","code":"bm7","aggregation_type":"sum_agg","field_name":"total7"}},"capture":{"v7":"billable_metric.lago_id"}},
+    {"at":"2026-09-15T10:00:08Z","op":"api","method":"POST","path":"/api/v1/billable_metrics","body":{"billable_metric":{"name":"Name","code":"bm8","aggregation_type":"sum_agg","field_name":"total8"}},"capture":{"v8":"billable_metric.lago_id"}},
+    {"at":"2023-01-01T00:00:00Z","op":"api","method":"POST","path":"/api/v1/taxes","body":{"tax":{"name":"Banking rates 1","code":"banking_rates1","rate":10.0}}},
+    {"op":"api","method":"POST","path":"/api/v1/taxes","body":{"tax":{"name":"Banking rates 2","code":"banking_rates2","rate":20.0}}},
+    {"op":"api","method":"POST","path":"/api/v1/customers","body":{"customer":{"external_id":"customer-12345"}}},
+    {"op":"api","method":"POST","path":"/api/v1/plans","body":{"plan":{"name":"P1","code":"plan_code","interval":"monthly","amount_cents":0,"amount_currency":"EUR","pay_in_advance":false,"charges":[{"billable_metric_id":"{{v1}}","charge_model":"standard","properties":{"amount":"1"},"tax_codes":["banking_rates1"]},{"billable_metric_id":"{{v2}}","charge_model":"standard","properties":{"amount":"1"},"tax_codes":["banking_rates2"]},{"billable_metric_id":"{{v3}}","charge_model":"standard","properties":{"amount":"1"},"tax_codes":["banking_rates1"]},{"billable_metric_id":"{{v4}}","charge_model":"standard","properties":{"amount":"1"},"tax_codes":["banking_rates1"]}]}}},
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"customer-12345","external_id":"sub_external_id","plan_code":"plan_code"}}},
+    {"op":"api","method":"POST","path":"/api/v1/plans","body":{"plan":{"name":"P2","code":"plan_code2","interval":"monthly","amount_cents":0,"amount_currency":"EUR","pay_in_advance":false,"charges":[{"billable_metric_id":"{{v5}}","charge_model":"standard","properties":{"amount":"1"},"tax_codes":["banking_rates1"]},{"billable_metric_id":"{{v6}}","charge_model":"standard","properties":{"amount":"1"},"tax_codes":["banking_rates2"]},{"billable_metric_id":"{{v7}}","charge_model":"standard","properties":{"amount":"1"},"tax_codes":["banking_rates1"]},{"billable_metric_id":"{{v8}}","charge_model":"standard","properties":{"amount":"1"},"tax_codes":["banking_rates1"]}]}}},
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"customer-12345","external_id":"sub_external_id2","plan_code":"plan_code2"}}},
+    {"op":"api","method":"POST","path":"/api/v1/coupons","body":{"coupon":{"name":"coupon1","code":"coupon1_code","coupon_type":"fixed_amount","frequency":"once","amount_cents":2000,"amount_currency":"EUR","expiration":"time_limit","expiration_at":"2023-02-20T00:00:00.000Z","reusable":false,"applies_to":{"billable_metric_codes":["bm1","bm2"]}}}},
+    {"op":"api","method":"POST","path":"/api/v1/applied_coupons","body":{"applied_coupon":{"external_customer_id":"customer-12345","coupon_code":"coupon1_code"}}},
+    {"op":"api","method":"POST","path":"/api/v1/coupons","body":{"coupon":{"name":"coupon2","code":"coupon2_code","coupon_type":"fixed_amount","frequency":"once","amount_cents":1000,"amount_currency":"EUR","expiration":"time_limit","expiration_at":"2023-02-20T00:00:00.000Z","reusable":false,"applies_to":{"plan_codes":["plan_code2"]}}}},
+    {"op":"api","method":"POST","path":"/api/v1/applied_coupons","body":{"applied_coupon":{"external_customer_id":"customer-12345","coupon_code":"coupon2_code"}}},
+    {"op":"api","method":"POST","path":"/api/v1/coupons","body":{"coupon":{"name":"coupon3","code":"coupon3_code","coupon_type":"fixed_amount","frequency":"once","amount_cents":500,"amount_currency":"EUR","expiration":"time_limit","expiration_at":"2023-02-20T00:00:00.000Z","reusable":false}}},
+    {"op":"api","method":"POST","path":"/api/v1/applied_coupons","body":{"applied_coupon":{"external_customer_id":"customer-12345","coupon_code":"coupon3_code"}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"bm1","transaction_id":"tx_1","external_subscription_id":"sub_external_id","properties":{"total1":10}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"bm2","transaction_id":"tx_2","external_subscription_id":"sub_external_id","properties":{"total2":20}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"bm3","transaction_id":"tx_3","external_subscription_id":"sub_external_id","properties":{"total3":30}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"bm4","transaction_id":"tx_4","external_subscription_id":"sub_external_id","properties":{"total4":40}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"bm5","transaction_id":"tx_5","external_subscription_id":"sub_external_id2","properties":{"total5":10}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"bm6","transaction_id":"tx_6","external_subscription_id":"sub_external_id2","properties":{"total6":20}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"bm7","transaction_id":"tx_7","external_subscription_id":"sub_external_id2","properties":{"total7":30}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"bm8","transaction_id":"tx_8","external_subscription_id":"sub_external_id2","properties":{"total8":40}}}},
+    {"at":"2023-02-01T00:00:00Z","op":"tick","jobs":["billing"]}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2023-02-01","payment_due_date":"2023-02-01","currency":"EUR","fees_amount_cents":20000,"coupons_amount_cents":3500,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":1889,"sub_total_excluding_taxes_amount_cents":16500,"sub_total_including_taxes_amount_cents":18389,"total_amount_cents":18389,"total_due_amount_cents":18389,"billing_periods":[{"external_subscription_id":"sub_external_id","subscription_from_datetime":"2023-01-01T00:00:00Z","subscription_to_datetime":"2023-01-31T23:59:59Z","charges_from_datetime":"2023-01-01T00:00:00Z","charges_to_datetime":"2023-01-31T23:59:59Z","invoicing_reason":"subscription_periodic"},{"external_subscription_id":"sub_external_id2","subscription_from_datetime":"2023-01-01T00:00:00Z","subscription_to_datetime":"2023-01-31T23:59:59Z","charges_from_datetime":"2023-01-01T00:00:00Z","charges_to_datetime":"2023-01-31T23:59:59Z","invoicing_reason":"subscription_periodic"}],"fees":[{"item":{"type":"subscription"},"external_subscription_id":"sub_external_id2","amount_cents":0,"units":"1.0","taxes_amount_cents":0},{"item":{"type":"subscription"},"external_subscription_id":"sub_external_id","amount_cents":0,"units":"1.0","taxes_amount_cents":0},{"item":{"type":"charge","code":"bm4"},"external_subscription_id":"sub_external_id","amount_cents":4000,"units":"40.0","taxes_amount_cents":388,"taxes_rate":10.0,"precise_coupons_amount_cents":"117.64706"},{"item":{"type":"charge","code":"bm3"},"external_subscription_id":"sub_external_id","amount_cents":3000,"units":"30.0","taxes_amount_cents":291,"taxes_rate":10.0,"precise_coupons_amount_cents":"88.23529"},{"item":{"type":"charge","code":"bm1"},"external_subscription_id":"sub_external_id","amount_cents":1000,"units":"10.0","taxes_amount_cents":32,"taxes_rate":10.0,"precise_coupons_amount_cents":"676.47059"},{"item":{"type":"charge","code":"bm2"},"external_subscription_id":"sub_external_id","amount_cents":2000,"units":"20.0","taxes_amount_cents":129,"taxes_rate":20.0,"precise_coupons_amount_cents":"1352.94117"},{"item":{"type":"charge","code":"bm6"},"external_subscription_id":"sub_external_id2","amount_cents":2000,"units":"20.0","taxes_amount_cents":349,"taxes_rate":20.0,"precise_coupons_amount_cents":"252.94118"},{"item":{"type":"charge","code":"bm7"},"external_subscription_id":"sub_external_id2","amount_cents":3000,"units":"30.0","taxes_amount_cents":262,"taxes_rate":10.0,"precise_coupons_amount_cents":"379.41176"},{"item":{"type":"charge","code":"bm8"},"external_subscription_id":"sub_external_id2","amount_cents":4000,"units":"40.0","taxes_amount_cents":349,"taxes_rate":10.0,"precise_coupons_amount_cents":"505.88235"},{"item":{"type":"charge","code":"bm5"},"external_subscription_id":"sub_external_id2","amount_cents":1000,"units":"10.0","taxes_amount_cents":87,"taxes_rate":10.0,"precise_coupons_amount_cents":"126.47059"}],"applied_taxes":[{"tax_code":"banking_rates1","tax_rate":10.0,"amount_cents":1411,"fees_amount_cents":14105},{"tax_code":"banking_rates2","tax_rate":20.0,"amount_cents":479,"fees_amount_cents":2394}],"credits":[{"amount_cents":2000,"item":{"type":"coupon","code":"coupon1_code"},"before_taxes":true},{"amount_cents":1000,"item":{"type":"coupon","code":"coupon2_code"},"before_taxes":true},{"amount_cents":500,"item":{"type":"coupon","code":"coupon3_code"},"before_taxes":true}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": []
+  },
+  "compare": {"invoices[*].billing_periods":{"mode":"set"},"invoices[*].fees":{"mode":"set"},"invoices[*].applied_taxes":{"mode":"set"},"invoices[*].credits":{"mode":"set"}}
+}

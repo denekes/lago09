@@ -1,0 +1,4 @@
+[
+ {"kind": "zset_has", "want": "11111111-1111-1111-1111-111111111111:bbbbbbbb-0000-0000-0000-000000000001", "why": "the refresh flag of f_redis is retried, not skipped", "rbd": ["RBD-9"], "ruling": "decided"},
+ {"kind": "no_dup", "why": "only the failed side effect is retried (no duplicate enriched or in-advance record)", "rbd": ["RBD-9"], "ruling": "decided"}
+]

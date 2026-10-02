@@ -1,0 +1,35 @@
+{
+  "name": "EPC-08-time-formats",
+  "id": "EPC-08",
+  "description": "Accepted and rejected timestamp shapes; emitted timestamp value. Non-finite spellings (NaN, Inf) parse as numbers but cannot be written to the output topic.",
+  "rules": ["EP-D1", "EP-D2", "EP-D6"],
+  "rbd": ["RBD-18", "RBD-4"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "t_str_ms", "code": "count_calls", "timestamp": "1741007009.123", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_str_us", "code": "count_calls", "timestamp": "1741007009.123456", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_str_int", "code": "count_calls", "timestamp": "1741007009", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_num_int", "code": "count_calls", "timestamp": 1741007009, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_num_float", "code": "count_calls", "timestamp": 1741007009.123456, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_num_exp", "code": "count_calls", "timestamp": 1.741007009e9, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_rfc_z", "code": "count_calls", "timestamp": "2025-03-03T13:03:29Z", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_rfc_ms", "code": "count_calls", "timestamp": "2025-03-03T13:03:29.344Z", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_rfc_off", "code": "count_calls", "timestamp": "2025-03-03T15:03:29.123456+02:00", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_space", "code": "count_calls", "timestamp": "2025-03-03 13:03:29", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_ms_epoch", "code": "count_calls", "timestamp": "1741007009123", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_neg", "code": "count_calls", "timestamp": "-1", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_str_exp", "code": "count_calls", "timestamp": "1.741007009e9", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_bool", "code": "count_calls", "timestamp": true, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_null", "code": "count_calls", "timestamp": null, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_obj", "code": "count_calls", "timestamp": {"a": 1}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_empty", "code": "count_calls", "timestamp": "", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_absent", "code": "count_calls", "timestamp": "$ABSENT", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_nan", "code": "count_calls", "timestamp": "NaN", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_inf", "code": "count_calls", "timestamp": "Inf", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "t_hex", "code": "count_calls", "timestamp": "0x1.9f0e3a8p+30", "external_subscription_id": "no_such_sub"}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

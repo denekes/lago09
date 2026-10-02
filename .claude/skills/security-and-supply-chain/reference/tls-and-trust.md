@@ -146,15 +146,21 @@ executed and what is only inferred.
   refuses such expressions at metric creation (lago-api). Until then, triage a crash loop with
   `debugging-playbook`.
 
-### 4.4 Webhooks enqueued before the commit (`reimplementation-kit` RBD-85): not confirmed here
+### 4.4 Webhooks are requested after the commit (`reimplementation-kit` RBD-85, resolved: no defect)
 
-- The kit (`billing-engine-spec` reference/12-webhooks.md BE-WH-8) says a few emissions (customer upsert, credit-note creation) are requested inside the
-  transaction, so a receiver may be told about data that is rolled back.
-- Code read at the pin does not confirm the two examples: credit-note webhooks are sent from
-  `after_commit` (`$API/app/services/credit_notes/create_service.rb:96-98`,
-  `$API/app/services/invoices/refresh_draft_and_finalize_service.rb:44,58`), and the customer upsert
+- An early kit draft said a few emissions (customer upsert, credit-note creation) were requested inside the
+  transaction. At the pin this is not so, and the kit now says the same (`billing-engine-spec`
+  reference/12-webhooks.md BE-WH-8; `reimplementation-kit` RBD-85 decided KEEP).
+- Code: credit-note webhooks are sent from `after_commit`
+  (`$API/app/services/credit_notes/create_service.rb:96-98`,
+  `$API/app/services/invoices/refresh_draft_and_finalize_service.rb:44,58`); the customer upsert
   enqueues `SendWebhookJob.perform_later` at `:157`/`:160`, after its own transaction block
   (`$API/app/services/customers/upsert_from_api_service.rb:47-143`); its only caller is the API
-  controller (`$API/app/controllers/api/v1/customers_controller.rb:7`). Label: UNVERIFIED.
+  controller (`$API/app/controllers/api/v1/customers_controller.rb:7`). Rails does not defer jobs to
+  commit here (ActiveJob 8.0.5.1 default), so the ordering comes from where the code requests them.
+- EXECUTED 2026-10-02 through the kit oracle: a recorder over the upsert, credit-note and
+  refresh-and-finalize specs (181 examples, 0 failures) saw no webhook requested inside an application
+  transaction, and a forced rollback inside the upsert requested none. Request sites in outer callers'
+  transactions were not audited one by one.
 - Either way (CANDIDATE guidance), receivers should treat a webhook as a notification and re-fetch the
   object over the API before acting on it.

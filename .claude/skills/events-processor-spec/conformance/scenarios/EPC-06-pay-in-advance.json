@@ -1,0 +1,26 @@
+{
+  "name": "EPC-06-pay-in-advance",
+  "id": "EPC-06",
+  "description": "In-advance emission and the API-post-processed split.",
+  "rules": ["EP-J1", "EP-J2", "EP-K1", "EP-H7", "EP-I2", "EP-W3"],
+  "rbd": ["RBD-19", "RBD-20"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "pia_yes", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}}},
+      {"json": {"transaction_id": "pia_http_ruby_pp_true", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}, "source": "http_ruby", "source_metadata": {"api_post_processed": true}}},
+      {"json": {"transaction_id": "pia_http_ruby_pp_false", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}, "source": "http_ruby", "source_metadata": {"api_post_processed": false}}},
+      {"json": {"transaction_id": "pia_http_ruby_no_meta", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}, "source": "http_ruby"}},
+      {"json": {"transaction_id": "pia_other_source_pp_true", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}, "source": "connector", "source_metadata": {"api_post_processed": true}}},
+      {"json": {"transaction_id": "pia_no_sub", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "pia_deleted_charge", "code": "max_amount", "timestamp": "1759320000", "properties": {"amount": 1}}},
+      {"json": {"transaction_id": "pia_not_in_advance", "code": "count_calls", "timestamp": "1759320000"}},
+      {"json": {"transaction_id": "pia_other_plan", "code": "api_calls", "external_subscription_id": "sub_ext_multi", "timestamp": "1739577600", "properties": {"amount": 1}}},
+      {"json": {"transaction_id": "pia_missing_property", "code": "api_calls", "timestamp": "1759320000", "properties": {}}},
+      {"json": {"transaction_id": "pia_o2", "code": "api_calls", "timestamp": "1759320000", "organization_id": "99999999-9999-9999-9999-999999999999"}},
+      {"json": {"transaction_id": "pia_recurring", "code": "seats", "timestamp": "1759320000", "properties": {"seats": 2}}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

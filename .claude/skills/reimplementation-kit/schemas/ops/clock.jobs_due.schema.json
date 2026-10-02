@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/clock.jobs_due.schema.json",
+  "title": "clock.jobs_due",
+  "description": "Clock jobs that enqueue work during [from, to) (BE-CK-2..4, BE-CK-10), with the number of runs. A clock process started at `from` runs interval jobs at its start and then every period; minute-pinned jobs run once per hour (or per day) when the UTC wall clock reaches the pinned minute. A run counts only when the job's gate lets it enqueue work. `env` lists the deployment settings that change the schedule (absent key = unset).",
+  "x-kit": {
+    "area": "clock",
+    "op": "jobs_due",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/13-clock-and-async.md (BE-CK)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "../common.schema.json#/$defs/instant"
+        },
+        "to": {
+          "$ref": "../common.schema.json#/$defs/instant"
+        },
+        "env": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": false,
+          "properties": {
+            "LAGO_SUBSCRIPTION_ACTIVITY_PROCESSING_INTERVAL_SECONDS": {
+              "type": "string"
+            },
+            "LAGO_LIFETIME_USAGE_REFRESH_INTERVAL_SECONDS": {
+              "type": "string"
+            },
+            "LAGO_DISABLE_LIFETIME_USAGE_REFRESH": {
+              "type": "string"
+            },
+            "LAGO_MEMCACHE_SERVERS": {
+              "type": "string"
+            },
+            "LAGO_REDIS_CACHE_URL": {
+              "type": "string"
+            },
+            "LAGO_DISABLE_WALLET_REFRESH": {
+              "type": "string"
+            },
+            "LAGO_WALLET_ONGOING_BALANCE_REFRESH_INTERVAL_SECONDS": {
+              "type": "string"
+            },
+            "LAGO_DISABLE_EVENTS_VALIDATION": {
+              "type": "string"
+            },
+            "LAGO_REDIS_STORE_URL": {
+              "type": "string"
+            },
+            "LAGO_CLICKHOUSE_ENABLED": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "runs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "description": "Job name -> number of runs; jobs with no run are absent (an expected null asserts that the job does not run)."
+        }
+      }
+    }
+  }
+}

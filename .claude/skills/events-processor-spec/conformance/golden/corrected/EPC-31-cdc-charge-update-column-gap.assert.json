@@ -1,0 +1,3 @@
+[
+ {"kind": "in_advance", "tx": "after_cdc", "why": "a charge edit must not switch pay-in-advance off (a missing CDC column never resets a value; proposal pending the production column list)", "rbd": ["RBD-21"], "ruling": "proposed"}
+]

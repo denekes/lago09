@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.fixed_charge_units.schema.json",
+  "title": "pricing.fixed_charge_units",
+  "description": "Units of a fixed charge over a period from its unit events (BE-PR-68/69).",
+  "x-kit": {
+    "area": "pricing",
+    "op": "fixed_charge_units",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "events",
+        "window"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "units",
+              "timestamp",
+              "created_seq"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "units": {
+                "$ref": "../common.schema.json#/$defs/decimal"
+              },
+              "timestamp": {
+                "$ref": "../common.schema.json#/$defs/instant"
+              },
+              "created_seq": {
+                "type": "integer"
+              }
+            }
+          },
+          "description": "Fixed-charge unit events: units, effective timestamp and creation order (created_seq ascending = created earlier)."
+        },
+        "window": {
+          "type": "object",
+          "required": [
+            "from",
+            "to",
+            "duration_days"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "$ref": "../common.schema.json#/$defs/instant"
+            },
+            "to": {
+              "$ref": "../common.schema.json#/$defs/instant"
+            },
+            "duration_days": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "description": "Fixed-charges period: from (inclusive), to (end instant), full duration in days."
+        },
+        "timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone",
+          "description": "Customer time zone (prorated day cuts).",
+          "default": "UTC"
+        },
+        "prorated": {
+          "type": "boolean",
+          "description": "Charge is prorated.",
+          "default": false
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "full_units_number": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "per_event_full": {
+          "type": "array",
+          "items": {
+            "$ref": "../common.schema.json#/$defs/decimal"
+          }
+        },
+        "per_event_prorated": {
+          "type": "array",
+          "items": {
+            "$ref": "../common.schema.json#/$defs/decimal"
+          }
+        }
+      }
+    }
+  }
+}
