@@ -51,7 +51,7 @@ Do NOT use it for:
 | Rename-aware pathspec | `-- events-processor events_processor`; the dir was renamed in `d5bce86` (2025-03-21). |
 | Pickaxe | `git log -G<regex>` (diff lines matching) or `-S<string>` (count of the string changed). |
 | ING-/INF- | Internal ticket ids that appear in commit messages (ingestion / infra). |
-| OPEN DECISION OD-n (owner) | An owner call listed in `change-control` §9 (OD-1..OD-20). This skill never settles one; a change that depends on it goes through change-control's gate. Short form `OD-n` in tables. OD-1..OD-5 are DECIDED (owner, 2026-10-02); OD-1b is open; OD-20 is a DEFAULT APPLIED. |
+| OPEN DECISION OD-n (owner) | An owner call listed in `change-control` §9 (OD-1..OD-24; OD-21..OD-24 proposed by the re-implementation kit). This skill never settles one; a change that depends on it goes through change-control's gate. Short form `OD-n` in tables. OD-1..OD-5 are DECIDED (owner, 2026-10-02); OD-1b is open; OD-20 is a DEFAULT APPLIED. |
 | CANDIDATE / UNVERIFIED / inferred | Proposed but unproven / not checked here / read from code shape or a subject line because the commit has no body. |
 
 ## Before you change X, check its chain

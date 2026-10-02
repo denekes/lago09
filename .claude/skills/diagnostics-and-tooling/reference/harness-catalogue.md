@@ -10,7 +10,8 @@ the owning skills named in each entry, not to this one.
 
 Contents: H1 happy-path · H2 cdc-brokers · H3 binary smoke · H4 overlay · H5 scratch Postgres ·
 H6 ClickHouse local · H7 compose without daemon · H8 race on the real pipeline · H9 CPU profiles ·
-H10 log triage · H11 scratch copy
+H10 log triage · H11 scratch copy · H12 black-box conformance suite (`events-processor-spec`) ·
+H13 pinned lago-api oracle (`reimplementation-kit`). H12 and H13 were added and run on 2026-10-02.
 
 ---
 
@@ -266,3 +267,103 @@ rm -rf "$C"
 ```
 Edit freely inside `$C/ep`; the repo stays untouched (change-control N10). For new dependencies that only
 probes need, prefer a separate module with a `replace` (like `kfake-harness`).
+
+## H12. Black-box conformance suite (`events-processor-spec` `run-suite.sh`)
+
+- **Question:** "does this events-processor build (your branch, or any rebuild in any language) lose,
+  duplicate, dead-letter or enrich each record as the reference does (compat) or as ADR-001 and the
+  decided rebuild decisions require (corrected)?", observed only through Kafka, Redis, Postgres,
+  signals and exit status, in DB and memory-cache mode. Unlike H1, it does not import the Go packages:
+  it starts the binary (`--impl-cmd`) as `sh -c "exec <cmd>"` and owns every dependency.
+- **Run (a binary from your working tree; nothing written to the repo):**
+  ```bash
+  ( source .claude/skills/build-and-env/scripts/ep-env.sh >/dev/null && T=$(mktemp -d) \
+    && go -C events-processor build -o "$T/events-processor" . \
+    && bash .claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd "$T/events-processor" \
+         --impl-env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" --mode db --profile both [--only 'EPC-1[0-9]'] [--keep DIR]; rm -rf "$T" )
+  ```
+  Then the same with `--mode cache` (the production path, DECIDED OD-1 (owner, 2026-10-02)).
+- **Expected today (2026-10-02, code of 5308258; one pass per mode re-run for this entry, matching the
+  three-pass result recorded in `events-processor-spec` conformance-suite §8):**
+  ```
+  EPC-10-retry-lost-db-fault compat=MATCH corrected=FAIL (6.5s)
+  EPC-11-retry-only-batch-restart compat=MATCH corrected=PASS (6.4s)
+  EPC-30-db-connection-burst compat=- corrected=FAIL (6.1s)
+  run-suite: scenarios=31 failing=12 unruled=1 skipped=4 mode=db profile=both keep=<dir> exit=3     # 95 s
+  run-suite: scenarios=27 failing=7 unruled=2 skipped=8 mode=cache profile=both keep=<dir> exit=3   # 62 s
+  ```
+  compat MATCHes every golden (DB 30/30, cache 27/27); the corrected FAIL set is DB EPC-04, 07, 08, 09,
+  10, 14, 15, 16, 17, 18, 19, 30 and cache EPC-04, 07, 08, 09, 17, 18, 19; UNRULED EPC-20 (+ EPC-31 in
+  cache). Exit 0 = every requested check passed, 3 = a DIFF, FAIL or NO_GOLDEN, 2 = setup error.
+- **Reading a result:** `compat=DIFF` = observable behaviour moved away from the reference golden
+  (expected only where your change fixes that scenario); `corrected=FAIL` = a decided assertion
+  (ADR-001 or a decided RBD) is not met; `UNRULED` = only assertions with `ruling: proposed` failed
+  (advisory, never fatal). Per scenario in the keep dir (default
+  `$LAGO_SKILLS_CACHE/epconf-runs/<UTC>-<mode>/`): `<name>.observed` (canonical text with a per-record
+  ledger: ENRICHED, DLQ, NO_OUTPUT_COMMITTED = silent loss, PENDING_UNCOMMITTED), `<name>.out` (diff and
+  assertion lines), `<name>.iut-<n>.log` (the binary's log). EPC-30 has no golden (timing dependent):
+  its loss count varies per run (151 of 201 in the 2026-10-02 run above; the measured range is owned by
+  `architecture-contract` WP12).
+- **Fault gate (reusable technique, VERIFIED in `events-processor-spec` `scripts/runner/main.go:471`
+  `installDBFault`):** to make every client's query on table `t` fail N times, rename `t`, create a view
+  `t` over it whose WHERE is `(SELECT epconf_gate('t'))`: an uncorrelated scalar sub-select runs ONCE
+  per query (an InitPlan). The `SECURITY DEFINER` gate takes `nextval` of a per-table sequence
+  (non-transactional: the count survives the failing query's rollback) and raises SQLSTATE 58030 inside
+  an armed window `[fail_from, fail_to)` read from a control table. Works for any client language;
+  "fired" = the sequence passed the window start (`wait_db_fault_fired`).
+- **kfake with a librdkafka client (VERIFIED):** kfake at the pinned pseudo-version answers
+  `CORRUPT_MESSAGE` to any produced record batch whose PartitionLeaderEpoch is not -1
+  (`00_produce.go:128` in the kfake module; the CRC covers bytes from 21 on, so the epoch at bytes 12-15
+  is outside it). franz-go sends -1, librdkafka 2.15 sends 0. The runner rewrites bytes 12-15 to `0xff`
+  in its `ControlKey(kmsg.Produce)` hook (`installProduceControl`, `scripts/runner/main.go:558`); copy that shim into any kfake probe
+  that drives a non-franz-go producer.
+- **Other gotchas:** the runner needs `psql` and an admin URL that can CREATE DATABASE and CREATE ROLE
+  (`--pg-admin`, default `postgres://lago:lago@localhost:5432/lago`); it creates a scratch database
+  `epconf_<pid>` per scenario (dropped) and the cluster role `epconf_iut` (kept, SELECT only). The IUT
+  connects as that role because superusers ignore `ALTER DATABASE ... CONNECTION LIMIT` (EPC-30). First
+  run builds the runner (Go >= 1.25, module download) into `$LAGO_SKILLS_CACHE/epconf-bin/<sha>/`. A
+  wrapper around the binary must `exec` it, or SIGTERM and exit status belong to the shell.
+- **Cost:** about 95 s (db) and 62 s (cache) per full pass; 2-7 s per scenario (`run-suite.sh` runs of 2026-10-02 above).
+- **Owner:** the suite, scenarios and goldens `events-processor-spec`; the ADR-001 acceptance list
+  `event-accounting-campaign`; using it as C4 PR evidence `validation-and-qa`; what a FAIL means for the
+  as-is design `architecture-contract`.
+
+## H13. Pinned lago-api oracle (`reimplementation-kit` `oracle.sh`)
+
+- **Question:** "what does lago-api at the pin `591ae90` actually DO for this input?" Answered by
+  running its own rspec examples, or a kit vector through the oracle adapter, instead of reading code.
+- **Run (maintainer tooling; one database per person or agent):**
+  ```bash
+  O=.claude/skills/reimplementation-kit/scripts/maintainer/oracle.sh
+  export ORACLE_DB=lago_api_test_<you>   # the suite deletes every row of its database first: never share one
+  $O status                              # ruby, writable copy, gems, redis :6391, db migrations, clickhouse, op modules
+  $O db                                  # create $ORACLE_DB from structure.sql minus the pg_partman line (2-4 s)
+  $O run spec/services/events/kafka_producer_service_spec.rb spec/services/billable_metrics/aggregations/apply_rounding_service_spec.rb
+  ```
+  `$O setup` (idempotent) builds everything from an empty cache first; `$O adapter` is the kit adapter
+  (`kitrun.py --impl-cmd "$O adapter" --vectors <file>`).
+- **Expected today (2026-10-02, warm toolchain, a fresh database):**
+  ```
+  ruby:       ruby 4.0.6 (2026-07-14 revision 03b6d3f889) +PRISM [x86_64-linux]
+  gems:       The Gemfile's dependencies are satisfied
+  db:         lago_api_test_<you> migrations=1121 want=1121          (after `$O db`)
+  {"example_count":13,"failure_count":0,"pending_count":0,"errors_outside_of_examples_count":0,"duration_max_s":1.8}   # 10 s
+  ```
+  From an empty cache the kit author measured `setup` at 94 s and 2.2 GB (`reimplementation-kit`
+  maintainer-oracle.md §2; not re-run here). Exit: 0 ok, 1 rspec failures or usage, 2 setup error.
+- **Toolchain facts (owned by the kit; summary for `build-and-env`):** Ruby 4.0.6 + Bundler 4.0.16 from
+  conda-forge (the Ruby source host `cache.ruby-lang.org` is refused by the sandbox proxy: `CONNECT
+  tunnel failed, response 403`, 2026-10-02), Rust + libclang with resource headers for the expression
+  gem, Postgres >= 15 with `structure.sql` minus `pg_partman`, Redis on :6391, optional local
+  ClickHouse 26.2 on :8123 under `$LAGO_SKILLS_CACHE/k7-state/ch.lock`.
+- **Hygiene:** `-j` 1 or 2 (Postgres `max_connections` 100 is shared; `too many clients already` is
+  transient); never run `bundle install` by hand in the shared copy; never stop the shared Redis or
+  ClickHouse; drop your database when done (`psql postgres://lago:lago@localhost:5432/lago -c 'DROP
+  DATABASE lago_api_test_<you>'`). Known order-dependent examples at the pin (pass alone): equal-timestamp
+  running totals in `sum_service_spec.rb`, two prorated-aggregation examples, three scenario examples
+  under `-j 3`.
+- **Cost:** about 10 s for two spec files warm (`oracle.sh run`, 2026-10-02). The kit's feasibility run executed 8,773 reference
+  examples green apart from the order-dependent ones above (`reimplementation-kit` maintainer-oracle.md
+  Provenance; not re-run here).
+- **Owner:** the oracle and its gotchas `reimplementation-kit`; what counts as an EXECUTED lago-api
+  claim `research-methodology`; the toolchain row `build-and-env`.

@@ -1,15 +1,15 @@
 ---
 name: change-control
-description: "Change-control rules for the Lago umbrella repo: change classes C0-C7 and the gates and evidence each needs, non-negotiables N1-N13 with their incidents, commit/PR conventions, cross-repo contracts K1-K10, submodule and pin hygiene, and the owner decision register OD-1..OD-20 (decided, open, defaults). Use before a commit or PR, on \"Subproject commit\" or \"M api\" in a diff, a gitlink move, a pin bump, a topic, group or Redis-key rename, force-push, \"what gates does this need\", \"who decides\". Not for running tests (use validation-and-qa) or cutting a release (use release-and-images)."
+description: "Change-control rules for the Lago umbrella repo: change classes C0-C7 and the gates and evidence each needs, non-negotiables N1-N13 with their incidents, commit/PR conventions, cross-repo contracts K1-K10, submodule and pin hygiene, and the owner decision register OD-1..OD-24 (decided, open, defaults). Use before a commit or PR, on \"Subproject commit\" or \"M api\" in a diff, a gitlink move, a pin bump, a topic, group or Redis-key rename, force-push, \"what gates does this need\", \"who decides\". Not for running tests (use validation-and-qa) or cutting a release (use release-and-images)."
 ---
 # Change control: classes, gates, non-negotiables
 
-This skill says what must be true before a commit, a PR or a merge lands, in this repo and
-across repos. It covers the gates for each change class, the 13 non-negotiables, and the
-incident behind each one. It also owns the owner-decision register OD-1..OD-20 (§9;
-OD-1..OD-5 DECIDED 2026-10-02, OD-1b OPEN). Code facts as of `5308258` (events-processor tree
-`83e012866f29`); the working branch may carry skills-only commits on top. Facts verified
-2026-10-01 unless marked; decisions and contract dependents folded in 2026-10-02.
+This skill says what must be true before a commit, a PR or a merge lands, in this repo and across
+repos: the gates per change class, the 13 non-negotiables and their incidents, and the owner-decision
+register OD-1..OD-24 (§9; OD-1..OD-5 and OD-24 DECIDED 2026-10-02, OD-1b OPEN, OD-21..OD-23 proposed).
+Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
+skills-only commits on top. Facts verified 2026-10-01 unless marked; decisions and contract dependents
+folded in 2026-10-02.
 
 ## When to use / when NOT to use
 
@@ -165,8 +165,7 @@ PRs get **no** PR check at all.
 
 ## 4. Non-negotiables N1-N13
 
-The full rule, why, incident, cost and check for each is in `reference/non-negotiables.md`.
-Every sha below was read in the history clone.
+Full rule, why, incident, cost and check: `reference/non-negotiables.md`. Every sha below was read in the history clone.
 
 | # | Rule (short) | Incident (sha, PR, cost) | Check |
 |---|---|---|---|
@@ -319,15 +318,16 @@ Defaults we operate under until the owner decides OD-7:
   must stand alone: Context, Description, evidence, decisions. Never "as discussed".
 <!-- evidence-check: on -->
 
-## 9. Owner decisions OD-1..OD-20 (owned here)
+## 9. Owner decisions OD-1..OD-24 (owned here)
 
 The single owner-decision namespace. Other skills cite a row as `DECIDED OD-n (owner, <date>)` or
-`OPEN DECISION OD-n (owner)` and route here; never present an OPEN row as settled. OD-10..OD-15
-were release-and-images REL-1..REL-6 (OD-(9+n)); OD-16..OD-19 come from
-`security-and-supply-chain`. To raise a new one, see "owner" in Terms. **2026-10-02:** the owner
-answered OD-1..OD-5 in writing (this register is the record); OD-2 was delegated ("reason with
-industry best practices") and is ADR-001, ACCEPTED (delegated); the unanswered part of OD-1 is the
-OPEN row OD-1b; OD-20 carries a DEFAULT APPLIED (the owner may reassign it).
+`OPEN DECISION OD-n (owner)` and route here; never present an OPEN row as settled. OD-10..OD-15 were
+release-and-images REL-1..REL-6 (OD-(9+n)); OD-16..OD-19 come from `security-and-supply-chain`;
+OD-21..OD-24 from the re-implementation kit (`reimplementation-kit` KQ register). To raise a new one,
+see "owner" in Terms. **2026-10-02:** the owner answered OD-1..OD-5 and OD-24 in writing (this
+register is the record); OD-2 was delegated ("reason with industry best practices") and is ADR-001,
+ACCEPTED (delegated); the unanswered part of OD-1 is the OPEN row OD-1b; OD-20 carries a DEFAULT
+APPLIED (the owner may reassign it); OD-21..OD-23 are PROPOSED (open).
 
 | ID | Question | Status: decision, or default until decided | Who decides | Record, or evidence that closes it |
 |---|---|---|---|---|
@@ -352,6 +352,10 @@ OPEN row OD-1b; OD-20 carries a DEFAULT APPLIED (the owner may reassign it).
 | OD-18 | May the AWS account id stay in public workflows (`5308258` body says it was meant to stay private)? | unchanged (already in history); add no new account ids or ECR URLs to public files | owner (security) | policy note, or a move to secrets/variables (C5 + C7) |
 | OD-19 | Full event JSON in Sentry extras and a TTL-less DLQ table under SOC2 | add no new payload-carrying extras or log fields (`security-and-supply-chain`) | owner (security) + data-handling owner | written policy; scrubber or TTL PR |
 | OD-20 | Who owns memory-cache (badger + Debezium CDC) hardening? The as-is defects are `architecture-contract` WP6-WP10 | **DEFAULT APPLIED OD-20** (orchestrator, 2026-10-02; the owner may reassign): `event-accounting-campaign` workstream W6 "memory-cache correctness" owns it. Production relevance: DECIDED OD-1; production CDC config: OPEN DECISION OD-1b | owner (sits next to OD-1) | the owner confirms or reassigns W6 |
+| OD-21 | Rebuild-decision batch: rule, in one batch, every `reimplementation-kit` RBD whose corrected expectation is marked `owner` (about 35, `reimplementation-kit` KQ-3: pricing defects RBD-41..46, float islands RBD-96, store parity RBD-25..31, API and webhook items such as RBD-83, RBD-86, RBD-88), plus the rows executed or added on 2026-10-02: RBD-37 (division by zero: HTTP 500 at the API, SIGABRT in the events-processor), RBD-72 (expired coupons keep applying), RBD-73 (a paid invoice is voidable), RBD-99 (cache-mode external-id prefix match) | **PROPOSED 2026-10-02: OPEN DECISION OD-21 (owner).** Default: corrected vectors and assertions ship with `ruling: proposed` and report UNRULED (advisory, never graded); compat stays the migration bar | owner (one batch) | a written ruling per RBD (KEEP, or the corrected expectation); the kit then flips `proposed` to `decided` (`reimplementation-kit` update triggers) |
+| OD-22 | Retry-topic naming for ADR-001 TRANSIENT failures: topic name and env variable, header names, attempt count (`reimplementation-kit` KQ-1) | **PROPOSED 2026-10-02: OPEN DECISION OD-22 (owner).** Default: ADR-001's names stay CANDIDATE (`<raw>-retry`; headers `attempt`, `first_failed_at`, `last_error_code`, `not_before`; 5 attempts; `event-accounting-campaign` `reference/delivery-options.md`); no code ships a retry topic yet, and the conformance suite checks outcomes only (`all_done`, no loss, no duplicate) | owner (+ ops: the topic must exist everywhere; a lago-helm-charts PR provisions it, DECIDED OD-4) | an ADR-001 amendment naming topic, variable and headers; then the suite seeds and observes the topic (`events-processor-spec` update triggers) |
+| OD-23 | Legal: may the kit (neutral text and behavioural data derived from AGPL-3.0 lago-api and the events-processor) serve a proprietary rebuild, and under which licence? What is lago-expression's licence (no LICENSE file, no Cargo `license` field at v0.2.0 `a22ab02`)? (`reimplementation-kit` KQ-7, KQ-8) | **PROPOSED 2026-10-02: OPEN DECISION OD-23 (owner + legal).** Default: no proprietary rebuild before legal review; kit authors are the dirty room, implementers see only the clean-room pack; the kit specifies the expression language instead of embedding lago-expression | owner + legal counsel | a written legal opinion recorded here; the kit's licence statement in `reimplementation-kit` `reference/legal-and-provenance.md` |
+| OD-24 | Clean-room isolation channel for the kit's acceptance runs (`reimplementation-kit` KQ-11) | **DECIDED OD-24 (owner, 2026-10-02): option A.** `kit-pack.sh --cleanroom` builds the pack; it is committed on a pack-only branch `kit-pack-v1` from a separate scratch clone (never from the working branch); each implementer runs in a fresh remote session that clones only that branch; the residual risk (a session could fetch other branches) is accepted and covered by a transcript audit (`reimplementation-kit` `reference/acceptance-and-grading.md` §4.1, §4.3) | owner | owner statement 2026-10-02 (this row) |
 
 **Closing an OD:**
 
@@ -359,10 +363,8 @@ OPEN row OD-1b; OD-20 carries a DEFAULT APPLIED (the owner may reassign it).
 1. The owner states the decision in writing (an issue, a PR, or a dated written answer).
 2. A C0 PR updates the row to `**DECIDED OD-n (owner, <date>)**` with the decision, its
    consequences and the record; an unanswered part becomes an OPEN sub-id (OD-1b). Owner signs.
-3. The same PR updates the skills that carry the label:
-   `grep -rn "OD-<n>" .claude/skills`.
-4. If the decision changes a gate, update the scripts' defaults too. For OD-7, change
-   `commit-msg-check.sh --max/--pref`.
+3. The same PR updates the skills that carry the label: `grep -rn "OD-<n>" .claude/skills`.
+4. If the decision changes a gate, update the scripts' defaults too (OD-7: `commit-msg-check.sh --max/--pref`).
 <!-- evidence-check: on -->
 
 ## 10. Pre-PR checklist (copy into the PR body)
@@ -400,19 +402,17 @@ Each prints its usage with `-h`.
 | `scripts/pin-sync-check.sh` | PS1 lago-expression ref x4, PS2 Rust x2, PS3 Go x5, PS4 expression-go v0.1.4, PS5 `go install @latest`. Working tree, `--index` or `--rev` | `pin-sync-check.sh` | `OK    PS1 lago-expression ref v0.2.0 in 4 places: …`, `OK    PS3 Go 1.25 everywhere (5 places): …`, `SUMMARY pin-sync-check: 0 FAIL, 0 WARN` (level column padded to 5). `--rev 5077151`: FAIL PS2 (rust:1.82 vs 1.85); `--rev 50015b0^`: FAIL PS3; `--rev 07d1d4d^`: 5 FAIL (unpinned clones, `@latest`) |
 | `scripts/commit-msg-check.sh` | M1 > 72 FAIL, M2 > 50 WARN, M3 not conventional, M4 unknown type (WARN for `release` while OD-7 is open), M5 trailing `.`, M6 WIP/fixup, M7 line 2 not blank. File (commit-msg hook), `-m`, `--range`, `--since`; `--report`, `--exclude-bots` | `commit-msg-check.sh -C "$H" --since 2025-01-01 --report` | `293 subjects; >72: 29; >50: 142; non-conventional: 35; unknown type: 3; release type (WARN, OD-7): 8; WIP/fixup: 0; FAIL subjects: 65; WARN-only subjects: 116; bot-authored included: 17` |
 
-Optional local hooks. These write only into your `.git/hooks`, which is not tracked. Run
-from the repo root:
+Optional local hooks (they write only into your untracked `.git/hooks`; run from the repo root):
 
 ```bash
 ln -sf "$PWD/.claude/skills/change-control/scripts/precommit-guard.sh"  "$(git rev-parse --git-path hooks)/pre-commit"
 ln -sf "$PWD/.claude/skills/change-control/scripts/commit-msg-check.sh" "$(git rev-parse --git-path hooks)/commit-msg"
 ```
 
-Verified in a scratch clone (2026-10-01): a 1-of-4 lago-expression bump was refused by the
-pre-commit hook (`FAIL  PS1 lago-expression refs disagree`), a `WIP:` subject by the commit-msg
-hook (M3, M6); the 4-of-4 bump committed; `Merge ...` subjects are skipped. Bypass
-(`git commit --no-verify`) only deliberately, saying why in the PR; for a release bump only after
-a clean `precommit-guard.sh --release` (0 FAIL) run.
+Verified in a scratch clone (2026-10-01): a 1-of-4 lago-expression bump was refused by the pre-commit hook
+(`FAIL  PS1 lago-expression refs disagree`), a `WIP:` subject by the commit-msg hook (M3, M6); the 4-of-4
+bump committed; `Merge ...` subjects are skipped. Bypass (`git commit --no-verify`) only deliberately,
+saying why in the PR; for a release bump only after a clean `precommit-guard.sh --release` (0 FAIL) run.
 
 ## Provenance and maintenance
 
@@ -423,8 +423,7 @@ a clean `precommit-guard.sh --release` (0 FAIL) run.
   - `$API/AGENTS.md:30-68,163-178`, `$API/docs/dropping_columns_and_tables.md`; the K dependents
     in `reference/cross-repo-protocol.md` §1 (`$API`, `$FRONT`, lago-helm-charts `d473b1e`, 2026-10-02).
   - All shas in `reference/non-negotiables.md`, read with `git -C "$H" show`.
-- **Paths:** `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`;
-  `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)` (`front` for `$FRONT`).
+- **Paths:** `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`; `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)` (`front` for `$FRONT`).
 - **Volatile facts, one re-check each** (as of 2026-10-01):
   - Pins: `git ls-tree HEAD api front` -> `591ae90…` / `0c5e539…`.
   - Pin set: `.claude/skills/change-control/scripts/pin-sync-check.sh -q` -> `SUMMARY pin-sync-check: 0 FAIL, 0 WARN`.
@@ -442,9 +441,10 @@ a clean `precommit-guard.sh --release` (0 FAIL) run.
   - Floating versions: `git grep -n '@latest' -- ':!.claude'` -> only `docker/Dockerfile:12` (`pnpm@latest`).
   - No `expression-go/v0.2.0` tag: `git ls-remote --tags https://github.com/getlago/lago-expression | grep expression-go` -> tags `expression-go/v0.1.0` (plus its `^{}` line) and `expression-go/v0.1.4`; no `v0.2.0` (needs network).
   - Conventions: `.claude/skills/change-control/scripts/commit-msg-check.sh -C "$H" --since 2025-01-01 --report` -> `293 subjects; >72: 29; >50: 142; …; FAIL subjects: 65`.
+  - OD-23 licence gap (2026-10-02): `ls "${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}/lago-expression-v0.2.0" | grep -ci -E 'licen|copying'` -> `0`; `grep -c '^license' "${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}"/lago-expression-v0.2.0/*/Cargo.toml` -> `0` per crate (the `.so` cache of `build-and-env` `ep-env.sh`).
 
-**Update triggers.** Re-verify this skill on: a release bump (new pins); an edit to a pin file
-or `events-processor-tests.yml`; a new PR workflow or required check; a CODEOWNERS file or a
-golangci config; the owner answering or amending any OD (incl. OD-1b, an ADR-001 amendment); a
-contract anchor or dependent moving (re-run the greps behind `reference/cross-repo-protocol.md`
-§1); a new incident; a rewrite of CONTRIBUTING.md or the PR template.
+**Update triggers.** Re-verify this skill on: a release bump (new pins); an edit to a pin file or
+`events-processor-tests.yml`; a new PR workflow or required check; a CODEOWNERS file or a golangci
+config; the owner answering or amending any OD (incl. OD-1b, an ADR-001 amendment, the OD-21 batch); a
+contract anchor or dependent moving (re-run the greps behind `reference/cross-repo-protocol.md` §1); a
+new incident; a rewrite of CONTRIBUTING.md or the PR template; a new kit KQ that needs the owner.

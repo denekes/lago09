@@ -10,7 +10,8 @@ everything here is reconstructed from workflows, history and registries. Release
 class C5 (change-control).
 Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry
 skills-only commits on top. 5308258 is the fork head; upstream getlago/lago `main` is `a0de065`
-(2026-09-29, same gitlinks). Registry and remote facts verified 2026-10-01.
+(2026-09-29, same gitlinks). Registry and remote facts verified 2026-10-01. The kit re-mint line of
+runbook step 5 was added 2026-10-02 (re-implementation kit).
 
 ## When to use / when NOT to use
 
@@ -152,7 +153,13 @@ Ancor Cruz 8, Toon Willems 6); change-control counts 60 bumps by gitlink moves (
    `precommit-guard.sh --release` (0 FAIL; any WARN explained), `pin-sync-check.sh --index` (0 FAIL),
    `single-image-pins.sh` (`# fails=0`), `commit-msg-check.sh` (`FAIL subjects: 0`), `release-pin-audit.sh --candidate`
    (`OK`), `parity-constants.sh -q --api` (`FAIL=0`), `actionlint-local.sh` if workflows changed, the
-   statement "images not built locally" (change-control `reference/change-classes.md` §7), and the step-4 notes draft.
+   statement "images not built locally" (change-control `reference/change-classes.md` §7), the step-4 notes draft,
+   and the kit re-mint line: the re-implementation kit pins every billing vector to the `api` gitlink
+   (`591ae9005110` as of 2026-10-02: `git ls-tree HEAD api`) and its events-processor goldens to tree
+   `83e012866f29` (`git rev-parse HEAD:events-processor | cut -c1-12`). Write "kit re-mint needed:
+   lago-api <old> -> <new>" in the PR body and hand it to the kit maintainers, who re-mint after the
+   merge (`reimplementation-kit` KQ-17 and `reference/maintainer-oracle.md` §6; goldens:
+   `events-processor-spec` update triggers). Not a release gate today (CANDIDATE: the owner may make it one).
    Never force-push a PR branch or `main` (change-control N2). After merge, `docker-ci.yml` on `main`
    must go green (it pulls the new `getlago/api`/`front` images).
 6. **[perm]** Tag the merged commit and push the tag. Point of no return: the push fires the GHCR builds at once (`release-images.yml:3-6`).
@@ -395,9 +402,10 @@ More expected outputs (`--ref` replays, sweeps from older versions): `reference/
   - `pnpm@latest` still there: `grep -n 'pnpm@latest' docker/Dockerfile` -> `12:`
   - npm pnpm latest: `curl -s https://registry.npmjs.org/pnpm | jq -r '."dist-tags".latest'` -> `12.8.1`
   - Debian behind Ruby base: `curl -s https://hub.docker.com/v2/repositories/library/ruby/tags/4.0.6-slim | jq -r .digest`, then the same for `4.0.6-slim-trixie` -> the same digest twice
+  - kit pins (step 5 re-mint line): `git rev-parse HEAD:api HEAD:events-processor | cut -c1-12` -> `591ae9005110` / `83e012866f29` (2026-10-02)
 - Update triggers: any change under `.github/workflows/`, `docker/`, `events-processor/Dockerfile*`,
   `connectors/Dockerfile`; every new release (append to the audit expectations); lago-api Ruby/Bundler
   bumps; lago-front Node/pnpm/packageManager changes or edits to its `release.yml`; a Debian release
   behind `ruby:*-slim`; a new actionlint/shellcheck version; `.claude/skills` landing on `main` (runbook
   step 0 copy becomes optional); changes to change-control's guard, pin-sync or commit-msg scripts; any
-  owner answer to OD-10..OD-15.
+  owner answer to OD-10..OD-15; a change of the kit's re-mint procedure (`reimplementation-kit` KQ-17).

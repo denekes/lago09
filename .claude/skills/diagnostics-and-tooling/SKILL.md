@@ -9,7 +9,8 @@ Every harness here was run; its expected output is recorded. Conclusions drawn f
 in the owning skills. Facts verified 2026-10-01 unless marked. Code facts as of 5308258
 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on top.
 Owner decisions OD-1..OD-5 of 2026-10-02 folded in (register: `change-control` §9): production runs
-memory-cache mode, so the cache-mode harness rows measure the production path.
+memory-cache mode, so the cache-mode harness rows measure the production path. Re-implementation kit
+harnesses (H12 black-box conformance suite, H13 pinned lago-api oracle) added 2026-10-02.
 
 ## When to use / when NOT to use
 
@@ -32,7 +33,9 @@ Do NOT use it for:
   cause -> retryable -> `architecture-contract` section 9;
 - the evidence bar and hypothesis cards -> `research-methodology`;
 - building the CGO toolchain, Postgres for tests -> `build-and-env`;
-- running the dev stack or compose variants -> `run-and-operate`.
+- running the dev stack or compose variants -> `run-and-operate`;
+- the conformance suite's rules, scenarios and goldens -> `events-processor-spec`; the vector
+  format, kitrun and the oracle's internals -> `reimplementation-kit` (H12/H13 only say how to run them here).
 
 ## Terms
 
@@ -82,6 +85,8 @@ Do NOT use it for:
 | Does a compose file parse; what does a service resolve to? | `docker compose -f <file> config` | <1 s |
 | Is the consumer path race-free? Where does CPU go? | `GOFLAGS=-race kfake-run.sh ...`, `-cpuprofile` | ~8 s |
 | Need a go.mod change for the experiment | scratch copy (`reference/harness-catalogue.md` H11) | ~5 s |
+| Does a binary (this branch, or any rebuild) lose, duplicate or DLQ records per the delivery contract, black box, both modes? | `events-processor-spec` `run-suite.sh --impl-cmd <binary>` (section 12, H12) | ~95 s db, ~60 s cache |
+| What does lago-api at the pin DO (run it, not read it)? | `reimplementation-kit` `oracle.sh run <spec>` or a kit vector through the oracle adapter (section 12, H13) | ~10 s warm; 94 s setup from an empty cache |
 
 Every row's exact command, expected output, adaptation and owner: `reference/harness-catalogue.md`
 (read when you have picked a row).
@@ -278,7 +283,46 @@ All compose files and bring-up: `run-and-operate`.
 | overlay change not visible to a test reading a file | overlays are compile-time only | scratch copy (`reference/harness-catalogue.md` H11) |
 | CDC consumer silently receives nothing | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS` (`events-processor/cache/consumer.go:28-31`) | measure with `cdc-brokers`; meaning: `architecture-contract` WP10; fix owner: `event-accounting-campaign` W6-2 (DEFAULT APPLIED OD-20) |
 | scratch DB left behind after a crash | the trap did not run | `scratch-pg.sh list`, then `drop` each |
+| a librdkafka producer (Python `confluent-kafka`, C) gets `CORRUPT_MESSAGE` from kfake | the pinned kfake rejects a batch whose PartitionLeaderEpoch is not -1 (kfake module `00_produce.go:128`); librdkafka 2.15 sends 0, franz-go sends -1 | rewrite batch bytes 12-15 to `0xff` in a `ControlKey(kmsg.Produce)` hook (outside the CRC, which starts at byte 21), as the H12 runner does; `kfake-run.sh` scenarios need nothing |
+| an injected Postgres error fires per row, or never | SELECT fires no trigger, and a volatile function in WHERE runs once per row (Postgres semantics, not probed here) | view + SECURITY DEFINER gate called ONCE per query by an uncorrelated scalar sub-select, counting with a sequence (survives rollback): H12 "fault gate" |
+| a `CONNECTION LIMIT` you set has no effect | superusers (the sandbox `lago` role) ignore per-database limits | connect as a non-superuser role (H12 gives the IUT `epconf_iut`) |
 <!-- evidence-check: on -->
+
+## 12. Kit harnesses: black-box conformance (H12) and the pinned lago-api oracle (H13)
+
+Both ship in the re-implementation kit skills; this section says how to use them as probes here.
+Full entries, expected outputs and gotchas: `reference/harness-catalogue.md` H12, H13.
+
+**H12, the events-processor conformance suite** drives ANY build through Kafka, Redis, Postgres,
+signals and exit status, in both modes. Use it on a binary built from your branch (C4 evidence:
+`validation-and-qa` §1):
+
+```bash
+( source .claude/skills/build-and-env/scripts/ep-env.sh >/dev/null && T=$(mktemp -d) \
+  && go -C events-processor build -o "$T/events-processor" . \
+  && bash .claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd "$T/events-processor" \
+       --impl-env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" --mode db --profile both; rm -rf "$T" )
+```
+
+Observed 2026-10-02 on the code of 5308258: `run-suite: scenarios=31 failing=12 unruled=1 skipped=4
+mode=db profile=both ... exit=3` in 95 s, and with `--mode cache` `scenarios=27 failing=7 unruled=2
+skipped=8` in 62 s. Exit 3 is expected today: compat MATCHes every golden, the corrected (ADR-001)
+assertions FAIL (the failing list is `events-processor-spec` conformance-suite §8). Output and IUT logs:
+`$LAGO_SKILLS_CACHE/epconf-runs/<UTC>-<mode>/` unless `--keep DIR`.
+
+**H13, the pinned lago-api oracle** runs lago-api `591ae90` without Docker (Ruby 4.0.6 from
+conda-forge), as rspec or as a kit adapter. Maintainer tooling; recipe, hygiene and gotchas:
+`reimplementation-kit` `reference/maintainer-oracle.md`.
+
+```bash
+O=.claude/skills/reimplementation-kit/scripts/maintainer/oracle.sh
+export ORACLE_DB=lago_api_test_<you>    # ONE database per person or agent: the suite deletes every row first
+$O status; $O db                        # "ruby: ruby 4.0.6 ..."; db created from structure.sql minus pg_partman
+$O run spec/services/events/kafka_producer_service_spec.rb spec/services/billable_metrics/aggregations/apply_rounding_service_spec.rb
+```
+
+Observed 2026-10-02: `{"example_count":13,"failure_count":0,...}` in 10 s (warm toolchain). It turns a
+lago-api claim from a code read into an EXECUTED result (`research-methodology` evidence bar).
 
 ## Scripts
 
@@ -308,8 +352,11 @@ outputs and cited lines checked).
   `main.go`, `events-processor/.gitignore`, `events-processor/go.mod`, `extra/debezium_config.json`,
   `docker-compose.dev.yml`; pinned lago-api `db/structure.sql`,
   `db/clickhouse_migrate/20240705080709_create_events_enriched.rb`; kfake source at
-  `v0.0.0-20251123185109-2b5c574e9ddd` (`cluster.go`, `config.go`); commit `475761d` (#633, the Datadog
-  tracing PR that also bumped franz-go v1.20.3 -> v1.20.5).
+  `v0.0.0-20251123185109-2b5c574e9ddd` (`cluster.go`, `config.go`, `00_produce.go`); commit `475761d` (#633, the Datadog
+  tracing PR that also bumped franz-go v1.20.3 -> v1.20.5). H12/H13: `events-processor-spec`
+  `scripts/run-suite.sh`, `scripts/runner/main.go` (`installDBFault`, `installProduceControl`),
+  `reference/conformance-suite.md`; `reimplementation-kit` `scripts/maintainer/oracle.sh`,
+  `reference/maintainer-oracle.md`.
 - Volatile facts and one-line re-verification (as of 2026-10-01):
   - franz-go pin: `grep -n 'twmb/franz-go v' events-processor/go.mod` -> `18: github.com/twmb/franz-go v1.20.5`
   - harness pin in sync: `.claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh --check` -> `check OK`
@@ -319,10 +366,15 @@ outputs and cited lines checked).
   - binary behaviour: `.claude/skills/diagnostics-and-tooling/scripts/smoke-binary.sh all` -> exit 0
   - CH dev minor: `grep -n 'image: clickhouse/clickhouse-server' docker-compose.dev.yml` -> `460: ... 26.2-alpine`; `ch-local.sh --version` -> `26.2.19.43`
   - real schema loads: `$S/scratch-pg.sh create --lenient x "$API/db/structure.sql"; $S/scratch-pg.sh drop x` -> `lenient: 1 SQL error(s) skipped`
+  - H12 reference result (2026-10-02): the section 12 block (`.claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd "$T/events-processor" --mode db --profile both`) -> `failing=12 unruled=1` (db), `failing=7 unruled=2` with `--mode cache`
+  - H12 kfake leader-epoch check still there: `grep -n 'PartitionLeaderEpoch != -1' "$(go env GOMODCACHE)"/github.com/twmb/franz-go/pkg/kfake@v0.0.0-20251123185109-2b5c574e9ddd/00_produce.go` -> `128:` (2026-10-02)
+  - H13 toolchain up: `ORACLE_DB=lago_api_test_<you> .claude/skills/reimplementation-kit/scripts/maintainer/oracle.sh status` -> `ruby: ruby 4.0.6 ...`, `gems: The Gemfile's dependencies are satisfied` (2026-10-02)
 - Update triggers: franz-go or Go version bump in `events-processor/go.mod`; any change to
   `StartProcessingEvents`, `NewConsumerGroup`, `processRecordsAndCommit`, `ProcessEvents`, the env
   vars the binary reads, or the models' SQL columns; a lago-api pin bump (real schema); a change of
-  the dev ClickHouse image; any `EXPECTED-TODAY: DIFFERS` from `smoke-binary.sh`.
+  the dev ClickHouse image; any `EXPECTED-TODAY: DIFFERS` from `smoke-binary.sh`; a change of the
+  kit's runner, goldens or `oracle.sh` (H12/H13 expected outputs), or of the events-processor tree
+  (`83e012866f29`) the suite's goldens were minted from.
 - DEPENDENT: `event-accounting-campaign/scripts/go.mod` requires `lagoskills/kfakeharness` through
   `replace => ../../diagnostics-and-tooling/scripts/kfake-harness`. Renaming the module, moving
   `scripts/kfake-harness/` or changing the exported API of `kfx`/`fixture`/`pipeline` breaks its

@@ -156,6 +156,7 @@ Fault-injection hooks (building blocks only; the matrix is `event-accounting-cam
 | SASL/TLS, several brokers | per env | plaintext, 1 broker | kfake has `NumBrokers`, `EnableSASL`, `Superuser` and `TLS` options (kfake `config.go:45,98,107,113` respectively); not exercised here (UNVERIFIED with events-processor). |
 | Topics | pre-created by `scripts/create-topics.sh` in dev | seeded by `kfx.Start` | Auto-creation is off in kfake unless `kfake.AllowAutoTopicCreation()`. |
 | Throughput | real network, real Postgres/Redis | in-process | relative numbers only |
+| Client library | franz-go v1.20.5 (produces batches with PartitionLeaderEpoch -1) | same | kfake rejects any produced batch whose PartitionLeaderEpoch is not -1 with `CORRUPT_MESSAGE` (kfake module `00_produce.go:128`, pinned pseudo-version, VERIFIED 2026-10-02). librdkafka 2.15 sends 0, so a probe that drives kfake with a non-franz-go producer needs the byte 12-15 rewrite shim of `harness-catalogue.md` H12 |
 
 ## 7. Handoff notes for event-accounting-campaign
 

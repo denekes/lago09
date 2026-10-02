@@ -131,6 +131,29 @@ Building and publishing these images is the `release-and-images` skill.
 | actionlint / shellcheck / hadolint | not installed here | `release-and-images` and `security-and-supply-chain` own workflow and Dockerfile linting. |
 | gcc | 13.3.0 here | Required for cgo; without a C compiler on PATH Go silently sets `CGO_ENABLED=0`. |
 
+## 7. Egress map of the agent sandbox (as of 2026-10-02)
+
+The sandbox reaches the internet through an egress proxy. A refused host fails with
+`curl: (56) CONNECT tunnel failed, response 403` (status `000`). Probed 2026-10-02 with
+`curl -sS -o /dev/null -r 0-200 -L -w '%{http_code}' <url>`; other sandboxes may differ, so re-probe
+before you plan around a host.
+
+<!-- evidence-check: off probe results; the command and its date are in the paragraph above -->
+| Host (URL probed) | Result | Who needs it | If refused |
+|---|---|---|---|
+| `proxy.golang.org` (`/golang.org/toolchain/@v/list`) | reachable (206) | `GOTOOLCHAIN=auto`, Go modules, kfake harness, conformance runner | trap 5.6 |
+| `go.dev/dl/` | refused (403) | manual Go downloads | use `GOTOOLCHAIN=auto` through the module proxy |
+| `static.rust-lang.org` (rustup manifest) | reachable (206) | Rust for `ep-env.sh`'s first `.so` build | `ep-test.sh --no-cgo` |
+| `index.crates.io` | reachable (206) | cargo builds (lago-expression, the oracle's expression gem) | none |
+| `github.com` release assets (golangci-lint 2.5.0 checksums) | reachable (206) | golangci-lint install (section 2a step 8), `ch-local.sh` ClickHouse binary | lint and ClickHouse results UNVERIFIED |
+| `conda.anaconda.org` (conda-forge `repodata.json`) | reachable (206) | the oracle's Ruby 4.0.6 (`reimplementation-kit` `oracle.sh setup`) | no pinned lago-api runs |
+| `cache.ruby-lang.org` (`ruby-4.0.6.tar.gz`) | refused (403) | building Ruby from source (ruby-build, rbenv) | use conda-forge (what `oracle.sh` does) |
+| `rubygems.org` | reachable (206) | `bundle install` of lago-api (Bundler needs `HTTP_PROXY` set to the proxy URL because it ignores `HTTPS_PROXY`; `oracle.sh` sets it for that step only, per `reimplementation-kit` maintainer-oracle.md §7) | no pinned lago-api runs |
+| `pypi.org` | reachable (206) | Python IUTs and kit tooling extras | none |
+| `packages.clickhouse.com` | refused (403) | ClickHouse apt/tgz packages | GitHub release assets (`diagnostics-and-tooling` `ch-local.sh`) |
+| `vuln.go.dev` | refused (403) | `govulncheck` | result UNVERIFIED (`security-and-supply-chain`) |
+<!-- evidence-check: on -->
+
 ## Re-verification one-liners
 
 ```bash
@@ -140,4 +163,5 @@ grep -nE '^FROM (rust|golang)' events-processor/Dockerfile events-processor/Dock
 grep -n 'image:' docker-compose.dev.yml | grep -E 'postgres|clickhouse|redpanda'   # partman 15.0, ch 26.2, redpanda v25.2.10
 sed -n 1,2p docker/Dockerfile; sed -n 18p docker/Dockerfile                        # NODE 24, RUBY 4.0.6, bundler 4.0.4
 (cd events-processor && go version)                                               # go1.25.0 with GOTOOLCHAIN=auto
+curl -sS -o /dev/null -r 0-200 -w '%{http_code}\n' https://cache.ruby-lang.org/pub/ruby/4.0/ruby-4.0.6.tar.gz   # CONNECT ... 403 / 000 (section 7)
 ```

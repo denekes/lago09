@@ -9,7 +9,8 @@ good as its evidence. Predict the number before you run anything. Every claim ca
 sha, or a command with its output.
 
 Facts verified 2026-10-01 unless marked; the owner decisions of 2026-10-02 (change-control §9) are
-folded in. Code facts as of `5308258` (events-processor tree
+folded in, and so is the re-implementation kit's finding of 2026-10-02 that lago-api claims can be
+EXECUTED here (probe rung 5b, section 6 step 8). Code facts as of `5308258` (events-processor tree
 `83e012866f29`); the working branch may carry skills-only commits on top. `5308258` is the head of the
 fork `denekes/lago09`; upstream `getlago/lago` main is `a0de065` (2026-09-29, same gitlinks).
 
@@ -74,6 +75,7 @@ Probe ladder (cheapest first):
 | 3 | A probe test added via `go test -overlay` (no repo writes) | about 1 min | see `diagnostics-and-tooling` |
 | 4 | A scratch module with `replace` onto `events-processor` (real package APIs) | about 1 min | commit-skip probe driving `kafka.NewConsumerGroup` (`events-processor/config/kafka/consumer.go:227`), worked-examples Example A |
 | 5 | A harness: kfake, miniredis, scratch PG, `clickhouse local` | minutes | see `diagnostics-and-tooling` |
+| 5b | lago-api at the pin, RUN: its own rspec examples or a kit vector through the oracle (`diagnostics-and-tooling` H13) | about 10 s warm; 94 s setup from an empty cache | `oracle.sh run spec/services/events/kafka_producer_service_spec.rb` (in `.claude/skills/reimplementation-kit/scripts/maintainer/`) gives `"example_count":13,"failure_count":0` together with `apply_rounding_service_spec.rb` (2026-10-02) |
 | 6 | The full dev stack (needs a Docker daemon) | not runnable in agent sandboxes | mark "not runnable here; verified by reading `<file:line>`" |
 
 A probe is **not** discriminating if both outcomes fit H. Example: a unit test of
@@ -139,6 +141,7 @@ Both refutations came from the **control** and the **boundary cases**, not from 
 | History (introduced, removed, reverted, by whom) | Sha(s) from `H`, with a rename-aware pathspec or `-S`/`-G` | The shallow clone: `git blame` there attributes all 308 lines of `consumer.go` to `^8ceca4b`. A subject line alone: `449bf5b` "Bump version to 7" is a Redis 6 to 7 change. |
 | Counts over history | The command over `H` + an exact definition of what is counted | Subject-regex classification. Of the 77 pin moves since 2025 (`git -C "$H" log --since=2025-01-01 --format=%h -- api front`; count with (1) below), regexes call 18 or 20 "non-release"; by data it is 15 (worked-examples Example D). |
 | A cross-repo contract (Go vs Rails vs ClickHouse) | `path:line` on BOTH sides at stated pins; a probe if semantics matter | One side only; a commit body in the other repo (lago-api `6341824` body about this repo was already stale) |
+| What lago-api does at runtime (since 2026-10-02 this can be EXECUTED here) | A run at the pin: the rspec example(s) via the kit oracle (rung 5b: `oracle.sh run <spec>:<line>`, its JSON summary line and exit status), or a kit vector whose `evidence.kind` is EXECUTED (by `oracle-adapter` or `spec-green`) | A spec file that was never run; a kit vector labelled RECOMPUTED or EXTRACTED quoted as if executed. Example: the kit's draft text for `reimplementation-kit` RBD-37 said a division by zero kills the API process; the verifier's oracle run showed HTTP 500 with nothing stored and the server still serving |
 | A version or pin | Every pin location `path:line`; the gitlink via `git ls-tree HEAD api front` | A comment that lists fewer locations (`events-processor/Dockerfile.staging:20-22` says two; there are four) |
 | An artifact exists or was published | A registry API response (HTTP status, `last_updated`/digest), dated | A workflow file existing (`.github/workflows/release-docker-image.yml:11` builds `getlago/lago`); a release note. Yet `curl -s -o /dev/null -w '%{http_code}' https://hub.docker.com/v2/repositories/getlago/lago/tags/v1.48.0` gives 404. |
 | External tool semantics (ClickHouse, franz-go, Go stdlib) | A run on a NAMED version, plus a version caveat (`clickhouse local` 25.8.2.29 in Example B) | Tool docs, or a run on another version presented without its version; dev runs 26.2 (`docker-compose.dev.yml:460`) |
@@ -213,6 +216,15 @@ Traps in `H`:
    `deploy/docker-compose.production.yml:346` runs `start.pdf.worker.sh`, which does not exist at v1.27.1, the tag `deploy/` pins.
 6. Cite `$API/<path>:<line>` and `$FRONT/<path>:<line>`. Re-grep line numbers at the pin you name.
 7. For other public repos (`lago-cli`, `lago-helm-charts`), use a depth-1 clone in `$(mktemp -d)` and record HEAD sha + date (`reference/registry-probing.md`).
+8. **Run the pinned lago-api when the claim is about behaviour** (2026-10-02: possible here without
+   Docker). `pinned-checkout.sh api` stays the read-only source; the kit oracle
+   (`.claude/skills/reimplementation-kit/scripts/maintainer/oracle.sh`, Ruby 4.0.6 from conda-forge,
+   your own `ORACLE_DB`) runs its rspec examples or answers a kit op. Commands, cost and hygiene:
+   `diagnostics-and-tooling` H13; the recipe itself lives only in `reimplementation-kit`
+   `reference/maintainer-oracle.md` (do not copy it). Cite the result as "EXECUTED at `591ae90`:
+   `oracle.sh run <spec>:<line>` -> `<summary line>`". Kit vectors carry their own evidence kind:
+   EXECUTED (the reference ran) maps to VERIFIED, RECOMPUTED (an independent model) and EXTRACTED
+   (read only) do not; a corrected-profile twin is RECOMPUTED by definition.
 
 ## 7. Probing registries and module proxies (commands and outputs: `reference/registry-probing.md`)
 
@@ -248,7 +260,7 @@ When you hit one:
 1. Name the nearest **proxy** and label it as one. Example: the public Helm chart (`getlago/lago-helm-charts` at `d473b1e`) has `replicas: 1` and no memory cache, which describes Helm self-hosters, not Cloud.
 2. Keep the claim UNVERIFIED or OPEN DECISION OD-n. Never resolve it by assumption.
 3. Ask with the template in `reference/owner-questions.md`: one decision per question, the evidence inside the question, options with a CANDIDATE recommendation, the default meanwhile, and what it blocks.
-4. Route the decision through change-control §9, the one register (OD-1..OD-20, plus sub-ids such as OD-1b); raise a new one as a GitHub issue titled "OD-n: <topic>" with the evidence block. Route review to the area's top recent author: events-processor has a bus factor of one, with 55 of 72 non-dependabot commits by one author (`git -C "$H" log --no-merges --format=%an -- events-processor | grep -v dependabot | sort | uniq -c | sort -rn | head -1`). Record every answer in the repo; an answer that is only remembered is lost.
+4. Route the decision through change-control §9, the one register (OD-1..OD-24, plus sub-ids such as OD-1b; OD-21..OD-23 proposed on 2026-10-02 from the re-implementation kit); raise a new one as a GitHub issue titled "OD-n: <topic>" with the evidence block. Route review to the area's top recent author: events-processor has a bus factor of one, with 55 of 72 non-dependabot commits by one author (`git -C "$H" log --no-merges --format=%an -- events-processor | grep -v dependabot | sort | uniq -c | sort -rn | head -1`). Record every answer in the repo; an answer that is only remembered is lost.
 
 ## 9. Acceptance: when a result is "accepted" here
 
@@ -312,6 +324,7 @@ Volatile facts and one-line re-verification (from the repo root; `H`/`API` as ab
 - `grep -n 'Score:' events-processor/models/stores.go` gives `61`. `grep -n 'event timestamp as score' "$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb"` gives `11`.
 - Example A probe (`reference/worked-examples.md`): treatment `retryable-fail:1`, control `retryable-fail:2`.
 - `.claude/skills/research-methodology/scripts/evidence-check.sh .claude/skills/research-methodology/SKILL.md` exits 0.
+- Rung 5b works (2026-10-02): `ORACLE_DB=lago_api_test_<you> .claude/skills/reimplementation-kit/scripts/maintainer/oracle.sh run spec/services/events/kafka_producer_service_spec.rb` prints a JSON line with `"failure_count":0`.
 
 Update triggers:
 - a release bump moves `api`/`front` (re-pin; Example E may resolve);
@@ -319,4 +332,5 @@ Update triggers:
 - a ClickHouse schema change or version bump (re-run Example B; schema changes are allowed by DECIDED OD-3);
 - the fork syncs with upstream, or `H`'s remote changes;
 - GitHub API access changes in agent sessions;
-- an owner decision on any OD-n.
+- an owner decision on any OD-n;
+- a change of the kit oracle's toolchain or egress (conda-forge, rubygems, crates.io; `reimplementation-kit` KQ-12) that breaks rung 5b.

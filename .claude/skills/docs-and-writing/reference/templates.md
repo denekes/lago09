@@ -274,6 +274,15 @@ Checklist (the format contract every skill in this library follows):
    - Otherwise label it UNVERIFIED, CANDIDATE, OPEN DECISION OD-n (owner) or TARGET.
    - Cite doctrine as "change-control N#".
    - Never cite discovery-report IDs or scratch paths.
+   - Exception for the three re-implementation kit skills (`reimplementation-kit`,
+     `events-processor-spec`, `billing-engine-spec`; the library-side answer to `reimplementation-kit`
+     KQ-19): a normative rule line is evidenced by the vector or scenario ids in its `[vec: ...]` tag
+     (or `[vec: none (prose only: <reason>)]`), `$API/<path>:<line>` citations appear only in their
+     "Provenance (maintainers)" sections and vectors' `evidence.ref` (the kit's `validate-vectors.py`
+     checks both: rule coverage and its TEXT rule), and rule blocks sit inside `<!-- evidence-check: off <reason> -->` markers.
+     Their other prose follows this step like any skill. Not yet met (2026-10-02, staged copies): the
+     evidence-check reports `flagged=90` on the `reimplementation-kit` SKILL.md and `flagged=59` on the
+     `events-processor-spec` SKILL.md; add markers or citations before they count as clean.
 4. **Paths.**
    - Never hardcode a home, root or temp path. Get them from `history-setup.sh`,
      `pinned-checkout.sh` or `$LAGO_SKILLS_CACHE`.

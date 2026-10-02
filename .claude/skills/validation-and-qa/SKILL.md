@@ -9,7 +9,8 @@ test that holds up. It ships the scripts that compare your branch with the basel
 templates for the five common kinds of test.
 Facts verified 2026-10-01 unless marked. Code facts as of 5308258 (events-processor tree
 83e012866f29); the working branch may carry skills-only commits on top. Owner decisions OD-1..OD-5
-of 2026-10-02 folded in (register: `change-control` §9).
+of 2026-10-02 folded in (register: `change-control` §9). Re-implementation kit findings of 2026-10-02
+folded in: the black-box corrected profile as C4 evidence (§3 step 10), pinned lago-api specs runnable (§9).
 
 ## When to use / when NOT to use
 
@@ -71,7 +72,7 @@ Classes are defined by `change-control`. Each rung includes the rungs above it f
 | C1 tests/tooling | full suite green, PASS count up by exactly the new tests, `-race` ok on the unit suite (which never runs `processRecordsAndCommit`), new leaves pass alone, no NEW unmet sqlmock expectation; a regression test is shown failing on the unfixed code | `baseline.sh`, `race-shuffle.sh --isolation`, `sqlmock-strict.sh`, `fails-on-base.sh` |
 | C2 refactor | C1 + no existing test expectation changed + vet clean + `gofmt -l` empty on changed `.go` files + no new lint issue + own coverage not lower on any package (= change-control N9 plus the coverage rule) | `baseline.sh` (0 FAIL), `golangci-lint run --allow-serial-runners --new-from-rev="$BASE"` (`0 issues.`) |
 | C3 behaviour | C2 + a new/changed test that FAILS on `$BASE` and PASSES after; both data modes when the logic exists in both (cache mode is production, DECIDED OD-1); exact SQL pinned for query changes (a DB-only query: both pins, `reference/evidence-ladder.md` §2); parity evidence (probe output + `$API/<file>:line`) | `fails-on-base.sh` (`EVIDENCE OK`) + green run; `rails-go-parity` probe |
-| C4 delivery/contract | C3 + a kfake-driven test through `processRecordsAndCommit` with per-offset outcomes + one `GOFLAGS=-race` kfake run + the ADR-001 points it implements (DECIDED OD-2 (owner, 2026-10-02)) + a paired PR in each repo whose external dependent is touched, or "no external dependent of K# is touched" (DECIDED OD-4 (owner, 2026-10-02); change-control `reference/cross-repo-protocol.md` §1) + owner sign-off. A log/span/counter-only edit to a C4 file is C3 when the diff changes no control flow and `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline` prints `moved=0` (change-control §2, "behaviour test wins") | `diagnostics-and-tooling` kfake harness, `event-accounting-campaign` ledger |
+| C4 delivery/contract | C3 + a kfake-driven test through `processRecordsAndCommit` with per-offset outcomes + one `GOFLAGS=-race` kfake run + the ADR-001 points it implements (DECIDED OD-2 (owner, 2026-10-02)) + for delivery changes the black-box corrected profile on the branch binary, both modes, against base (CANDIDATE gate, §3 step 10: no decided assertion turns PASS -> FAIL, compat DIFF only in the scenarios the change fixes) + a paired PR in each repo whose external dependent is touched, or "no external dependent of K# is touched" (DECIDED OD-4 (owner, 2026-10-02); change-control `reference/cross-repo-protocol.md` §1) + owner sign-off. A log/span/counter-only edit to a C4 file is C3 when the diff changes no control flow and `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline` prints `moved=0` (change-control §2, "behaviour test wins") | `diagnostics-and-tooling` kfake harness and H12 suite run, `event-accounting-campaign` ledger |
 | C5 release/pins/CI | pin-sync clean; the full C2 rung on the new versions; workflow YAML parses; no new actionlint finding; images "not built locally" | change-control `pin-sync-check.sh`, `baseline.sh`, `release-and-images` |
 | C6 dev env/compose | `docker compose -f <f> config --quiet` exit 0 per touched file; `bash -n` on scripts; bring-up pasted or labelled not runnable | `run-and-operate` |
 | C7 security | counts and file:line only, never a value | `security-and-supply-chain`, change-control `precommit-guard.sh` |
@@ -154,7 +155,16 @@ V=.claude/skills/validation-and-qa/scripts
    must list `.../WithCache/...` and `.../WithoutCache/...`.
 10. **CLASS-SPECIFIC (C4, consumer/commit path).** The kfake test of change-control N7, plus
     `GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4`
-    -> `RESULT: PASS`, exit 0 (about 5 s warm, 2026-10-01).
+    -> `RESULT: PASS`, exit 0 (about 5 s warm, 2026-10-01). For a commit, retry or DLQ change, also
+    the black-box corrected profile (CANDIDATE gate: change-control's C4 row does not list it yet;
+    making it binding is a doctrine edit with owner sign-off): build the branch binary and run `events-processor-spec`
+    `run-suite.sh --profile both` in `--mode db` and `--mode cache` (one-block command:
+    `diagnostics-and-tooling` H12; about 95 s + 62 s). Paste both SUMMARY lines next to the base's.
+    Base today (code of 5308258, 2026-10-02): `failing=12 unruled=1` db, `failing=7 unruled=2` cache
+    (failing list: `events-processor-spec` conformance-suite §8). Accept when no decided assertion goes
+    PASS -> FAIL, the scenarios your ADR-001 points target go FAIL -> PASS, and every compat `DIFF` is
+    one of those scenarios (any other DIFF is a regression). The same pass list is the campaign's
+    acceptance gate next to `scoreboard.sh` (`event-accounting-campaign`).
 11. **REQUIRED when a number improved (C1).** Refresh the baseline in the same PR:
     `$V/baseline.sh --write .claude/skills/validation-and-qa/scripts/baseline.json`, review the diff.
 12. Paste the evidence block (`reference/evidence-ladder.md` §5).
@@ -287,8 +297,12 @@ never `aggregate_failure` in new tests, prefer `have_received`, run the minimum 
 (`$API/spec/spec_helper.rb:145-146,165-171`); the raw payload Go consumes is pinned in
 `$API/spec/services/events/kafka_producer_service_spec.rb:16-46`; scenario specs insert
 `events_enriched` directly, so no lago-api spec consumes Go output
-(`$API/spec/support/scenarios_helper.rb:501,513`). Running rspec here is not possible (as of 2026-10-01 the sandbox Ruby is
-3.3.6 while `$API/.ruby-version` pins 4.0.6, no gems are installed, no Docker daemon). More: `reference/writing-tests.md` §6.
+(`$API/spec/support/scenarios_helper.rb:501,513`). Running the pinned lago-api specs here IS
+possible without Docker (2026-10-02; the system Ruby 3.3.6 is not used): `reimplementation-kit`
+`scripts/maintainer/oracle.sh run <spec files>` with your own `ORACLE_DB`, Ruby 4.0.6 from
+conda-forge; two spec files gave 13 examples, 0 failures in 10 s (`diagnostics-and-tooling` H13).
+That runs the Rails side at the pin `591ae90`; a paired PR's new spec still runs in lago-api's CI.
+More: `reference/writing-tests.md` §6.
 
 ## 10. If you see X, do Y
 
@@ -351,9 +365,12 @@ only to `mktemp -d` (and `--write FILE`), and leave `events-processor/` untouche
   - CI PR filter: `sed -n 12,13p .github/workflows/events-processor-tests.yml` -> `paths:` / `"events-processor/**"`.
   - Templates still valid: `.claude/skills/validation-and-qa/scripts/templates-check.sh` -> `OK all templates pass (5 files)`.
   - EP tree measured (= the code of 5308258): `git rev-parse 5308258:events-processor HEAD:events-processor | cut -c1-12` -> `83e012866f29` twice.
+  - C4 black-box base (2026-10-02): the `diagnostics-and-tooling` H12 block -> `failing=12 unruled=1` (db), `failing=7 unruled=2` (`--mode cache`).
+  - Pinned lago-api specs runnable (2026-10-02): `ORACLE_DB=lago_api_test_<you> .claude/skills/reimplementation-kit/scripts/maintainer/oracle.sh run spec/services/events/kafka_producer_service_spec.rb` -> `"failure_count":0`.
 - **Update triggers.** Re-verify and refresh `baseline.json` when: any `*_test.go` or `tests/*.go`
   changes; a dependency or Go/golangci-lint version changes; `events-processor-tests.yml` changes;
   a harness defect is fixed (empty the KNOWN lists in `race-shuffle.sh` / `sqlmock-strict.sh`);
   franz-go is bumped (re-run `templates-check.sh`: the producer-option template pins its defaults);
   the owner amends OD-5 (DECIDED 2026-10-02) or decides OPEN DECISION OD-6 (owner); a lint config or new CI job lands; lago-api's pin moves
-  (re-check §9 line numbers).
+  (re-check §9 line numbers); the conformance goldens or assertions change, or a C4 change lands (re-run
+  the §3 step 10 base numbers); the owner names the retry topic (OPEN DECISION OD-22 (owner)).

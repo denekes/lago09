@@ -8,7 +8,8 @@ How to get from an empty machine to a green `events-processor` test run, a worki
 local image build, and what breaks on the way (with exact error text). It owns the foundation scripts
 `ep-env.sh`, `ep-test.sh`, `doctor.sh` and the alias-free compose wrapper `dc.sh`.
 Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
-skills-only commits on top. Verified 2026-10-01 unless marked.
+skills-only commits on top. Verified 2026-10-01 unless marked; the re-implementation kit's oracle
+toolchain (section 2d) and the sandbox egress map were added 2026-10-02.
 New here? Run section 1, then pick the next skill from the start-here table in `.claude/skills/README.md`
 (if the Skill tool does not list a skill, read `.claude/skills/<name>/SKILL.md` directly).
 
@@ -51,7 +52,7 @@ Do NOT use for (go to the sibling instead):
 
 Reference files:
 - `reference/traps.md`: read when a trap below needs confirming; safe reproductions with full output.
-- `reference/toolchain-matrix.md`: read when bumping Go/Rust/lago-expression/base images or when two contexts disagree.
+- `reference/toolchain-matrix.md`: read when bumping Go/Rust/lago-expression/base images, when two contexts disagree, or when a download is refused (§7 egress map).
 - `reference/dev-stack.md`: read when bringing up `docker-compose.dev.yml` on a machine with a Docker daemon.
 - `reference/images.md`: read when building an image locally or mapping a Dockerfile to its workflow.
 
@@ -235,6 +236,17 @@ with file:line and, where possible, a scratch verification. Checklist:
 Local build commands (CANDIDATE, need a daemon) and image-build traps: `reference/images.md`.
 No image is built on PRs, so a local build is the only pre-merge check. Publishing: `release-and-images`.
 
+### 2d. The pinned lago-api suite without Docker (maintainers, optional)
+
+Only for running lago-api code at the pin `591ae90` (its rspec examples, or the kit's oracle adapter);
+events-processor work never needs it. VERIFIED 2026-10-02: `oracle.sh status` -> `ruby: ruby 4.0.6`,
+gems satisfied; two spec files -> 13 examples, 0 failures in 10 s. The recipe is owned by
+`reimplementation-kit` (`scripts/maintainer/oracle.sh setup`, idempotent, 94 s and 2.2 GB from an empty
+cache per the kit author; `reference/maintainer-oracle.md`), the probe usage by `diagnostics-and-tooling`
+H13. Do not rebuild it by hand: the system Ruby here is 3.3.6 and the Ruby source host is refused by the
+egress proxy, so the oracle takes Ruby 4.0.6 from conda-forge. Toolchain row: section 3; which hosts the
+sandbox reaches: `reference/toolchain-matrix.md` §7.
+
 ## 3. Toolchain and version matrix (summary)
 
 | Thing | Values by context (file:line) |
@@ -246,6 +258,7 @@ No image is built on PRs, so a local build is the only pre-merge check. Publishi
 | Postgres | CI 14 (`.github/workflows/events-processor-tests.yml:25`); sandbox 16.14; compose partman 15.0 (`docker-compose.dev.yml:40`, `docker-compose.yml:7`); `deploy/*.yml` 15 (`deploy/docker-compose.local.yml:10`); all-in-one 17 (`docker/Dockerfile:49`) |
 | ClickHouse | dev 26.2 (`docker-compose.dev.yml:460`); lago-api CI 25.12 / 26.4 (`$API/.github/workflows/spec.yml:77`, `migrations-test.yml:65`); the events-processor has no ClickHouse client |
 | Ruby / Node / pnpm (all-in-one) | Ruby 4.0.6, Node 24 (major), `pnpm@latest`, Bundler 4.0.4 (`docker/Dockerfile:1-2,12,18`); lago-front wants node 24.20.0 + pnpm 10.34.5 (`$FRONT/package.json:192,11`) |
+| Pinned lago-api suite (oracle, section 2d) | Ruby 4.0.6 + Bundler 4.0.16 from conda-forge (`$API/.ruby-version`, `$API/Gemfile.lock:1191-1192`); Rust + libclang with resource headers (LLVM 18) for the expression gem; Postgres >= 15 (16 here) loading `$API/db/structure.sql` without its `pg_partman` line; Redis on :6391; optional ClickHouse 26.2 on :8123 (`reimplementation-kit` `reference/maintainer-oracle.md` §1, as of 2026-10-02) |
 
 Full table, history of each pin and one-line checks: `reference/toolchain-matrix.md`.
 Read when bumping anything or when two contexts disagree. Moving pins is C5; they move together (change-control N3).
@@ -365,10 +378,13 @@ prompts), and with a lago-cli binary on PATH. `dc.sh` was exercised with `config
   - `curl -fsS https://hub.docker.com/v2/repositories/library/golang/tags/1.25 | grep -o '"digest":"[^"]*' | head -1` → same digest as tag `1.25.14`
   - `git ls-remote https://github.com/getlago/lago-cli HEAD` → `49a7a03…` (if changed, re-check for an `exec`/`up` subcommand)
   - `git rev-parse --is-shallow-repository` → `true` in agent sessions
+  - egress (2026-10-02): `curl -sS -o /dev/null -w '%{http_code}' https://cache.ruby-lang.org/pub/ruby/4.0/ruby-4.0.6.tar.gz` → `CONNECT tunnel failed, response 403`; the same with `-r 0-100` on `https://conda.anaconda.org/conda-forge/linux-64/repodata.json` → `206` (full map: `reference/toolchain-matrix.md` §7)
+  - oracle toolchain: `ORACLE_DB=lago_api_test_<you> .claude/skills/reimplementation-kit/scripts/maintainer/oracle.sh status` → `ruby: ruby 4.0.6 …` (2026-10-02)
 - Update triggers: a lago-expression ref, Rust image or Go version bump (any of the four places);
   a dependabot PR touching the `go` line; a new Dockerfile or workflow; changes to volumes, profiles or
   `Host()` rules in `docker-compose.dev.yml`; edits to `docs/dev_environment.md` or
   `events-processor/CLAUDE.md` (the owner applying SC-01, approved under DECIDED OD-5); an amendment
   of OD-5; a new test package that needs Postgres or the `.so`;
   a Go release that ships `covdata` in the toolchain module; a new sandbox image (Postgres or local Go
-  version change); lago-cli adding `exec`.
+  version change); lago-cli adding `exec`; a changed egress policy (re-probe `reference/toolchain-matrix.md` §7);
+  a change of the kit oracle's toolchain (section 2d).

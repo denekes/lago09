@@ -46,7 +46,7 @@ script's known list (verified 2026-10-01) and does not fail the run.
 | C1 tests/tooling | full suite green; PASS count up by exactly your new tests; `-race` ok on the unit suite (which never runs `processRecordsAndCommit`); new leaves pass alone; no NEW unmet sqlmock expectation; for a regression test: its failing run on the unfixed code | `$V/baseline.sh`; `$V/race-shuffle.sh --isolation`; `$V/sqlmock-strict.sh`; for skill scripts `bash -n` + a real run + clean `git status` | 0 FAIL; `isolation ... 0 new`; `0 new` unmet |
 | C2 refactor (no behaviour change) | C1 + no test expectation changed + vet clean + `gofmt -l` empty on changed `.go` files + no new lint + coverage of touched packages not lower | `$V/baseline.sh`; `golangci-lint run --allow-serial-runners --new-from-rev="$BASE" ./...`; `git diff "$BASE" -- 'events-processor/*_test.go' \| grep -E '^-[^-]'` | `SUMMARY baseline: 0 FAIL`; `0 issues.`; the diff grep prints nothing |
 | C3 behaviour | C2 + a new or changed test that FAILS on `$BASE` and PASSES on the branch; both data modes when the logic exists in both (cache mode is production: DECIDED OD-1); exact SQL pinned for query changes; parity evidence | `$V/fails-on-base.sh -- -count=1 -run '<TestName>' ./<pkg>/` then the same `go test` green; parity probe from `rails-go-parity`; before/after table for value/time changes (`event-accounting-campaign`) | `EVIDENCE OK` + green run; both `WithCache` and `WithoutCache` subtests listed |
-| C4 delivery / contract | C3 + a kfake-driven test through `processRecordsAndCommit` with a per-offset outcome (enriched / DLQ / redelivered / LOST) + one `GOFLAGS=-race` kfake run + conformance to ADR-001 + paired PRs where a dependent exists | kfake harness from `diagnostics-and-tooling` (`GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4`); ledger from `event-accounting-campaign` | `RESULT: PASS` (exit 0); ledger pasted; ADR-001 points named (DECIDED OD-2 (owner, 2026-10-02)); a paired PR linked for each repo whose external dependent is touched, or "no external dependent of K# is touched" (DECIDED OD-4 (owner, 2026-10-02)); owner sign-off |
+| C4 delivery / contract | C3 + a kfake-driven test through `processRecordsAndCommit` with a per-offset outcome (enriched / DLQ / redelivered / LOST) + one `GOFLAGS=-race` kfake run + conformance to ADR-001 + for commit/retry/DLQ changes the black-box corrected profile of the branch binary in both modes, compared with base (CANDIDATE gate until change-control's C4 row lists it; C4 detail below) + paired PRs where a dependent exists | kfake harness from `diagnostics-and-tooling` (`GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4`); `events-processor-spec` `run-suite.sh` (`diagnostics-and-tooling` H12); ledger from `event-accounting-campaign` | `RESULT: PASS` (exit 0); ledger pasted; ADR-001 points named (DECIDED OD-2 (owner, 2026-10-02)); a paired PR linked for each repo whose external dependent is touched, or "no external dependent of K# is touched" (DECIDED OD-4 (owner, 2026-10-02)); owner sign-off |
 | C5 release/pins/CI | pin-sync output; for dependency, Go or lago-expression bumps the full C2 rung on the new versions; workflow YAML parses; actionlint shows no NEW finding; images "not built locally" | `pin-sync-check.sh` (change-control); `$V/baseline.sh` (expect a `go`/toolchain WARN on a Go bump); `python3 -c 'import yaml,sys;[yaml.safe_load(open(f)) for f in sys.argv[1:]]' .github/workflows/*`; actionlint via `release-and-images` | 0 FAIL; YAML command prints nothing |
 | C6 dev env/compose/deploy | `docker compose -f <file> config --quiet` exit 0 for each touched file; service-list diff; `bash -n` on touched scripts; bring-up either done on a machine with a daemon (paste it) or labelled "not runnable in a daemon-less sandbox" | see `run-and-operate` (compose matrix) | exit 0; diff explained |
 | C7 security overlay | counts-only scan output and file:line, never a value | `security-and-supply-chain` scans; change-control `precommit-guard.sh` | 0 FAIL |
@@ -116,6 +116,33 @@ twice: exactly in `models/billable_metrics_test.go:14-20`, and loosely in the sh
 4. In new or touched tests use `require` for preconditions (`require.True(t, result.Success())`
    before `result.Value()`), so one failure cannot panic the whole package.
 
+### C4 detail: the black-box corrected profile (delivery changes)
+
+The kfake ledger proves the Go internals; the conformance suite of `events-processor-spec` proves the
+observable contract, through Kafka, Redis, Postgres and signals only, in DB AND memory-cache mode
+(production runs memory-cache mode: DECIDED OD-1 (owner, 2026-10-02)). Run it on the base binary and on
+the branch binary (one-block build-and-run command: `diagnostics-and-tooling` H12). It is a CANDIDATE
+gate: recommended for every delivery change now, binding once change-control's C4 row adopts it (owner sign-off):
+
+| Mode | Base today (code of 5308258, run 2026-10-02) |
+|---|---|
+| db (`run-suite.sh --mode db`) | `run-suite: scenarios=31 failing=12 unruled=1 skipped=4 mode=db profile=both ... exit=3` (95 s) |
+| cache (`run-suite.sh --mode cache`) | `run-suite: scenarios=27 failing=7 unruled=2 skipped=8 mode=cache profile=both ... exit=3` (62 s) |
+
+The failing list per mode is `events-processor-spec` `reference/conformance-suite.md` §8 (compat
+MATCHes every golden; the decided corrected assertions fail by design today). Accept the PR when:
+<!-- evidence-check: off acceptance rules (normative), evidence = the run-suite.sh outputs pasted in the PR -->
+1. no scenario goes `corrected=PASS` -> `FAIL` (a regression of a decided ADR-001/RBD assertion);
+2. the scenarios the PR's ADR-001 points target go `FAIL` -> `PASS` (name them in the PR);
+3. every `compat=DIFF` is one of those scenarios (the reference golden records the old behaviour);
+   any other DIFF is an unintended behaviour change;
+4. `UNRULED` (only `ruling: proposed` assertions failed) is reported, never counted for or against.
+<!-- evidence-check: on -->
+
+The same pass list is the acceptance gate the campaign keeps next to `scoreboard.sh`
+(`event-accounting-campaign`). The suite does not observe a retry topic yet (OPEN DECISION OD-22
+(owner)): a change that routes retries to a topic can pass `all_done` only through in-place retries.
+
 ## 3. What is NOT evidence
 
 | Offered as evidence | Why it is not enough | Ask for |
@@ -172,6 +199,7 @@ fails-on-base:    EVIDENCE OK: TestFoo fails on base <sha>; green on head
 both data modes:  TestFoo/WithCache/..., TestFoo/WithoutCache/... PASS
 parity:           <rails-go-parity probe output or $API/<file>:<line>>
 C4 only:          kfake ledger <before -> after>; GOFLAGS=-race kfake-run.sh happy-path: RESULT: PASS
+C4 delivery:      run-suite db  base failing=12 -> head <n>; cache base failing=7 -> head <n>; FAIL->PASS: EPC-<..>; PASS->FAIL: none; DIFF only in EPC-<..>
 ```
 
 Templates for the rest of the PR body (Context, Description, ADR) are in `docs-and-writing`.

@@ -82,3 +82,79 @@ through the connectors. That is an accounting defect, not a security one: see th
   `failure-archaeology` skill).
 - Rule for reviewers: any new SQL in `events-processor/models/` must carry `organization_id`
   (change-control N4) and the sqlmock test must pin it.
+
+## 4. Tenant trust inside lago-api and the expression engine (re-implementation kit, 2026-10-02)
+
+The re-implementation kit executed lago-api at the pin through its oracle (`reimplementation-kit`;
+how to run it: `diagnostics-and-tooling` H13). Four findings touch tenant trust. Each row says what was
+executed and what is only inferred.
+
+### 4.1 One RSA key signs every organization's JWT webhooks (`reimplementation-kit` RBD-93)
+
+- Code (read 2026-10-02): the key is loaded once per installation from `config/keys/private.pem` or
+  `LAGO_RSA_PRIVATE_KEY`, and boot aborts if it is blank (`$API/config/initializers/rsa_keys.rb:6-18`).
+  `jwt_signature` encodes `{data: payload.to_json, iss: issuer}` with that key, RS256
+  (`$API/app/models/webhook.rb:72-81`), and `issuer` is `ENV["LAGO_API_URL"]` (`:88-90`). The HMAC
+  alternative uses the per-organization `organization.hmac_key` (`:83-86`). JWT is the default:
+  `SIGNATURE_ALGOS = [:jwt, :hmac]` (`$API/app/models/webhook_endpoint.rb:6-9`) and
+  `signature_algo integer DEFAULT 0` (`$API/db/structure.sql:6096`). The public key is served to anyone
+  by `GET /api/v1/webhooks/public_key` (`$API/app/controllers/api/v1/webhooks_controller.rb:8`).
+- Executed: the kit vectors `webhooks.sign.003`, `webhooks.sign.004` and `webhooks.public_key.001`
+  (`grep -c '"id": *"webhooks.sign.00[34]"' .claude/skills/billing-engine-spec/vectors/webhooks.jsonl` -> `2`)
+  (EXECUTED by the oracle with a kit test key swapped in for the installation key) pin the token
+  shape: header `{"alg":"RS256"}`, claims `data` + `iss`, no expiry, no nonce, no organization claim.
+- Consequence (INFERRED, not exercised): on a multi-tenant installation every tenant receives
+  validly signed tokens, and the token says nothing about the intended receiver. A receiver that
+  verifies only the signature accepts a token replayed from another tenant's delivery. Rotating the
+  key rotates it for all tenants at once (procedure UNVERIFIED).
+- Receiver guidance (CANDIDATE, for self-hosters and integrators): after verifying the signature,
+  check `organization_id` in the payload (the envelope always carries it:
+  `$API/app/services/webhooks/base_service.rb:16-21`) and de-duplicate on the `X-Lago-Unique-Key`
+  header (`$API/app/models/webhook.rb:68`); or switch the endpoint to HMAC, whose key is per organization.
+- Not an open owner decision today: the kit keeps this behaviour (RBD-93 = KEEP; `billing-engine-spec` reference/12-webhooks.md BE-WH-16). Raise one (change-control
+  "owner") if Cloud wants per-organization keys.
+
+### 4.2 The Authorization scheme word is not checked (`reimplementation-kit` RBD-88)
+
+- Code: `request.headers["Authorization"]&.split(" ")&.second` (`$API/app/controllers/api/base_controller.rb:36-38`).
+- Executed: kit vector `api.auth_token.002` (compat, EXECUTED; `grep -c '"id": *"api.auth_token.002"' .claude/skills/billing-engine-spec/vectors/api.jsonl` -> `1`): `Bearer k`, `Token k` and `Basic k`
+  all present the key `k`; extra tokens are ignored; a bare key (one token) presents no key (401).
+- Impact (INFERRED): low on its own, a valid key is still required. A gateway, WAF rule or log
+  scrubber that recognises API keys only after `Bearer ` misses keys sent as `Basic <key>` or
+  `Token <key>`. The corrected profile proposes "Bearer only" (`api.auth_token.002x`, ruling proposed:
+  OPEN DECISION OD-21 (owner)).
+
+### 4.3 A division by zero in a metric expression aborts the events-processor (`reimplementation-kit` RBD-37)
+
+- Tenants author billable-metric expressions; any event they send is evaluated in the
+  events-processor at `events-processor/processors/events_processor/enrichment_service.go:132`
+  (`expression.Evaluate`, expression-go v0.1.4 on lago-expression v0.2.0).
+- Executed here (2026-10-02, a scratch module, nothing written to the repo):
+  `expression.Evaluate("event.properties.a / event.properties.b", <event with "b":"0">)` prints
+  `panicked at .../bigdecimal-0.4.6/src/impl_ops_div.rs:10:13: Division by zero`, then
+  `fatal runtime error: failed to initiate panic, error 5, aborting` and `SIGABRT: abort`. A Rust panic
+  cannot unwind through the C boundary, so `recover` in Go cannot catch it: the whole process dies.
+- Consequence (INFERRED from the commit rule, not run end to end): the record is never committed, so
+  every restart re-reads it and aborts again. Everything behind it on that partition stalls, including
+  other tenants' events: lago-api produces raw events without a key
+  (`$API/app/services/events/kafka_producer_service.rb:29-34`), so every partition mixes tenants. The kit's oracle run of lago-api shows the API side answers HTTP 500 and stores nothing
+  while the server keeps serving (`reimplementation-kit` RBD-37, corrected twins
+  `expression.div_zero.001x`/`.002x` and `events.validate.025x`, ruling proposed).
+- Severity (this skill's CANDIDATE ranking): HIGH, cross-tenant availability. Fix options (all
+  CANDIDATE, owner-gated through OPEN DECISION OD-21 (owner)): a guard in lago-expression that returns
+  an evaluation error (then a pin bump in 4 places: change-control N3, C5 + C7), or validation that
+  refuses such expressions at metric creation (lago-api). Until then, triage a crash loop with
+  `debugging-playbook`.
+
+### 4.4 Webhooks enqueued before the commit (`reimplementation-kit` RBD-85): not confirmed here
+
+- The kit (`billing-engine-spec` reference/12-webhooks.md BE-WH-8) says a few emissions (customer upsert, credit-note creation) are requested inside the
+  transaction, so a receiver may be told about data that is rolled back.
+- Code read at the pin does not confirm the two examples: credit-note webhooks are sent from
+  `after_commit` (`$API/app/services/credit_notes/create_service.rb:96-98`,
+  `$API/app/services/invoices/refresh_draft_and_finalize_service.rb:44,58`), and the customer upsert
+  enqueues `SendWebhookJob.perform_later` at `:157`/`:160`, after its own transaction block
+  (`$API/app/services/customers/upsert_from_api_service.rb:47-143`); its only caller is the API
+  controller (`$API/app/controllers/api/v1/customers_controller.rb:7`). Label: UNVERIFIED.
+- Either way (CANDIDATE guidance), receivers should treat a webhook as a notification and re-fetch the
+  object over the API before acting on it.

@@ -25,11 +25,11 @@ Cloud UNVERIFIED)", never "production runs 1 replica".
 
 ## 2. The owner-decision index (the register is change-control §9)
 
-One namespace, OD-1..OD-20 plus sub-ids (OD-1b), owned by `change-control` §9. This index only helps
+One namespace, OD-1..OD-24 plus sub-ids (OD-1b), owned by `change-control` §9. This index only helps
 you find the right number and its status. Read the decision text, the default, who decides and the
 closing evidence in change-control §9 before you rely on one; they are not copied here, so they
-cannot drift. Status as of 2026-10-02: OD-1..OD-5 DECIDED, OD-1b OPEN (urgent),
-OD-20 DEFAULT APPLIED, all others OPEN.
+cannot drift. Status as of 2026-10-02: OD-1..OD-5 and OD-24 DECIDED, OD-1b OPEN (urgent),
+OD-20 DEFAULT APPLIED, OD-21..OD-23 proposed (OPEN), all others OPEN.
 
 | ID | Topic (one line) | Status |
 |---|---|---|
@@ -54,6 +54,10 @@ OD-20 DEFAULT APPLIED, all others OPEN.
 | OD-18 | May the AWS account id stay in public workflows? (security) | open |
 | OD-19 | Full event JSON in Sentry extras and a TTL-less DLQ under SOC2 (security) | open |
 | OD-20 | Who owns memory-cache (badger + Debezium CDC) hardening? (sits next to OD-1) | DEFAULT APPLIED OD-20: `event-accounting-campaign` W6 (owner may reassign) |
+| OD-21 | Rulings on the re-implementation kit's owner-ruled rebuild decisions, as one batch (`reimplementation-kit` RBD rows marked `owner`, KQ-3) | proposed 2026-10-02, open: corrected vectors ship as `ruling: proposed` (UNRULED) |
+| OD-22 | Retry-topic name, env variable, headers and attempt count of ADR-001 (`reimplementation-kit` KQ-1) | proposed 2026-10-02, open: ADR-001 defaults stay CANDIDATE names |
+| OD-23 | Legal review of the kit for proprietary rebuilds, and the lago-expression licence (`reimplementation-kit` KQ-7, KQ-8) | proposed 2026-10-02, open: no proprietary rebuild, the kit specifies the expression language |
+| OD-24 | Clean-room isolation channel for kit acceptance (`reimplementation-kit` KQ-11) | DECIDED OD-24 (owner, 2026-10-02): option A, pack-only branch `kit-pack-v1` + fresh remote sessions |
 
 OD-7 precedent is regex-dependent; quote the count with its regex (as of 2026-10-01):
 

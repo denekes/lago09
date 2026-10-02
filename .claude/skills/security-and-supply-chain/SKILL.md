@@ -9,7 +9,8 @@ provenance, personal data in errors. This skill audits and recommends. It does n
 every fix goes through change-control as a C7 overlay on the file's own class.
 Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
 skills-only commits on top. lago-api at the pinned SHA `591ae90` (2026-09-08), unless marked.
-Verified 2026-10-01; owner decisions OD-1..OD-5 of 2026-10-02 folded in (register: change-control section 9).
+Verified 2026-10-01; owner decisions OD-1..OD-5 of 2026-10-02 folded in (register: change-control section 9);
+tenant-trust findings of the re-implementation kit added 2026-10-02 (section 2).
 
 Start: `S=.claude/skills/security-and-supply-chain/scripts; $S/secret-defaults-scan.sh | tail -1; $S/unpinned-scan.sh --summary`
 (expected SUMMARY lines: Scripts table; C7 baselines: section 6).
@@ -114,6 +115,19 @@ against that org's subscription and billed to it. Fix (CANDIDATE, C4+C7): pin
 `root.organization_id = "${ORGANIZATION_ID}"` as SQS/Kinesis do, or front it with an authenticating
 gateway. OPEN DECISION OD-17 (owner): is it ever reachable from outside a private network?
 
+Tenant trust beyond `organization_id` (re-implementation kit findings, re-checked 2026-10-02; details,
+receiver guidance and evidence per row: `reference/tls-and-trust.md` §4):
+
+| Finding | Evidence | Label |
+|---|---|---|
+| One installation-wide RSA key signs the JWT webhooks of EVERY organization (JWT is the default `signature_algo`; HMAC uses a per-organization key). Claims are only `{data, iss}` with `iss` = the installation's `LAGO_API_URL`, so a receiver that checks only the signature also accepts another tenant's webhook (replay), unless it checks `organization_id` inside `data` | `$API/config/initializers/rsa_keys.rb:6-18`, `$API/app/models/webhook.rb:72-90`, `$API/app/models/webhook_endpoint.rb:6-9`; signing EXECUTED by kit vectors `webhooks.sign.003`/`.004` (`reimplementation-kit` RBD-93) | signing VERIFIED; cross-tenant replay INFERRED (not exercised) |
+| The Authorization scheme word is never checked: `Bearer k`, `Token k`, `Basic k` all present key `k`; a bare key presents none | `$API/app/controllers/api/base_controller.rb:36-38`; EXECUTED by kit vector `api.auth_token.002` (`reimplementation-kit` RBD-88; corrected "Bearer only" is proposed, OPEN DECISION OD-21 (owner)) | VERIFIED; impact LOW: a key is still required, but filters or log scrubbers keyed on `Bearer ` miss the other forms (INFERRED) |
+| A division by zero in a tenant-authored metric expression aborts the events-processor (Rust panic across the C boundary -> SIGABRT); the record is never committed, so it is a poison record for its partition, which other tenants share | probe 2026-10-02: `expression.Evaluate("event.properties.a / event.properties.b", ...)` with `b = "0"` (expression-go v0.1.4 on lago-expression v0.2.0, called at `events-processor/processors/events_processor/enrichment_service.go:132`) -> `Division by zero` panic, `SIGABRT: abort`; lago-api answers HTTP 500 and stores nothing (kit oracle, `reimplementation-kit` RBD-37) | abort VERIFIED; restart loop and partition stall INFERRED from the commit rule (`architecture-contract`); HIGH (availability, cross-tenant) |
+| "Some webhooks are enqueued before the DB commit" (kit claim: customer upsert, credit-note creation) | at the pin the credit-note webhooks run in `after_commit` (`$API/app/services/credit_notes/create_service.rb:96-98`) and the customer upsert enqueues after its own transaction closes (`$API/app/services/customers/upsert_from_api_service.rb:47,143,157`) | UNVERIFIED: this code read does not confirm `reimplementation-kit` RBD-85; receivers should re-fetch objects anyway |
+
+Fixes are CANDIDATE and owner-gated: the RBD rulings are OPEN DECISION OD-21 (owner); an engine-side
+guard for the division by zero is a lago-expression change (C5 + C7 here: pin bump in 4 places, change-control N3).
+
 ## 3. Secrets in history and workflows
 
 Details and the safe-inspection protocol: `reference/history-and-workflows.md` (read before you
@@ -213,6 +227,8 @@ only). Tick every line that applies and paste the script SUMMARY lines into the 
 - [ ] Tenant scoping: new events-processor SQL has `organization_id` and a pinned sqlmock (change-control N4); no
       ingest path takes `organization_id` from an unauthenticated client.
 - [ ] Data: no new Sentry extra, log field or DLQ field carries `properties` or a whole event.
+- [ ] Tenant input evaluated in-process (expressions, filters): a malformed or hostile value cannot crash
+      the process (section 2, division-by-zero row); webhook receivers you ship check `organization_id`.
 - [ ] Workflows: no new `pull_request_target`; secrets via `env:` not `${{ }}` inside `run:`;
       `permissions:` declared; OIDC preferred over static cloud keys.
 - [ ] Binaries/vendored files: checksum recorded or verified (`vendored-jar-verify.sh`).
@@ -264,7 +280,10 @@ Sources: `docker-compose.yml`, `docker-compose.dev.yml`, `deploy/docker-compose.
 `$API/config/{routes.rb,initializers/sidekiq.rb,initializers/analytics_ruby.rb,application.rb}`,
 `$API/lib/lago/redis_config_builder.rb`, `$API/app/services/utils/auth_token.rb`,
 `$API/db/clickhouse_migrate/20251110*`; commits `16c8b68`, `84b6eef`, `0a67ac0`, `6dd7e56`, `2146a18`, `4955f79`,
-`5ee8e98`, `5308258`, `55644b8`, `18b26d0`, `d7355a6`, `9ef876a`.
+`5ee8e98`, `5308258`, `55644b8`, `18b26d0`, `d7355a6`, `9ef876a`. Tenant-trust rows of §2 (2026-10-02):
+`$API/config/initializers/rsa_keys.rb`, `$API/app/models/{webhook,webhook_endpoint}.rb`,
+`$API/app/controllers/api/base_controller.rb`, `$API/app/services/{credit_notes/create_service,customers/upsert_from_api_service}.rb`;
+kit vectors and RBD rows named there (`reimplementation-kit`, `billing-engine-spec`).
 
 Volatile facts and one-line re-verification (expected as of 2026-10-01; run from repo root,
 `H=$(.claude/skills/research-methodology/scripts/history-setup.sh)`,
@@ -285,10 +304,13 @@ Volatile facts and one-line re-verification (expected as of 2026-10-01; run from
 - `git ls-remote --tags https://github.com/getlago/lago-expression | grep 'v0.2.0$'` -> `a22ab022ae6f...`
 - `grep -n '"event", event' events-processor/processors/events_processor/*.go` -> `event_producer_service.go:72`, `processor.go:71`
 - `S=.claude/skills/security-and-supply-chain/scripts; $S/unpinned-scan.sh --summary | tail -1; $S/secret-defaults-scan.sh | tail -1` -> the SUMMARY lines in the Scripts table
+- `grep -n 'def auth_token' -A1 "$API/app/controllers/api/base_controller.rb"` -> `36:` + `split(" ")&.second`; `grep -n 'RsaPrivateKey' "$API/app/models/webhook.rb"` -> `78:` (2026-10-02)
+- division by zero still aborts (2026-10-02): the scratch-module probe in `reference/tls-and-trust.md` §4.3 -> `Division by zero` + `SIGABRT: abort`
 
 Update triggers: an `api` gitlink bump (re-read `$API` routes, Sidekiq, Redis TLS, Segment, DLQ
 migrations); any change to compose, `deploy/`, `docker/`, `traefik/`, `extra/`, `connectors/` or
 `.github/workflows/`; a new Sentry call or DLQ field; a lago-expression, Go, Rust or base-image bump;
 an owner answer to OD-1b (production CDC auth and brokers), OD-9, OD-16..OD-19 (Sidekiq default,
-HTTP connector exposure, AWS account id policy, PII in Sentry/DLQ), an amendment of OD-1 or OD-4, or
-a reassignment of OD-20 (memory-cache hardening owner).
+HTTP connector exposure, AWS account id policy, PII in Sentry/DLQ), OD-21 (the kit's RBD rulings,
+incl. RBD-37 and RBD-88), an amendment of OD-1 or OD-4, or a reassignment of OD-20 (memory-cache
+hardening owner); a lago-expression bump (re-run the §4.3 division probe).

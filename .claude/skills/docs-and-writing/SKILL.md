@@ -11,7 +11,9 @@ incident notes that the next engineer can act on; and which docs to re-check whe
 Facts verified 2026-10-01 unless marked. Code facts as of `5308258` (events-processor tree
 `83e012866f29`); the working branch may carry skills-only commits on top. lago-api at the pin
 `591ae90` (v1.53.0, 2026-09-08); full-history clone `$H` (776 commits as of 2026-10-01).
-Owner decisions OD-1..OD-5 of 2026-10-02 folded in (register: `change-control` §9).
+Owner decisions OD-1..OD-5 of 2026-10-02 folded in (register: `change-control` §9). SC-01 stays
+APPROVED, not yet applied (`doc-drift-check.sh --only SC-01` -> `STALE`, 2026-10-02). The kit skills'
+evidence convention was added to `reference/templates.md` §6 on 2026-10-02.
 
 ## When to use / when NOT to use
 
@@ -130,7 +132,7 @@ All templates are in `reference/templates.md`.
 | an incident write-up | §3 | the `failure-archaeology` ledger row + symptom, root cause, evidence, fix, status, do-not-re-fight rule |
 | an ADR / design note (C4, change-control N6, change-control N7) | §4 | options with measured drivers, contract before/after, mixed-version windows, failure matrix, deploy order, rollback, sign-off |
 | a runbook section | §5 | When / Preconditions / numbered commands with "Expect:" / Verify / Undo / not-runnable labels |
-| a skill update | §6 | frontmatter rules, skeleton order, provenance, re-verification, checks |
+| a skill update | §6 | frontmatter rules, skeleton order, provenance, re-verification, checks; the evidence exception for the 3 re-implementation kit skills (`[vec: ...]` rule tags, `$API` cites only in Provenance; `reimplementation-kit` KQ-19) is step 3 |
 <!-- evidence-check: on -->
 
 Subject rules are OPEN DECISION OD-7 (owner). Operate under the defaults: <= 72 characters hard,
@@ -287,4 +289,6 @@ mode gives the same result from any subdirectory. `-- <paths>` expects repo-rela
     decision on OD-7 (SC-36, templates §1-2);
   - a fix of the dev mail host, in the compose file or in lago-api (SC-39 turns RECHECK);
   - a new doc file (add it to the inventory) or a new top-level code dir (add a map row);
+  - the kit skills' evidence convention changing, or their SKILL.md files reaching `flagged=0`
+    (`reference/templates.md` §6 step 3 records 90 and 59 flagged on 2026-10-02);
   - a sibling script renamed: `grep -rn 'docs-and-writing' .claude/skills` for inbound references.

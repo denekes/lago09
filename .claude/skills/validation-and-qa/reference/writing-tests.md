@@ -124,7 +124,8 @@ Read lago-api at the pin: `API=$(.claude/skills/research-methodology/scripts/pin
 
 | Rule or fact | Where (`$API` = lago-api@591ae90) |
 |---|---|
-| run rspec in the api container: `lago exec api bundle exec rspec <args>` (an alias agent shells do not load; not runnable in this sandbox: Ruby 3.3.6 vs `$API/.ruby-version` 4.0.6, no gems, no Docker daemon; UNVERIFIED here) | `$API/AGENTS.md:8` |
+| run rspec in the api container: `lago exec api bundle exec rspec <args>` (an alias agent shells do not load; needs the dev stack's Docker daemon) | `$API/AGENTS.md:8` |
+| run the pinned specs WITHOUT Docker (2026-10-02): `ORACLE_DB=lago_api_test_<you> .claude/skills/reimplementation-kit/scripts/maintainer/oracle.sh run <spec files or file:line>` (Ruby 4.0.6 from conda-forge; one database per person; recipe and hygiene in that skill's `reference/maintainer-oracle.md`). Observed: `spec/services/events/kafka_producer_service_spec.rb` + `spec/services/billable_metrics/aggregations/apply_rounding_service_spec.rb` -> 13 examples, 0 failures, 10 s | `diagnostics-and-tooling` H13 |
 | never use `aggregate_failure` in new tests; prefer `have_received`; run as few tests as possible | `$API/AGENTS.md:212-218` |
 | model spec section order: enums, associations, Clickhouse associations, scopes, validations; ClickHouse associations in their own block with `clickhouse: true` | `$API/AGENTS.md:222-236` |
 | `clickhouse: true` metadata opens network access to `LAGO_CLICKHOUSE_HOST` (48 spec files use it) | `$API/spec/spec_helper.rb:145-146,165-171` |
