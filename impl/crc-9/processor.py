@@ -28,6 +28,8 @@ MAX_AGE_S = float(os.environ.get("EP_RETRY_MAX_AGE_S", str(12 * 3600)))
 PRODUCE_TIMEOUT_S = float(os.environ.get("EP_PRODUCE_TIMEOUT_S", "30"))
 BATCH = int(os.environ.get("EP_BATCH", "500"))
 REFRESH_SET = "subscription_refreshed_v2"
+PROFILE = os.environ.get("EP_PROFILE", "corrected")  # "compat" reproduces the reference (migration testing)
+COMPAT = PROFILE == "compat"
 
 stop = threading.Event()
 
@@ -160,11 +162,11 @@ class Catalog:
             "SELECT id, aggregation_type, recurring, field_name, expression FROM billable_metrics "
             "WHERE organization_id = %s AND code = %s AND deleted_at IS NULL LIMIT 1", (org, code))
 
-    def subscription(self, org, ext_id, t_utc_ms):
+    def subscription(self, org, ext_id, t_us):
         if not valid_uuid(org):
             return None
         try:
-            ts = datetime(1970, 1, 1) + timedelta(milliseconds=t_utc_ms)
+            ts = datetime(1970, 1, 1) + timedelta(microseconds=t_us)
         except OverflowError:
             return None
         return self.query_one(
@@ -291,7 +293,13 @@ class Processor:
     def step(self, fn, code, ingested_ns, rec_label=""):
         """Run one side-effect step. Transient failures are retried in place, then the partition is blocked
         with backoff until the dependency answers; Permanent errors propagate. After the in-place budget a
-        record older than the retry horizon is dead-lettered (RetryExhausted)."""
+        record older than the retry horizon is dead-lettered (RetryExhausted).
+        Compat profile: one attempt, a failure is reported as CompatFailure (reference behaviour)."""
+        if COMPAT:
+            try:
+                return fn()
+            except Transient as e:
+                raise CompatFailure(code, str(e))
         attempt = 0
         backoff = BACKOFF_BASE_S
         while True:
@@ -325,17 +333,22 @@ class Processor:
             if props is not None:
                 copy["properties"] = props
             d["event"] = copy
-            if not ev["transaction_id"]:
+            if not ev["transaction_id"] and not COMPAT:
                 d["raw_event"] = raw.decode("utf-8", errors="replace")
         else:
             d["raw_event"] = raw.decode("utf-8", errors="replace")
-        payload = core.canon(d).encode("utf-8", errors="replace")
+        payload = core.canon(d, PROFILE).encode("utf-8", errors="replace")
+        if COMPAT:
+            try:
+                self.out.send(self.cfg.dlq_topic, None, payload)
+                self.stats["dead"] += 1
+            except (ProduceRejected, Transient) as e:
+                log.error("dead-letter produce failed (compat: dropped): %s", e)
+            return
         while True:
             try:
                 self.sys_step(lambda: self.out.send(self.cfg.dlq_topic, None, payload))
                 break
-            except RetryExhausted:
-                raise
             except ProduceRejected as e:
                 # dead-letter produce refused: SYSTEMIC, never skip the record
                 log.error("dead-letter produce rejected (%s); blocking", e)
@@ -345,24 +358,48 @@ class Processor:
     # ---- one record
 
     def process(self, raw):
+        """Returns True when the record has a durable disposition, False when (compat only) it stays
+        unprocessed."""
         try:
-            ev = core.decode(raw)
+            ev = core.decode(raw, PROFILE)
         except core.Undecodable as e:
+            if COMPAT:
+                return True  # reference: nothing produced, committed
             self.dead_letter(None, raw, "decode_raw_event", "Error decoding raw event", str(e))
-            return
+            return True
         try:
-            t = core.parse_timestamp(ev["timestamp"])
+            t = core.parse_timestamp(ev["timestamp"], PROFILE)
+        except core.NonFiniteTimestamp as e:
+            if COMPAT:
+                return True  # reference: nothing produced, committed
+            self.dead_letter(ev, raw, "build_enriched_event", "Error while converting event to enriched event",
+                             str(e))
+            return True
         except core.InvalidTimestamp as e:
             self.dead_letter(ev, raw, "build_enriched_event", "Error while converting event to enriched event",
                              str(e))
-            return
+            return True
         label = ev["transaction_id"]
         org, ext = ev["organization_id"], ev["external_subscription_id"]
         try:
-            return self.enrich(ev, raw, t, org, ext, label)
+            self.enrich(ev, raw, t, org, ext, label)
+            return True
         except RetryExhausted as e:
             self.dead_letter(ev, raw, "retry_exhausted:" + e.code, "Retries exhausted for " + e.code, e.cause,
                              getattr(e, "props", None))
+            return True
+        except CompatFailure as e:
+            ing = ev["ingested_ns"]
+            if ing is not None and (time.time() - ing / 1e9) < MAX_AGE_S:
+                return False
+            self.dead_letter(ev, raw, e.code, ERROR_TEXT.get(e.code, ""), e.cause, getattr(e, "props", None))
+            return True
+
+    def sub_lookup(self, org, ext, t_ns):
+        """Subscription at an instant. Corrected: ms (both bounds are truncated in SQL). Compat: the event
+        time keeps its sub-millisecond digits (wall clock, EP-D4)."""
+        us = t_ns // 1000 if COMPAT else t_ns // core.MS_NS * 1000
+        return self.catalog.subscription(org, ext, us)
 
     def enrich(self, ev, raw, t, org, ext, label):
         ing = ev["ingested_ns"]
@@ -379,26 +416,25 @@ class Processor:
         props = ev["properties"]
         if expression and expression.strip() and ev["source"] != "http_ruby":
             try:
-                result = expr.evaluate(expression, ev["code"], t["emitted_text"], props)
+                result = expr.evaluate(expression, ev["code"], t["emitted_text"], props, not COMPAT)
             except (expr.EvalError, expr.ParseError) as e:
                 self.dead_letter(ev, raw, "evaluate_expression", "Error evaluating custom expression",
-                                 "expression %r failed: %s" % (expression, e))
+                                 "expression %r failed: %s" % (expression, e), props)
                 return
             props = dict(props)
             props[field] = result
-        value = core.value_text(agg, field, props)
+        value = core.value_text(agg, field, props, PROFILE)
         # subscription
         try:
-            sub = self.step(lambda: self.catalog.subscription(org, ext, t["match_ns"] // core.MS_NS),
+            sub = self.step(lambda: self.sub_lookup(org, ext, t["wall_ns"] if COMPAT else t["match_ns"]),
                             "fetch_subscription", ing, label)
             if sub is None and recurring:
-                now_ms = now_utc_ns() // core.MS_NS
-                sub = self.step(lambda: self.catalog.subscription(org, ext, now_ms), "fetch_subscription", ing,
-                                label)
+                now_ns = now_utc_ns()
+                sub = self.step(lambda: self.sub_lookup(org, ext, now_ns), "fetch_subscription", ing, label)
         except Permanent as e:
             self.dead_letter(ev, raw, "fetch_subscription", "Error fetching subscription", str(e), props)
             return
-        except RetryExhausted as e:
+        except (RetryExhausted, CompatFailure) as e:
             e.props = props
             raise
         sub_id, plan_id = (str(sub[0]), str(sub[1])) if sub else ("", "")
@@ -411,15 +447,19 @@ class Processor:
         }
         if ev["source"]:
             enriched["source"] = ev["source"]
-        payload = core.canon(enriched).encode("utf-8", errors="replace")
+        payload = core.canon(enriched, PROFILE).encode("utf-8", errors="replace")
         key = ("%s-%s" % (org, ev["transaction_id"])).encode("utf-8", errors="replace")
+        due_advance = bool(sub) and not (ev["source"] == "http_ruby" and ev["post_processed"])
+        if COMPAT:
+            return self.deliver_compat(ev, raw, props, org, sub_id, plan_id, metric_id, key, payload, due_advance,
+                                       label)
         try:
             self.sys_step(lambda: self.out.send(self.cfg.enriched_topic, key, payload))
         except ProduceRejected as e:
             self.dead_letter(ev, raw, "produce_rejected", "Enriched record rejected by the broker", str(e), props)
             return
         self.stats["enriched"] += 1
-        if not sub or (ev["source"] == "http_ruby" and ev["post_processed"]):
+        if not due_advance:
             return
         try:
             adv = self.step(lambda: self.catalog.has_advance_charge(org, plan_id, str(metric_id)),
@@ -435,6 +475,39 @@ class Processor:
             e.props = props
             raise
 
+    def deliver_compat(self, ev, raw, props, org, sub_id, plan_id, metric_id, key, payload, due_advance, label):
+        """Reference delivery: no retries; a rejected enriched produce gives a dead letter with an empty code
+        and the in-advance record is still produced; a rejected in-advance produce gives enriched + dead letter."""
+        ing = ev["ingested_ns"]
+        enriched_ok = True
+        try:
+            self.out.send(self.cfg.enriched_topic, key, payload)
+            self.stats["enriched"] += 1
+        except (ProduceRejected, Transient) as e:
+            enriched_ok = False
+            self.dead_letter(ev, raw, "", "", "failed to push to %s topic" % self.cfg.enriched_topic, props)
+        if not due_advance:
+            return
+        try:
+            adv = self.step(lambda: self.catalog.has_advance_charge(org, plan_id, str(metric_id)),
+                            "fetch_pay_in_advance_charge", ing, label)
+        except Permanent as e:
+            adv = False
+        except CompatFailure as e:
+            e.props = props
+            raise
+        if adv:
+            try:
+                self.out.send(self.cfg.advance_topic, key, payload)
+                self.stats["advance"] += 1
+            except (ProduceRejected, Transient) as e:
+                self.dead_letter(ev, raw, "", "", "failed to push to %s topic" % self.cfg.advance_topic, props)
+        try:
+            self.step(lambda: self.flag.write(org, sub_id), "flag_subscription_refresh", ing, label)
+        except CompatFailure as e:
+            e.props = props
+            raise
+
     def send_advance(self, key, payload):
         try:
             self.out.send(self.cfg.advance_topic, key, payload)
@@ -447,6 +520,20 @@ class RetryExhausted(Exception):
     def __init__(self, code, cause):
         super().__init__(code)
         self.code, self.cause = code, cause
+
+
+class CompatFailure(Exception):
+    def __init__(self, code, cause):
+        super().__init__(code)
+        self.code, self.cause = code, cause
+
+
+ERROR_TEXT = {
+    "fetch_billable_metric": "Error fetching billable metric",
+    "fetch_subscription": "Error fetching subscription",
+    "fetch_pay_in_advance_charge": "Error fetching pay in advance charge",
+    "flag_subscription_refresh": "Error flagging subscription refresh",
+}
 
 
 # ------------------------------------------------------------------ main loop
@@ -506,7 +593,7 @@ def run():
     try:
         while not stop.is_set():
             msgs = consumer.consume(BATCH, 0.5)
-            progress = {}
+            results = {}  # (topic, partition) -> [{"offset", "processed"}]
             try:
                 for m in msgs:
                     if m.error():
@@ -515,10 +602,16 @@ def run():
                         continue
                     if stop.is_set():
                         break
-                    proc.process(m.value() or b"")
-                    progress[(m.topic(), m.partition())] = m.offset() + 1
+                    ok = proc.process(m.value() or b"")
+                    results.setdefault((m.topic(), m.partition()), []).append(
+                        {"offset": m.offset(), "processed": ok})
             except Shutdown:
                 pass
+            progress = {}
+            for tp, recs in results.items():
+                off = core.commit_offset(recs, None, PROFILE)
+                if off is not None:
+                    progress[tp] = off
             commit(progress)
     except Exception:
         log.exception("unexpected failure")

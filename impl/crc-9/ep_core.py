@@ -23,6 +23,10 @@ class InvalidTimestamp(Exception):
     pass
 
 
+class NonFiniteTimestamp(InvalidTimestamp):
+    pass
+
+
 class Num:
     """A JSON number kept as its literal text."""
     __slots__ = ("text",)
@@ -254,6 +258,8 @@ def parse_loose_instant(s):
 # ---------------------------------------------------------------- timestamps (EP-D)
 
 _DEC = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
+_NONFINITE = re.compile(r"^[+-]?(nan|inf|infinity)$", re.I)
+_HEXF = re.compile(r"^[+-]?0[xX]([0-9a-fA-F]+\.?[0-9a-fA-F]*|\.[0-9a-fA-F]+)[pP][+-]?\d+$")
 _MAX_SECONDS = Decimal(10) ** 17
 
 
@@ -280,6 +286,11 @@ def parse_timestamp(ts, profile="corrected"):
         if _DEC.match(ts):
             kind = "str"
             text = ts
+        elif _NONFINITE.match(ts):
+            raise NonFiniteTimestamp("non-finite timestamp")
+        elif profile == "compat" and _HEXF.match(ts):
+            kind = "str"
+            text = repr(float.fromhex(ts))
         else:
             r = parse_rfc3339(ts)
             if r is None:
