@@ -3,7 +3,8 @@
 Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on
 top. Verified 2026-10-01 by reading `events-processor/config/kafka/consumer.go`,
 `processors/events_processor/{processor,event_producer_service}.go` and franz-go v1.20.5 (`go.mod:18`), and by
-re-running a kfake probe that drives the repo's `kafka.NewConsumerGroup` (numbers in §4). Paths are relative to
+re-running a kfake probe that drives the repo's `kafka.NewConsumerGroup` (numbers in §4); L8 and L9 added 2026-10-02
+from the `event-accounting-campaign` probe and the kit's `events-processor-spec` scenarios. Paths are relative to
 `events-processor/`. Changing anything here is change class C4: change-control N7 (kfake test of
 `processRecordsAndCommit` + conformance to ADR-001, the accepted delivery contract (DECIDED OD-2 (owner,
 2026-10-02); `event-accounting-campaign` `reference/delivery-options.md`) + owner sign-off).
@@ -41,7 +42,8 @@ Properties that follow from the code:
 - **Unbounded fan-out**: up to 10 000 records per poll (`:168`), each a goroutine hitting the DB pool (200, DB mode =
   dev, `main_processor.go:134`; in memory-cache mode, which production runs (DECIDED OD-1), badger instead) and the
   Redis pool (`PoolSize 10`, `PoolTimeout 4s`, `config/redis/redis.go:38-39`, both modes).
-  Pool timeouts surface as **retryable** failures → loss L1 below.
+  Pool timeouts and refused connections surface as **retryable** failures → loss L1 below; at burst scale with a
+  pool larger than the database's connection budget that is loss L8 (measured).
 - **No context deadlines**: batch ctx is `context.Background()` (`consumer.go:83`), passed unchanged to every
   record (one ctx for the whole batch); gorm calls have no `WithContext`;
   `ProduceSync` (`config/kafka/producer.go:62`) inherits that ctx and franz-go's defaults retry records
@@ -77,6 +79,7 @@ commit on that partition moves past it. The code comment "records will be re-pol
 |---|---|---|---|---|---|
 | JSON unmarshal error (invalid JSON; numeric `precise_total_amount_cents`; `ingested_at` none of `2006-01-02T15:04:05[.fff]`, unix number/string, RFC3339) | `processor.go:49-60` | **yes** | **no** | yes (`CaptureError`) | ERROR `Error unmarshalling message` |
 | success (enriched produced; in-advance / ZADD if applicable) | `processor.go:85-88` | yes | no | no | none (DEBUG only in cache mode) |
+| enriched record cannot be marshalled (`timestamp` `"NaN"` / `"Inf"`: parsing accepts it, `json.Marshal` rejects the non-finite float) | `event_producer_service.go:32-37,77-79`; `processEvent` still returns success (`processor.go:134`) | **yes** | **no** | yes (`CaptureError`) | ERROR `error while marshaling enriched events` → loss L9 |
 | non-retryable failure: `build_enriched_event`, `evaluate_expression`, `fetch_billable_metric` (not found) | `processor.go:63-88` | yes, after the DLQ attempt | yes | if capturable (not-found: no) | ERROR `<error_message>` + `error_code` |
 | retryable failure and `time.Since(ingested_at) < 12h` | `processor.go:74-79` | **no** | no | yes | ERROR … — then see loss L1 |
 | retryable failure and `ingested_at` ≥ 12 h old **or missing** (zero time) | `processor.go:74,82` | yes | yes | yes | ERROR |
@@ -102,6 +105,8 @@ the ZADD. Not-found results are `NonCapturable().NonRetryable()` (`models/billab
 | L5 | partial side effects | enriched is produced before the in-advance check and the ZADD; if those fail retryably the enriched copy exists, the in-advance/refresh are lost under L1, or duplicated on redelivery | `processor.go:110-131` | `event-accounting-campaign` |
 | L6 | value silently changed | `fmt.Sprintf("%v")` on float64: `1000000`→`"1e+06"`, `1e-7`→`"1e-07"`, `12345678901234567890`→`"1.2345678901234567e+19"`, null/missing→`"<nil>"` (verified 2026-10-01); downstream `decimal_value Decimal(38,26) DEFAULT toDecimal128OrZero(value, 26)` (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`, 12 integer digits) then yields 0 for `"<nil>"` and for values ≥ 1e12 (not re-run here: UNVERIFIED in this skill; the ClickHouse probe belongs to `rails-go-parity`) | `enrichment_service.go:114` | `rails-go-parity` (divergence), `event-accounting-campaign` W2 (schema change allowed: DECIDED OD-3) |
 | L7 | time silently shifted | `utils.ToTime` float math: 496/1000 ms-precision strings land 1 ms early (verified 2026-10-01: `ToTime wrong ms: 496/1000 ; ToFloat64Timestamp wrong ms: 0/1000`); RFC3339 branch returns un-normalised time | `utils/time.go:20-23,25-29,48` | `rails-go-parity`, campaign W3 |
+| L8 | **connection exhaustion: L1 at burst scale** | one poll's records run concurrently (up to 10 000 goroutines); with a pool larger than the database grants, Postgres refuses connections (`too many connections for role`), every refused lookup is a retryable failure, the record is withheld, and the next committed batch skips it (L1) | MEASURED 2026-10-02: 200-record burst, role `CONNECTION LIMIT 30`, pool 200 (`processors/main_processor.go:134` default) → 164-170 of 200 LOST in 4 runs (`.claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe -case db-connection-exhaustion`); reference binary: 85-170 of 201 LOST in 9 runs (`events-processor-spec` EPC-30). DB mode only | `event-accounting-campaign` (ADR-001 SYSTEMIC: pause, never commit past) |
+| L9 | non-finite timestamp dropped | `"NaN"` / `"Inf"` pass `strconv.ParseFloat` (`utils/time.go:56-58`), the enriched record cannot be marshalled, nothing is produced, no DLQ, the record is committed: Sentry only. Hex-float strings are accepted as seconds | EXECUTED 2026-10-02: `.claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe -case non-finite-timestamp` → `SENTRY_ONLY` in both modes; kit `events-processor-spec` EPC-08 (rule EP-D6) | `event-accounting-campaign` (ADR-001 PERMANENT; `reimplementation-kit` RBD-4) |
 
 Duplicates (not losses): commit failure, SIGKILL mid-batch, rebalance before commit, group rename (new group starts
 at the earliest offset). They are absorbed only if downstream dedup on `transaction_id` holds (invariant I12, CONDITIONAL: `FINAL` only for

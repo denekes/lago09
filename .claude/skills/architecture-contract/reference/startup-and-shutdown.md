@@ -6,7 +6,11 @@ top. Captured 2026-10-01 with `startup-contract.sh` (binary built with `ep-env.s
 what an EMPTY database gives). Steps SK1-SK9 were captured against a disposable in-process broker (franz-go `kfake`,
 seeded with the 4 dev topics) and `miniredis`, plus the local Postgres for SK5-SK9; to reproduce them pass
 `--broker`/`--redis` pointing at throwaway services (the kfake/miniredis harness lives in `diagnostics-and-tooling`).
-Re-run 2026-10-01 → `SUMMARY steps=17 fails=0`.
+Re-run 2026-10-01 → `SUMMARY steps=17 fails=0`. Orphan CDC group counts (row 5c) come from the re-implementation
+kit's black-box suite run on the reference binary in cache mode (2026-10-02; `--impl-cmd` = the binary that
+`.claude/skills/events-processor-spec/scripts/maintainer/build-go-reference.sh --print-env` names, then
+`.claude/skills/events-processor-spec/scripts/run-suite.sh --mode cache --profile compat`; the observed text prints
+`other_groups=<n>` per scenario).
 Paths below are relative to `events-processor/`.
 
 ## 1. Order of operations in `main()` and `StartProcessingEvents`
@@ -24,7 +28,7 @@ Startup is only partially fail-fast (invariant I14). `Probe` = the `startup-cont
 | 5 | memory-cache mode iff `LAGO_USE_MEMORY_CACHE == "true"` (literal) | `main.go:66-81` | `1`, `TRUE`, `yes` do NOT enable it (S7) | S7 |
 | 5a | `cache.NewCache` (badger in-memory) | `cache/cache.go:36-53` | panic "Error creating the cache" (`main.go:73`) | — |
 | 5b | `LoadInitialSnapshot`: own pgx pool (MaxConns 10) from `DATABASE_URL`, 6 table loaders in parallel, blocking | `cache/cache.go:63-107` | connect failure → panic "Error connecting to the database" (S5) — **before any Kafka check**; a loader SQL error is only logged by gorm and **swallowed** (`cache.go:78-106` return nil) — the process continues with an empty/partial cache (S6) | S5, S6 |
-| 5c | `ConsumeChanges`: 6 CDC consumers (`lago_evp_<model>_<uuid>`) | `cache/cache.go:109-129`, `cache/consumer.go:26-62` | error only if `kgo.NewClient` rejects options; an empty or comma-separated broker string is accepted silently | S6 |
+| 5c | `ConsumeChanges`: 6 CDC consumers (`lago_evp_<model>_<uuid>`), each in a NEW group on every start | `cache/cache.go:109-129`, `cache/consumer.go:26-62` | error only if `kgo.NewClient` rejects options; an empty or comma-separated broker string is accepted silently. The consumers start before steps 6-11, so a start that fails there can leave 0-6 orphan `lago_evp_*` groups on a reachable broker (timing-dependent: whichever consumers joined before the panic; kit rule `events-processor-spec` EP-A3, not compared by its suite). A healthy start adds 6 groups, a restart 6 more (kit cache goldens `other_groups=6` for EPC-00, `other_groups=12` for EPC-21, 2026-10-02) | S6 |
 | 6 | brokers: `LAGO_KAFKA_BOOTSTRAP_SERVERS` split on `,` | `processors/main_processor.go:103-107` | `panic: brokers not found` (S1); plain `slog.Error` + `panic`, not `LogAndPanic`, so **no Sentry event** | S1 |
 | 7 | producers enriched → in-advance → DLQ: topic env required, `kgo.NewClient`, `Ping` | `main_processor.go:55-76,118-131` | `panic: <VAR> variable is required` (S2, SK1, SK2); unreachable broker → `panic: unable to dial: …` (S3); unknown `LAGO_KAFKA_SCRAM_ALGORITHM` → nil `kgo.Opt` → **SIGSEGV in `kgo.validateCfg`, no log line, no Sentry** (S4; `config/kafka/kafka.go:48-64`) | S2, S3, S4, SK1, SK2 |
 | 8 | DB mode only (`config.Cache == nil`): `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` (default 200), pgx pool + gorm (gorm pings) | `main_processor.go:133-150` | non-integer → panic "Error converting max connections into integer" (SK3); unreachable → panic "Error connecting to the database" (SK4); empty `DATABASE_URL` falls back to libpq defaults (observed: unix socket `/var/run/postgresql`, user = OS user) | SK3, SK4 |

@@ -3,7 +3,9 @@
 Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on
 top. Verified 2026-10-01 by reading `events-processor/{main.go,cache/*.go,models/*.go}` and
 `extra/debezium_config.json`, plus scratch probes against the real `cache` package and the binary
-(`startup-contract.sh` S5-S7). Paths relative to `events-processor/` unless they start with `extra/`.
+(`startup-contract.sh` S5-S7). Mode deltas in §1a were executed on 2026-10-02 by the re-implementation kit
+(`events-processor-spec` unit vectors, cited by id). Paths relative to `events-processor/` unless they start with
+`extra/`.
 
 **DECIDED OD-1 (owner, 2026-10-02): production runs `LAGO_USE_MEMORY_CACHE=true`.** Dev runs DB mode (neither
 `LAGO_USE_MEMORY_CACHE` nor `LAGO_DEBEZIUM_TOPIC_PREFIX` is in `.env.development.default` or any compose file
@@ -25,6 +27,7 @@ code-level and binary-smoke VERIFIED, production impact UNVERIFIED). Operator ch
 | Postgres | pgx pool `MaxConns = LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` (default 200), gorm (`processors/main_processor.go:133-150`, `config/database/database.go:24-48`) | snapshot-only pool, `MaxConns 10`, closed after warm-up (`cache/cache.go:63-73`); **no** per-event DB access (`main_processor.go:133` skips the pool) |
 | Billable metric | `FetchBillableMetric` gorm `First` (implicit `SELECT *`) `WHERE organization_id=? AND code=? AND deleted_at IS NULL ORDER BY id LIMIT 1` (`models/billable_metrics.go:59-73`) | `bm:<org>:<code>` point get (`cache/billable_metrics.go:18-30`) |
 | Subscription | SQL copied from Rails `Events::Common#subscription`: `date_trunc('millisecond', started_at) <= ts AND (terminated_at IS NULL OR date_trunc('millisecond', terminated_at) >= ts) ORDER BY terminated_at DESC NULLS FIRST, started_at DESC LIMIT 1`, explicit columns (`models/subscriptions.go:24-52`) | prefix scan `sub:<org>:<external_id>:` + Go emulation of the ordering at **full (µs) precision** (`cache/subscriptions.go:45-117`) |
+| Event time with an RFC 3339 offset | kept with its offset by `ToTime` (`utils/time.go:25-29`) and compared against `timestamp` (no time zone) columns, i.e. as the **wall clock** of that offset (`models/subscriptions.go:32-33`) | compared as an **instant** (Go `time.Time` comparisons, `cache/subscriptions.go:60-65`) |
 | Pay-in-advance check | `SELECT id FROM charges WHERE organization_id=? AND plan_id=? AND billable_metric_id=? AND pay_in_advance IS TRUE AND deleted_at IS NULL LIMIT 1` (`models/charges.go:47-66`) | prefix scan `ch:<org>:<plan>:<bm_id>:` and any `PayInAdvance` (`cache/charges.go:87-102`) |
 | Freshness | read-your-writes from Postgres | snapshot at start + CDC lag |
 | Startup | panics if PG unreachable (`processors/main_processor.go:144-147`) | snapshot connect failure panics (`cache/cache.go:69-72`); **per-table load failures are swallowed** |
@@ -33,6 +36,32 @@ code-level and binary-smoke VERIFIED, production impact UNVERIFIED). Operator ch
 Per-event Postgres cost in DB mode: 1 BM query + 1 subscription query (2 for a recurring BM with no subscription
 at the event time, `enrichment_service.go:57-59`) + 1 charges query (only when a subscription was found and the
 event was not post-processed by the API, `processor.go:115-116`).
+
+## 1a. Behaviour deltas executed by the kit (both modes, 2026-10-02)
+
+Each row ran through this repo's events-processor packages (tree 83e012866f29) behind the kit's `ep-oracle`
+adapter: `events-processor-spec` unit vectors, ids in the table; "Kit corrected" cites `reimplementation-kit` RBD
+ids and is the kit's rebuild target, not a decision for this code. Re-run (maintainer scripts; builds the oracle into
+`$LAGO_SKILLS_CACHE/ep-reference/` on first use):
+```bash
+eval "$(.claude/skills/events-processor-spec/scripts/maintainer/build-go-reference.sh --print-env)"
+python3 .claude/skills/reimplementation-kit/scripts/kitrun.py --areas ep --profile compat \
+  --only 'ep\.match_subscription\.(00[2349]|010|016|017|028|029|032|033)$|ep\.decode\.021$' \
+  --impl-cmd "env LD_LIBRARY_PATH=$EP_REF_LD_LIBRARY_PATH $EP_ORACLE_BIN"
+# expect: 12 PASS lines, SUMMARY kitrun: ... vectors=12 passed=12 ... exit=0   (re-run 2026-10-02)
+```
+
+<!-- evidence-check: off kit-executed rows; each row names its vector ids, re-run with the kitrun block above -->
+| Input | DB mode (dev, self-host) | Memory-cache mode (production) | Kit vectors (DB / cache) | Kit corrected |
+|---|---|---|---|---|
+| event in the `started_at` millisecond, `started_at` = `…00.0005` | matched (ms-truncated bound) | **no subscription** (µs bound) | ep.match_subscription.009 / .010 | ms in both (RBD-17, decided) |
+| `"2025-03-01T00:30:00+01:00"`, subscriptions switching at `2025-03-01T00:00Z` | the NEW one (wall clock 00:30) | the OLD one (instant 23:30Z) | ep.match_subscription.016 / .017 | UTC instant (RBD-16, decided) |
+| decimal string `"…00.001"`, `terminated_at` = `…00.0007` (1 ms after its millisecond) | still attached (`ToTime` lands 1 ms early) | still attached | ep.match_subscription.003 / .004 | not attached (RBD-15, RBD-17) |
+| RFC 3339 `"…00.0008Z"`, `terminated_at` = `…00.0007` | not attached | not attached | ep.match_subscription.028 / .029 | attached (both truncated to ms) |
+| external id `acme` while `acme:eu` (started later) exists | `acme` | **`acme:eu`** (prefix leak, WP8) | ep.match_subscription.032 / .033 | exact equality (RBD-99, proposed) |
+| unknown metric code | DLQ `fetch_billable_metric`, `record not found` | same code, `Key not found` | EPC-03 goldens per mode | text is not a contract (RBD-24) |
+| CDC row whose `updated_at` falls in the same millisecond as the cached row | n/a | row skipped (§3 step 3) | none: code-level (`cache/consumer.go:146`), kit rule EP-N3 | — |
+<!-- evidence-check: on -->
 
 ## 2. What is cached (badger v4 in-memory, default options, logger off: `cache/cache.go:36-53`)
 
@@ -72,7 +101,11 @@ lingers (UNVERIFIED whether Rails allows it).
 3. Apply (`cache/consumer.go:92-175`): `UnmarshalNestedJSON` into a **fresh zero-valued struct** (only fields present
    in the message are set; supports `"properties.pricing_group_keys"`-style tags, `utils/json.go:12-57`) →
    if deleted: delete only when the cached id equals the message id (guards re-created codes) → else skip unless the
-   message `updated_at` (ms) is strictly newer → `SetCache` overwrites the **whole** entry.
+   message `updated_at` is strictly newer **at millisecond precision** → `SetCache` overwrites the **whole** entry.
+   The comparison uses `UnixMilli()` (`cache/billable_metrics.go:68`, `cache/charges.go:73`,
+   `cache/subscriptions.go:168`) and skips on `>=` (`cache/consumer.go:146`), while Postgres and Debezium carry
+   microseconds: a second change of the same row inside one millisecond is skipped, and the cache keeps the first
+   version until the next change or restart (code-level, kit rule EP-N3; no vector exercises it; impact UNVERIFIED).
 4. Debezium shape expected (`extra/debezium_config.json`): unwrap SMT (`ExtractNewRecordState`) with
    `delete.handling.mode: rewrite` (adds `__deleted`, lines 52-54), no tombstones emitted (`tombstones.on.delete:
    false`, line 43; the SMT's `drop.tombstones: false`, line 53, would only matter if some were), JSON without
@@ -112,10 +145,11 @@ returns after a deploy. Re-check: `grep -o 'public.charges.([^)]*)' extra/debezi
 | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS` | main consumer fine; CDC consumers get one bogus seed and log nothing (no logger) | `cache/consumer.go:28-35`; franz-go `parseBrokerAddr` turns `h1:9092,h2:9092` (SplitHostPort fails) into one "IPv6 literal" seed on port 9092 instead of erroring (`franz-go@v1.20.5/pkg/kgo/client.go:745-749`); 8 s run: no CDC error line |
 | secured Kafka (SASL/TLS) | CDC consumers cannot authenticate | `cache/consumer.go:30-35` |
 | subscription created just before its first event | event enriched with no subscription ⇒ no in-advance, no refresh flag | `enrichment_service.go:61-67` (inference) |
-| `external_id` containing `:` | prefix scan leaks: lookup `acme` matches `acme:eu` (verified probe: `prefix leak: lookup external_id=acme matched id=sub-eu external_id=acme:eu`) | `cache/subscriptions.go:46` |
-| event exactly on the start millisecond (`started_at …00.000500`, event `…00.000`) | cache: no match; DB mode `date_trunc(ms)` matches (verified probe: `cache matched=false`) | `cache/subscriptions.go:60-65` vs `models/subscriptions.go:32-33` |
+| `external_id` containing `:` | prefix scan leaks: lookup `acme` matches `acme:eu` (verified probe: `prefix leak: lookup external_id=acme matched id=sub-eu external_id=acme:eu`); EXECUTED by the kit: ep.match_subscription.033 returns the `acme:eu` subscription in cache mode, .032 the `acme` one in DB mode | `cache/subscriptions.go:46` |
+| event exactly on the start millisecond (`started_at …00.000500`, event `…00.000`) | cache: no match; DB mode `date_trunc(ms)` matches (verified probe: `cache matched=false`; EXECUTED by the kit: ep.match_subscription.010 / .009) | `cache/subscriptions.go:60-65` vs `models/subscriptions.go:32-33` |
 | shutdown | `Cache.Wait()` never called; badger may close under a CDC goroutine (UNVERIFIED impact) | `main.go:75`, `cache/cache.go:59-61` |
-| restart | 6 NEW `lago_evp_<model>_<uuid>` groups per process start ⇒ full re-read of every retained CDC topic and 6 orphan groups left per restart per replica | `cache/consumer.go:27`; smoke `consumer_groups: … + 6 lago_evp_<model>_<uuid>` (re-run 2026-10-02) |
+| restart | 6 NEW `lago_evp_<model>_<uuid>` groups per process start ⇒ full re-read of every retained CDC topic and 6 orphan groups left per restart per replica | `cache/consumer.go:27`; smoke `consumer_groups: … + 6 lago_evp_<model>_<uuid>` (re-run 2026-10-02); kit cache goldens `other_groups=6` after one start (EPC-00), `other_groups=12` after one restart (EPC-21) |
+| failed start (broker, producer or Redis check fails after the CDC consumers started) | 0-6 orphan `lago_evp_*` groups (timing-dependent: the consumers may or may not have joined before the panic) | `main.go:77-84` (CDC first, then `processors.StartProcessingEvents`); kit rule EP-A3 (not compared by the suite) |
 | memory | whole tables held in Go slices during warm-up; badger in-memory unbounded; terminated subscriptions kept 1 month (snapshot) / 30 days (CDC); 3 dead filter tables still loaded. Measured (synthetic, see caveat): 1M subscriptions ⇒ RSS ~801-823 MB, Go heap in use 426 MB, 13.4-20.8 s to insert | `models/query_streaming.go:96`, `cache/subscriptions.go:126`; scratch benchmark (below) |
 
 Memory measurement caveat: a scratch program called the real `cache.SetSubscription` 1,000,000 times with

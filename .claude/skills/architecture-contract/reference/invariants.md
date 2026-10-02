@@ -119,6 +119,10 @@ CONTRACT FLAGs as intended.
 - Enforced: `cache/consumer.go:143-156` (skip unless message `updated_at` ms is strictly newer), `:107-121` (delete only
   when the cached id equals the message id).
 - Breaks: stale or resurrected cache entries; deleting a re-created BM code.
+- Caveat (code-level, 2026-10-02): monotonic only at millisecond granularity. `updated_at` is compared as
+  `UnixMilli()` (`cache/charges.go:73`, `cache/billable_metrics.go:68`, `cache/subscriptions.go:168`) with a skip
+  on `>=` (`cache/consumer.go:146`), so a second change of the same row inside one millisecond is skipped and the
+  first version stays cached (kit rule `events-processor-spec` EP-N3; impact UNVERIFIED; `memory-cache.md` §3).
 - Guard: `cache/consumer_test.go` (`SkipUpdate_OlderTimestamp`, `SkipUpdate_SameTimestamp`, `Delete_MatchingID`,
   `Delete_NotInCache`, `UpdateExisting_NewerTimestamp`).
 
@@ -127,8 +131,10 @@ CONTRACT FLAGs as intended.
 - Gaps (verified with `startup-contract.sh`): empty raw topic / consumer group accepted (SK9), empty
   `LAGO_DEBEZIUM_TOPIC_PREFIX` accepted (S6), snapshot table errors swallowed (S6), unknown SCRAM algorithm
   SIGSEGVs without log/Sentry (S4), `LAGO_USE_MEMORY_CACHE=1` silently means DB mode (S7), `brokers not found` is
-  never sent to Sentry (S1), and in cache mode Postgres is checked before the brokers (S5). Other skills cite this
-  list as "partially fail-fast (architecture-contract I14)".
+  never sent to Sentry (S1), and in cache mode Postgres is checked before the brokers (S5). Also (kit rule
+  `events-processor-spec` EP-A3, not a `startup-contract.sh` step): the CDC consumers start before the broker and
+  Redis checks, so a failed start can leave 0-6 orphan CDC groups (`startup-and-shutdown.md` row 5c). Other skills
+  cite this list as "partially fail-fast (architecture-contract I14)".
 - Guard: none in CI; `startup-contract.sh` (exit 0 = documented contract still holds).
 
 ### I15 Classification: missing BM ⇒ DLQ (non-retryable, not captured); missing subscription ⇒ still enriched — HOLDS
