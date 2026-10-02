@@ -1,13 +1,16 @@
 # Lago skill library (`.claude/skills/`)
 
-Sixteen skills for working in this umbrella repo: the Go `events-processor/`, the CI and release
-workflows, docker compose dev and self-host, `deploy/`, and the docs. A skill loads from the
+Nineteen skills. Sixteen are for working in this umbrella repo: the Go `events-processor/`, the CI
+and release workflows, docker compose dev and self-host, `deploy/`, and the docs. Three form the
+re-implementation kit (`reimplementation-kit`, `events-processor-spec`, `billing-engine-spec`): a
+behaviour specification plus conformance vectors for rebuilding or re-platforming the events-processor
+and the in-scope lago-api billing engine without their source. A skill loads from the
 `description` in its `SKILL.md` frontmatter. This README is not loaded automatically. It is the
 index for people and agents.
 
 - **If the Skill tool does not list a skill, read `.claude/skills/<name>/SKILL.md` directly.** The
   session listing is a snapshot with a size budget. Descriptions are kept to 600 characters or fewer
-  so that all 16 fit.
+  so that all 19 fit.
 - **HEAD convention.** Code facts are as of `5308258` (events-processor tree `83e012866f29`). The
   working branch may carry skills-only commits on top. `5308258` is the head of the fork. Upstream
   `getlago/lago` main is `a0de065` (2026-09-29), and its gitlinks are identical. Claims about lago-api
@@ -19,7 +22,10 @@ index for people and agents.
   change is acceptable; OD-4 a paired PR is needed only in repos that depend on the changed
   contract (`change-control` K1-K10 dependents); OD-5 the Docker-free `ep-test.sh` is an accepted
   pre-PR gate. OPEN and urgent: OD-1b, the production Debezium column list and CDC Kafka
-  auth/brokers. DEFAULT APPLIED: OD-20, memory-cache hardening is campaign W6.
+  auth/brokers. DEFAULT APPLIED: OD-20, memory-cache hardening is campaign W6. DECIDED OD-24: the
+  kit's clean-room test runs from a pack-only branch `kit-pack-v1` in fresh remote sessions. PROPOSED
+  (open): OD-21 the rebuild-decision batch (`reimplementation-kit` RBD rows marked "proposed"), OD-22
+  retry-topic naming, OD-23 legal review of the kit and the lago-expression licence.
 - **Postgres after a restart.** The sandbox Postgres 16 does not survive a container restart. Run
   `pg_isready -d postgres://lago:lago@localhost:5432/lago`. If it fails, run `pg_ctlcluster 16 main start`.
   Role and database `lago`/`lago` must exist (`build-and-env` "Postgres for tests"; the symptom when they
@@ -58,12 +64,15 @@ Typical chains:
 - An error: `debugging-playbook`, then the owning skill it names, then the `change-control` gate for the fix.
 - A code change: `architecture-contract` and `failure-archaeology`, then `validation-and-qa`, then
   `change-control` (its "Pre-PR gate for events-processor code").
-- An owner decision: the register is `change-control` §9 (OD-1..OD-20 plus OD-1b: decision or
+- A rebuild or re-platform: `reimplementation-kit` (method, vector format, `kitrun.py`, grading), then
+  `events-processor-spec` and/or `billing-engine-spec` for the behaviour; `reimplementation-kit`
+  `reference/rebuild-decisions.md` says where the kit expects as-is (compat) vs corrected behaviour.
+- An owner decision: the register is `change-control` §9 (OD-1..OD-24 plus OD-1b: decision or
   default, who decides, record or closing evidence). Cite a decided one as "DECIDED OD-n (owner,
   <date>)" and an open one as "OPEN DECISION OD-n (owner)". Raise a new one as a GitHub issue titled
   "OD-n: <topic>".
 
-## The 16 skills (one line each)
+## The 19 skills (one line each)
 
 <!-- evidence-check: off index table; each skill carries its own evidence -->
 | Skill | Owns | Not for |
@@ -84,6 +93,9 @@ Typical chains:
 | `run-and-operate` | variants, bring-up runbooks, output map, events-processor ops, partitioning, monitoring | variable meaning, images |
 | `security-and-supply-chain` | insecure defaults, TLS, secrets in history (counts only), pinning, PII, C7 checklist | config meaning, release |
 | `validation-and-qa` | evidence per class, baselines (235 PASS, 47.4% gated coverage, 21 lint issues), test conventions, harness defects | toolchain, probes |
+| `reimplementation-kit` | kit method, vector format and adapter protocol, `kitrun.py` and `validate-vectors.py`, grading thresholds, rebuild decisions RBD-1..RBD-106, the KQ register; maintainer-only: the pinned lago-api oracle (`scripts/maintainer/oracle.sh`), holdout and pack tools | the behaviour itself (spec skills), working on this repo's code |
+| `events-processor-spec` | neutral behaviour spec of the events-processor (EP-* rules: wire formats, processing, delivery and failures, memory-cache mode), the black-box conformance suite EPC-00..EPC-34 (`run-suite.sh --impl-cmd`), `ep.*` unit vectors | as-is code reading (`architecture-contract`), fixing this repo (`event-accounting-campaign`) |
+| `billing-engine-spec` | neutral behaviour spec of the in-scope lago-api billing engine in 14 chapters (BE-* rules: domain, ingestion, expressions, aggregation, pricing, periods, invoices, credit notes, wallets, progressive billing and alerts, REST API, webhooks, clock), unit vectors and `scn.*` end-to-end scenarios | lago-api source questions (`domain-reference`), Go/Rails contracts (`rails-go-parity`) |
 <!-- evidence-check: on -->
 
 ## Foundation scripts
@@ -120,6 +132,8 @@ rebuilt on demand. It was about 4 GB on 2026-10-02.
 | `golangci-cache/` | `baseline.sh` | `GOLANGCI_LINT_CACHE` |
 | `tools/actionlint-<v>/`, `tools/shellcheck-<v>/` | `release-and-images` `actionlint-local.sh` | pinned linters (actionlint 1.7.7, shellcheck 0.11.0) |
 | `rails-go-parity/lago-expression.git` | `parity-constants.sh` | lago-expression history for the expression-version rows |
+| `lago-api-run@591ae90/`, `k7-state/` (`redis/`, `ch/`, `runs/`, `ch.lock`, `bundle.lock`), `rubies/`, `micromamba-root/` | `reimplementation-kit` `scripts/maintainer/oracle.sh` | the maintainer oracle: a writable lago-api copy at the pin with its bundle, Ruby 4.0.6 from conda-forge, a private Redis on :6391 and ClickHouse on :8123, run logs. About 2.9 GB |
+| `ep-reference/<tree>/`, `epconf-bin/<hash>/`, `epconf-runs/`, `epconf-regen/`, `epconf-selftest-venv/` | `events-processor-spec` `run-suite.sh` and its maintainer scripts | the Go reference build of the events-processor tree, the conformance runner binary, suite runs and golden regeneration scratch |
 <!-- evidence-check: on -->
 
 ## ID registry (one owner per prefix)
@@ -130,22 +144,25 @@ Cite an ID from another skill as `<skill> <ID>`, for example `change-control N7`
 <!-- evidence-check: off registry table; ranges were read from the skill files with grep on 2026-10-02 -->
 | Owner | Prefixes |
 |---|---|
-| `change-control` | C0-C7 change classes; N1-N13 non-negotiables; K1-K10 cross-repo contracts; OD-1..OD-20 and OD-1b owner decisions (§9; OD-10..OD-15 were release-and-images REL-1..REL-6); script rule ids G1-G5 (`precommit-guard.sh`), PS1-PS5 (`pin-sync-check.sh`), M1-M7 (`commit-msg-check.sh`) |
+| `change-control` | C0-C7 change classes; N1-N13 non-negotiables; K1-K10 cross-repo contracts; OD-1..OD-24 and OD-1b owner decisions (§9; OD-10..OD-15 were release-and-images REL-1..REL-6); script rule ids G1-G5 (`precommit-guard.sh`), PS1-PS5 (`pin-sync-check.sh`), M1-M7 (`commit-msg-check.sh`) |
 | `failure-archaeology` | A-N events-processor chains; X1-X13 infra chains |
-| `architecture-contract` | I1-I15 invariants; L1-L7 loss modes; WP1-WP26 weak points; D1-D21 design decisions; startup-contract probe ids S0-S7 and SK1-SK9 |
-| `rails-go-parity` | P1-P34 contract rows (each maps to a change-control K#); DR1-DR8 pinned-SHA drift items |
-| `domain-reference` | LC1-LC17 lifecycle steps; MC1-MC17 misconceptions; E1-E7 worked-example events |
+| `architecture-contract` | I1-I15 invariants; L1-L9 loss modes; WP1-WP28 weak points; D1-D21 design decisions; startup-contract probe ids S0-S7 and SK1-SK9 |
+| `rails-go-parity` | P1-P38 contract rows (each maps to a change-control K#); DR1-DR8 pinned-SHA drift items |
+| `domain-reference` | LC1-LC17 lifecycle steps; MC1-MC28 misconceptions; E1-E7 worked-example events |
 | `docs-and-writing` | SC-01..SC-42 stale claims; S1-S12 style rules; T1-T3 trust levels |
 | `debugging-playbook` | T1-T16 traps; E1-E8 events-processor sections; BT1-BT14 build/test lookup rows; DEV1-DEV14 dev rows; CI1-CI5; RD1-RD6 release-day rows; SH1-SH4 self-host rows; `explain-error.sh` entry ids such as `start-brokers` |
 | `build-and-env` | B1-B15 trap reproductions; trap-table rows 5.1-5.20 |
 | `run-and-operate` | R1-R7 runbooks; DC1-DC10, DS1-DS11 defect rows; PD1-PD5 partitioning defects |
 | `security-and-supply-chain` | SD1-SD13 self-host insecure defaults |
 | `validation-and-qa` | HD1-HD7 harness defects |
-| `diagnostics-and-tooling` | H1-H11 harness catalogue rows |
-| `event-accounting-campaign` | W1-W6 workstreams; ADR-001 (delivery contract) |
+| `diagnostics-and-tooling` | H1-H13 harness catalogue rows |
+| `event-accounting-campaign` | W1-W6 workstreams; ADR-001 (delivery contract); ledger fault cases 1-16 (15-16 opt-in) |
 | `research-methodology` | RM-<id> hypothesis cards; CC1-CC8, CD1-CD3, CM1-CM3, CV1-CV3 conflict cases |
 | `config-and-flags` | GAP1-GAP6 `env-crossref.sh` gap codes |
 | `release-and-images` | all-in-one "break 1..5" |
+| `reimplementation-kit` | RBD-1..RBD-106 rebuild decisions (`reference/rebuild-decisions.md`); KQ-n kit questions; CRC-1..CRC-10 clean-room components; vector ids `<area>.<file>.<op>.NNN[x]` (an `x` suffix is a corrected twin) |
+| `events-processor-spec` | EP-<letter><n> rules (e.g. EP-H8); EPC-00..EPC-34 conformance scenarios |
+| `billing-engine-spec` | BE-DM, BE-EV, BE-EX, BE-AG, BE-PR, BE-SP, BE-IV, BE-CN, BE-WL, BE-PB, BE-AL, BE-API, BE-WH, BE-CK, BE-IF rules (one prefix per chapter); `scn.<topic>.<name>.NNN` scenarios |
 <!-- evidence-check: on -->
 
 Letters overlap across skills (T# in docs-and-writing and debugging-playbook, E# in domain-reference
@@ -167,8 +184,14 @@ Update triggers. Re-verify the owning skills when one of these happens:
 - a workflow, Dockerfile or compose file changes: `release-and-images`, `run-and-operate`,
   `security-and-supply-chain`, `build-and-env`;
 - a doc changes: `docs-and-writing` (`doc-drift-check.sh`, `docs-to-recheck.sh`);
-- an owner decides an OD-n: `change-control` §9 first, then every skill that cites that OD;
-- the HEAD convention moves to a new code commit: the as-of line of all 16 SKILL.md files.
+- an owner decides an OD-n: `change-control` §9 first, then every skill that cites that OD; an OD-21
+  ruling flips the named `reimplementation-kit` RBD rows and their corrected vectors from `proposed` to
+  `decided`;
+- the lago-api pin moves: re-run every billing vector and scenario against the new oracle
+  (`reimplementation-kit` "update triggers"), triage each diff as a behaviour change or a kit defect, and
+  re-mint; events-processor code changes: re-run the conformance suite against the new reference
+  (`events-processor-spec`, goldens only through its reviewed regeneration);
+- the HEAD convention moves to a new code commit: the as-of line of all 19 SKILL.md files.
 
 Re-verify the whole library (all commands are read-only):
 
@@ -190,10 +213,14 @@ grep -rhoE '\.claude/skills/[a-z0-9-]+/scripts/[A-Za-z0-9_./-]*[A-Za-z0-9_]' .cl
 .claude/skills/build-and-env/scripts/doctor.sh && .claude/skills/build-and-env/scripts/ep-test.sh
 .claude/skills/validation-and-qa/scripts/baseline.sh
 .claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline
+# re-implementation kit: vector format, gates and its own runners
+python3 .claude/skills/reimplementation-kit/scripts/validate-vectors.py --gate --rule-coverage
+.claude/skills/reimplementation-kit/scripts/kit-selftest.sh
 ```
 
 Expected: no Python error, no `SYNTAX` or `MISSING` lines, `explain-error` `self-test: OK`, `chain.sh`
-exit 0, `doctor: 0 FAIL(s)`, `SUMMARY baseline: 0 FAIL`, `scoreboard: moved=0 unmeasured=0`.
+exit 0, `doctor: 0 FAIL(s)`, `SUMMARY baseline: 0 FAIL`, `scoreboard: moved=0 unmeasured=0`,
+`SUMMARY validate-vectors: ... errors=0`, `SUMMARY kit-selftest: steps=7 pass=7 fail=0 skip=0`.
 
 To add a skill:
 
