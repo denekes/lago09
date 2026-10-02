@@ -179,6 +179,22 @@ including customer `properties` (PII: `security-and-supply-chain`).
   sets 10 via `eventsProcessor.databasePool`). In memory-cache mode (production, DECIDED OD-1) Postgres sees
   only the 10-connection snapshot pool at start (cache/cache.go:63-73); each replica then holds a full cache
   and its own 6 CDC groups (`memory-cache-ops.md` §3-§4).
+- DB-mode sizing rule: pool × replicas + every other client of the database (lago-api `DATABASE_POOL` per
+  api/worker/clock process, default 10 at `$API/config/database.yml:89-99`; pghero; migrations; a Debezium
+  slot) ≤ `max_connections` minus reserved slots, and ≤ any `CONNECTION LIMIT` on the database or role
+  (formula: `config-and-flags` `reference/events-processor-env.md` §2a). Why: one poll hands up to 10,000
+  records to as many goroutines (consumer.go:168), so a burst opens connections up to the pool cap at once.
+  Above the budget Postgres answers SQLSTATE 53300, the lookup fails retryably and a later commit skips the
+  record: `events-processor-spec` EPC-30 (reference binary, pool 200 vs a 30-connection limit) lost 85-170 of
+  201 records in nine kit runs; re-run 2026-10-02 with
+  `bash .claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd "$EP_REF_BIN" --impl-env LD_LIBRARY_PATH=$EP_REF_LD_LIBRARY_PATH --mode db --profile corrected --only EPC-30`
+  (variables from `.claude/skills/events-processor-spec/scripts/maintainer/build-go-reference.sh --print-env`):
+  170 of 201 lost. At or below the cap pgxpool queues lookups instead (config/database/database.go:24-33;
+  EPC-21 caps the pool at 20 and loses nothing in a 200-record burst). Check the budget before scaling
+  (dev; prints no secret, not run here):
+  `docker compose -f docker-compose.dev.yml exec db psql -U lago -c 'SHOW max_connections' -c 'SELECT datname, usename, count(*) FROM pg_stat_activity GROUP BY 1,2'`.
+  Dev is safe (pool 200, `.env.development.default:33`, vs dev `max_connections = 1000`,
+  `scripts/postgresql.conf:15`); a bare binary at 200 against a stock Postgres (100) is not.
 - A fetch error other than context cancellation panics the process (consumer.go:175-183): rely on the
   restart policy (`restart: unless-stopped` in dev).
 

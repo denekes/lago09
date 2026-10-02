@@ -47,7 +47,7 @@ nil: see SKILL.md section 5). Line refs: `DEF:n` = `.env.development.default`, `
 | `DATABASE_TEST_URL` | `…/lago_test` | – | – | `docker-compose.dev.yml:187` | `$API/config/database.yml:62-71` | dev only |
 | `REDIS_URL` | `redis://redis:6379` | `redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}` | same | DEF:25 root:22 loc:25 lit:28 prd:28 run:15 | `$API/lib/lago/redis_config_builder.rb:54` (Sidekiq, `VERIFY_NONE`), `$API/config/cable.yml` fallback | `rediss://` scheme = TLS for lago-api |
 | `REDIS_PASSWORD` | – | `""` | `""` | root:23 loc:26 lit:29 prd:29 | `redis_config_builder.rb:66` (`.presence`) | bundled redis never runs `--requirepass` in root/deploy |
-| `LAGO_REDIS_CACHE_URL` | `redis://redis:6379` | `redis://${LAGO_REDIS_CACHE_HOST:-redis}:${LAGO_REDIS_CACHE_PORT:-6379}` | same | DEF:28 root:49 loc:50 lit:53 prd:53 | `redis_config_builder.rb:74,95`; `$API/clock.rb:55` (gates wallet refresh) | always non-empty in ROOT/deploy, so the cache and wallet refresh are always ON there |
+| `LAGO_REDIS_CACHE_URL` | `redis://redis:6379` | `redis://${LAGO_REDIS_CACHE_HOST:-redis}:${LAGO_REDIS_CACHE_PORT:-6379}` | same | DEF:28 root:49 loc:50 lit:53 prd:53 | `redis_config_builder.rb:74,95`; `$API/clock.rb:55` (gates wallet refresh, together with `LAGO_MEMCACHE_SERVERS`, section L) | always non-empty in ROOT/deploy, so the cache and wallet refresh are always ON there; RUN sets neither cache variable (`docker/runner.sh:5-21`), so the single image never schedules the wallet refresh |
 | `LAGO_REDIS_CACHE_PASSWORD` | `""` | `""` (root:50 has no `:-` -> compose warning) | `""` | DEF:29 root:50 loc:51 lit:54 prd:54 | `redis_config_builder.rb:86` | |
 | `LAGO_REDIS_CACHE_DB` | `3` | – | – | DEF:30 | `$API/config/environments/development.rb:30` (dev only) | incident `3cd78f1`: EP once used DB 0 vs api DB 3 |
 | `LAGO_REDIS_CABLE_URL` | – | `""` | `""` | root:51 loc:52 lit:55 prd:55 (added `36327d2`) | `$API/config/cable.yml:3,11,16` = `ENV.fetch("LAGO_REDIS_CABLE_URL", ENV.fetch("REDIS_URL", …))` | **trap**: `ENV.fetch` keeps `""`, so the `REDIS_URL` fallback is NOT used in ROOT/deploy (verified Ruby semantics). redis-client 0.26.3 (`$API/Gemfile.lock`) parses `""` as a unix-socket URL with an empty path (`RedisClient::URLConfig.new("")` -> path `""`, run against the gem source); the end-to-end effect on ActionCable is UNVERIFIED (CANDIDATE defect, cross-repo) |
@@ -79,7 +79,7 @@ nil: see SKILL.md section 5). Line refs: `DEF:n` = `.env.development.default`, `
 | `LAGO_CLICKHOUSE_ENABLED` | `true` | – | – | – | MIXED: `=false` leaves the 12 `.present?`/`.blank?` sites ON (incl. `$API/app/services/events/stores/store_factory.rb:10`) and turns OFF org creation (`Boolean.cast`, `$API/app/services/organizations/create_service.rb:17`) and the 2 `== "true"` seeds |
 | `LAGO_CLICKHOUSE_MIGRATIONS_ENABLED` | `true` | – | – | – | `.present?` `$API/config/database.yml:56,82,111,148`; `== "true"` `$API/scripts/start.sh:10`, `$API/lib/tasks/lago.rake:12` |
 | `LAGO_DISABLE_SEGMENT` | `true` | `""` (root:52, no `:-`) | `""` | DEMO `true` | `== "true"` `$API/config/initializers/analytics_ruby.rb:3` -> telemetry ON by default in ROOT/deploy |
-| `LAGO_DISABLE_WALLET_REFRESH` | `true` | `""` | `""` | – | `== "true"` `$API/clock.rb:56` |
+| `LAGO_DISABLE_WALLET_REFRESH` | `true` | `""` | `""` | – (no cache variable either: never scheduled) | `== "true"` `$API/clock.rb:56`; only consulted when a cache variable is present (`:55`, section L) |
 | `LAGO_DISABLE_PDF_GENERATION` | `false` (+ dev front `:110`) | `false` (back root:55 + front root:78) | **missing** | DEMO `true` | `Boolean.cast` `$API/app/services/invoices/generate_pdf_service.rb:100` (+3); front `.env.sh:13` |
 | `LAGO_DISABLE_SIGNUP` | front only (`docker-compose.dev.yml:109`) | `false` (backend only) | `false` (backend only) | – | `ENV.fetch(…,"false") == "true"` `$API/app/services/users_service.rb:45`; front `.env.sh:10` — ROOT/deploy never pass it to the front |
 | `LAGO_DISABLE_SSL` | – | – | – | RUN `true` (run:11) | `Boolean.cast` `$API/config/environments/production.rb:34` (`assume_ssl`) |
@@ -187,3 +187,21 @@ service). Nothing else (no `SECRET_KEY_BASE`, no encryption keys).
 In ROOT/deploy they cannot be set from `.env`: an anchor passes only the keys it lists, so you must add the
 key to `x-backend-environment` (checklist in SKILL.md section 8). Full list:
 `.claude/skills/config-and-flags/scripts/env-crossref.sh --gaps-only`.
+
+## L. lago-api clock and batch knobs (all in GAP5: no wrapper plane passes them)
+
+Read at the pin 591ae90; Ruby results checked with Ruby 3.3.6 on 2026-10-02 (`"".split(",") == []`,
+`"".to_i == 0`, `"1, 15,x".split(",").map(&:to_i) == [1, 15, 0]`). The clock schedule itself was EXECUTED by
+the kit: `billing-engine-spec` clock.jobs_due.001 (no cache setting: no wallet refresh), clock.jobs_due.002
+(cache set: refresh present), clock.jobs_due.003 (custom activity interval, lifetime refresh disabled).
+
+| Variable | Default | Consumer + idiom | Effect and traps |
+|---|---|---|---|
+| `LAGO_MEMCACHE_SERVERS` | unset | `.present?` `$API/clock.rb:55`; `ENV[…].split(",")` `$API/config/environments/production.rb:53-54` (also staging) | comma list of memcache servers: becomes the Rails cache store (wins over `LAGO_REDIS_CACHE_URL`) AND, like `LAGO_REDIS_CACHE_URL`, enables the wallet ongoing-balance refresh schedule. With neither set the refresh is never scheduled (`reimplementation-kit` RBD-79; ruling proposed: always schedule) |
+| `LAGO_WALLET_ONGOING_BALANCE_REFRESH_INTERVAL_SECONDS` | 300 s | `.presence \|\| 5.minutes`, `.to_i.seconds` `$API/clock.rb:57-59` | see SKILL.md section 4 |
+| `LAGO_DISABLE_WALLET_REFRESH` | unset | `== "true"` `$API/clock.rb:56` | section D; only consulted when a cache variable is present |
+| `LAGO_LIFETIME_USAGE_REFRESH_INTERVAL_SECONDS` | 300 s | `.presence \|\| 5.minutes`, `.to_i.seconds` `$API/clock.rb:46-47` | integer seconds; `"5m"` = 5 s (SKILL.md section 5 trap 5) |
+| `LAGO_DISABLE_LIFETIME_USAGE_REFRESH` | unset | `== "true"` `$API/clock.rb:48` | the schedule still ticks but enqueues nothing |
+| `LAGO_SUBSCRIPTION_ACTIVITY_PROCESSING_INTERVAL_SECONDS` | 60 s | `.presence \|\| 1.minute`, `.to_i.seconds` `$API/clock.rb:33-34` and `$API/app/services/usage_monitoring/process_subscription_activity_service.rb:69-71` | the clock period, and in the worker the delay of the lifetime-usage alert job (`set(wait:)`, `:47`): set it on the clock AND the workers |
+| `LAGO_SUBSCRIPTION_TERMINATION_ALERT_SENT_AT_DAYS` | `"15,45"` | `ENV.fetch(…, "15,45").split(",").map(&:to_i)` `$API/app/jobs/clock/subscriptions_to_be_terminated_job.rb:38-39` | days before termination at which the alert is sent. Empty-but-set `""` = no alert days at all (`ENV.fetch` keeps `""`); a junk element becomes `0` = the termination day itself |
+| `LAGO_EVENTS_BATCH_MAX_LENGTH` | 100 | `ENV.fetch(…, 100).to_i` `$API/app/services/events/create_batch_service.rb:5`, checked `:23` | max events per `POST /api/v1/events/batch`. Empty-but-set `""` = 0, so every non-empty batch fails with `too_many_events` (`:23-25`; inferred from code + Ruby semantics, not run). Never ship `LAGO_EVENTS_BATCH_MAX_LENGTH=` |

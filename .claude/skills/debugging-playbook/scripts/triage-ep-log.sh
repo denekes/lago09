@@ -147,12 +147,14 @@ BEGIN { SEP = "\034" }
       else if (code == "fetch_subscription" || code == "fetch_pay_in_advance_charge" || code == "flag_subscription_refresh") retry[code]++
       else unknown_code[code]++
       codeerr[code SEP short_err(code, err)]++
+      if (index(err, "SQLSTATE 53300") > 0) conn53300++
       explain_once("C|" code "|" substr(err, 1, 60), json)
     }
     if (msg == "Error unmarshalling message") { loss_unmarshal++; lossex["u" SEP trunc(err, 110)]++; handled = 1; explain_once("U|" substr(err, 1, 60), json) }
     if (index(msg, "No commitable record in batch") == 1) { loss_nocommit++; handled = 1; explain_once("N", json) }
     if (msg == "record had a produce error while synchronously producing") { loss_produce++; lossex["p" SEP trunc(err, 110)]++; handled = 1; explain_once("P|" substr(err, 1, 60), json) }
     if (msg == "error while pushing to dead letter topic") { loss_dlq++; handled = 1; explain_once("D", json) }
+    if (msg == "error while marshaling enriched events" || msg == "error while marshaling charged in advance events") { loss_marshal++; handled = 1; explain_once("M|" msg, json) }
     if (msg == "Fetch error" && pkg != "cache") { fetch_panic++; handled = 1; explain_once("F|" substr(err, 1, 60), json) }
     if (index(msg, "Error when committing offets to kafka") == 1) { commit_err++; handled = 1; explain_once("K", json) }
     if (pkg == "cache" && msg == "Fetch error") { cdc_fetch++; handled = 1; explain_once("CF|" model, json) }
@@ -218,6 +220,7 @@ END {
       tretry += r
     }
     if (tretry > 0) printf "  NOTE: %d retryable line(s): not committed and not on the DLQ while ingested_at < 12 h; skipped forever if a later batch on the partition commits (loss-retryable-skip)\n", tretry
+    if (conn53300 > 0) printf "  NOTE: %d line(s) carry SQLSTATE 53300 (Postgres connection limit): DB pool x replicas above the database budget (loss-db-connections)\n", conn53300
   }
 
   print "== silent-loss signals"
@@ -227,6 +230,7 @@ END {
   printf "  %-62s %5d\n", "produce failed -> DLQ row with empty error_code", loss_produce
   top_print(lossex, "p" SEP, TOP, "      e.g.")
   printf "  %-62s %5d\n", "DLQ produce failed too -> Sentry only, LOST", loss_dlq
+  printf "  %-62s %5d\n", "not serialisable (NaN/Inf timestamp) -> committed, NO DLQ", loss_marshal
   printf "  %-62s %5d\n", "main consumer fetch error -> process panic", fetch_panic
   printf "  %-62s %5d\n", "offset commit errors (redelivery = duplicates)", commit_err
 
@@ -263,7 +267,7 @@ END {
   no = 0; for (k in other) no++
   if (no == 0) print "  none"; else top_print(other, "", TOP + 2, "  ")
 
-  sig = loss_unmarshal + loss_nocommit + loss_produce + loss_dlq + fetch_panic + tretry + ninc + nzero + emptytopic
+  sig = loss_unmarshal + loss_nocommit + loss_produce + loss_dlq + loss_marshal + fetch_panic + tretry + ninc + nzero + emptytopic
   printf "FINDINGS %d\n", findings + sig > FLAGS
   printf "EPLINES %d\n", ep + ep_plain > FLAGS
 }

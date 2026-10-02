@@ -148,6 +148,7 @@ events-processor. Entry `./runner.sh` (Dockerfile:66), `VOLUME /data` (:64).
 | Redis data dir: `sed s#DATA_DIR#...` targets Debian's stock `/etc/redis/redis.conf` which has no placeholder; `docker/redis.conf` is no longer copied (since `9eb8c3b`) | runner.sh:40; docker/redis.conf:22 | UNVERIFIED runtime |
 | PDF: only if docker.sock is mounted; starts a sibling `lago-pdf` (`getlago/lago-gotenberg:8`, host port 3001); app reaches it at `http://host.docker.internal:3001`, which Linux Docker does not resolve without `--add-host=host.docker.internal:host-gateway` (inferred) | runner.sh:19,52-60 | mounting docker.sock = root on the host |
 | Migrations and seeding log to `/data/db.log`; failures are not checked before `foreman start` | runner.sh:84-93 | verified by reading |
+| No `LAGO_REDIS_CACHE_URL` or `LAGO_MEMCACHE_SERVERS` in the default map (only `REDIS_URL`), so the clock never schedules `refresh_wallets_ongoing_balance` and wallet ongoing balances go stale; the agentic demo inherits this. Fix: put a cache URL in `/data/.env` (CANDIDATE `LAGO_REDIS_CACHE_URL=redis://localhost:6379/1`, not run) | runner.sh:5-21; `$API/clock.rb:55-57`; EXECUTED gate: `billing-engine-spec` clock.jobs_due.001 (`reimplementation-kit` RBD-79) | verified by reading + kit vector |
 | Postgres major jumped 15 → 17 in `b6b98c8` (2025-09-15) | git show b6b98c8 -- docker/Dockerfile | upgrade trap if data was persisted |
 
 ## 6. events-processor outside compose
@@ -160,7 +161,9 @@ events-processor. Entry `./runner.sh` (Dockerfile:66), `VOLUME /data` (:64).
   `terminationGracePeriodSeconds` (Kubernetes default 30 s),
   `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` = `eventsProcessor.databasePool` (default 10), and
   without `LAGO_REDIS_STORE_TLS` or `LAGO_USE_MEMORY_CACHE`. With `ENV=production` the Redis store TLS default is ON
-  (main_processor.go:84-91). Whether Lago's own production uses this chart: UNVERIFIED.
+  (main_processor.go:84-91). Whether Lago's own production uses this chart: UNVERIFIED. So a Helm self-host
+  runs DB mode with a 10-connection pool: re-check the pool sizing rule (`events-processor-ops.md` §6) before
+  raising `databasePool` or the replica count; the binary's own default (200) is the risky one.
 
 ## 7. connectors/ (Redpanda Connect pipelines; not runnable from this repo as shipped)
 

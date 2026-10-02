@@ -48,7 +48,7 @@ DECIDED OD-1 (owner, 2026-10-02)) · **DEPR** = deprecated behaviour · **DEAD**
 | `LAGO_KAFKA_USERNAME` | `""` | only with SCRAM | raw | SCRAM user | `main_processor.go:39,114`; `kafka.go:51-54` | `""` (:83) | PIPE (auth) |
 | `LAGO_KAFKA_PASSWORD` | `""` | only with SCRAM | raw | SCRAM password | `main_processor.go:35,115` | `""` (:84) | PIPE (auth) |
 | `DATABASE_URL` | `""` -> pgx falls back to libpq `PG*` env and defaults (probe: `host=/var/run/postgresql`, user = OS user) | YES in both modes (connect failure -> `panic` "Error connecting to the database") | `pgxpool.ParseConfig` (`config/database/database.go:25`) | DB mode: lookups pool; cache mode: initial snapshot only (pool size hard-coded 10) | DB mode `main_processor.go:140` (only if `config.Cache == nil`, `:133`); cache mode `cache/cache.go:65-66` | `postgresql://${POSTGRES_USER}:...@db:5432/${POSTGRES_DB}` (:24, interpolated) | PIPE |
-| `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` | 200 | no | `GetEnvAsInt` | DB-mode pool size. Junk -> `panic` "Error converting max connections into integer"; `0`/negative -> pgxpool `MaxSize must be >= 1` (probe) -> panic | `main_processor.go:29,134-137` | `200` (:33) | TUNE (DB mode only = dev; production runs cache mode, DECIDED OD-1) |
+| `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` | 200 | no | `GetEnvAsInt` | DB-mode pool size (pgxpool `MaxConns`, `config/database/database.go:24-33`). Junk -> `panic` "Error converting max connections into integer"; `0`/negative -> pgxpool `MaxSize must be >= 1` (probe) -> panic. Larger than the database allows -> silent loss under a burst: sizing rule in section 2a | `main_processor.go:29,134-137` | `200` (:33) | TUNE, DB mode only: dev, the bare binary, and the public Helm chart (`eventsProcessor.databasePool`, default 10; it never sets `LAGO_USE_MEMORY_CACHE`). Production runs cache mode (DECIDED OD-1), which ignores it |
 | `LAGO_REDIS_STORE_URL` | `""` -> go-redis default `localhost:6379` (`go-redis/v9@v9.17.1/options.go:273-275`) | YES unless a Redis answers on localhost:6379 (`Ping` at start, `config/redis/redis.go:50-53`; failure -> `panic` "Error connecting to the flag store") | raw, then `^rediss?://` stripped (`redis.go:25-28`) | flag store: ZADD `subscription_refreshed_v2` (consumed by `$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb`) | `main_processor.go:46,88` | `redis:6379` (:34) | PIPE, cross-repo |
 | `LAGO_REDIS_STORE_PASSWORD` | `""` | if Redis requires AUTH | raw | AUTH password | `main_processor.go:45,89` | `""` (:35) | PIPE |
 | `LAGO_REDIS_STORE_DB` | 0 | no | `GetEnvAsInt`; junk -> error -> panic "Error connecting to the flag store" | logical DB; MUST equal lago-api's `LAGO_REDIS_STORE_DB` (`$API/...consume_subscription_refreshed_queue_service.rb:61`) | `main_processor.go:44,79-82` | `1` (:36) | PIPE, cross-repo |
@@ -71,6 +71,36 @@ DECIDED OD-1 (owner, 2026-10-02)) · **DEPR** = deprecated behaviour · **DEAD**
 Third-party libraries read their own variables too: pgx `PG*` (probe-verified for an empty
 `DATABASE_URL`), sentry-go `SENTRY_*`, dd-trace-go `DD_*`, OpenTelemetry SDK `OTEL_*`. Those beyond the
 rows above are UNVERIFIED (not enumerated).
+
+## 2a. Sizing `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` (DB mode)
+
+Rule: **pool × events-processor replicas + every other client of that database ≤ the database
+budget.** The budget is the lowest of: `max_connections` minus the reserved slots
+(`superuser_reserved_connections`, and `reserved_connections` on Postgres 16+), and any `CONNECTION LIMIT`
+on the database or on the role in `DATABASE_URL`. Other clients: lago-api processes (`DATABASE_POOL`, default
+10 per process at `$API/config/database.yml:89-99`; one pool per api, worker and clock process), pghero,
+migrations, a Debezium slot.
+
+Why it matters (EXECUTED, `events-processor-spec` EPC-30, reference binary of tree 83e012866f29):
+- One poll returns up to 10,000 records (`config/kafka/consumer.go:168`) and each runs in its own goroutine,
+  so a burst opens connections up to the pool cap at once.
+- Above the budget Postgres refuses the extra connections (SQLSTATE 53300; exact texts: `debugging-playbook`
+  entry `loss-db-connections`). Each refused lookup is a retryable failure, and a later commit skips it:
+  pool 200 against a 30-connection limit lost 85-170 of a 201-record burst in nine kit runs (re-run 2026-10-02:
+  170 of 201).
+- Below the budget the pool cap queues lookups instead (pgxpool `MaxConns`, `config/database/database.go:24-33`).
+  EPC-21 caps the pool at 20 and loses nothing in a 200-record burst. Under ADR-001 (DECIDED OD-2) exhaustion
+  becomes a SYSTEMIC pause instead of loss (`reimplementation-kit` RBD-10); that is not built yet.
+
+Defaults as of 2026-10-02:
+- binary: 200 (`processors/main_processor.go:134`);
+- dev: 200 (`.env.development.default:33`) against a dev Postgres `max_connections = 1000` (`scripts/postgresql.conf:15`), so dev is safe;
+- public Helm chart (external, getlago/lago-helm-charts @d473b1e): `eventsProcessor.databasePool` = 10 (UNVERIFIED for any later chart version);
+- stock Postgres (initdb default): `max_connections` 100, `superuser_reserved_connections` 3 (`psql postgres://lago:lago@localhost:5432/lago -Atc 'SHOW max_connections'` on the sandbox's Postgres 16 -> `100`). A bare binary at 200 against it can lose most of a burst.
+
+Memory-cache mode (production) ignores this variable: it opens only a 10-connection pool for the startup
+snapshot (`cache/cache.go:63-67`). Check a live database (prints no secret):
+`psql "$DATABASE_URL" -c 'SHOW max_connections' -c 'SELECT datname, usename, count(*) FROM pg_stat_activity GROUP BY 1,2'`.
 
 ## 3. Startup checks (order of checks; only partially fail-fast)
 

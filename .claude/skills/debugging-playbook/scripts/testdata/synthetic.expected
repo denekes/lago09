@@ -18,6 +18,7 @@ lifecycle: starts=0 shutdown_signals=0 stopped=0
   produce failed -> DLQ row with empty error_code                    2
       e.g.    2  NOT_ENOUGH_REPLICAS: Messages are rejected since there are fewer in-sync replicas than required.
   DLQ produce failed too -> Sentry only, LOST                        1
+  not serialisable (NaN/Inf timestamp) -> committed, NO DLQ          0
   main consumer fetch error -> process panic                         1
   offset commit errors (redelivery = duplicates)                     1
 == memory-cache mode

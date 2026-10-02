@@ -30,6 +30,7 @@ lifecycle: starts=5 shutdown_signals=5 stopped=5
   produce failed -> DLQ row with empty error_code                    1
       e.g.    1  UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.
   DLQ produce failed too -> Sentry only, LOST                        0
+  not serialisable (NaN/Inf timestamp) -> committed, NO DLQ          0
   main consumer fetch error -> process panic                         0
   offset commit errors (redelivery = duplicates)                     0
 == memory-cache mode

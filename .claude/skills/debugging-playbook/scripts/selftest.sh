@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # selftest.sh - verify the debugging-playbook scripts: bash syntax, the pattern database
 # (explain-error.sh --self-test), exit codes, and triage-ep-log.sh output on the bundled log
-# samples (testdata/<name>.log, real 2026-10-01 runs plus one synthetic file) against
+# samples (testdata/<name>.log: real 2026-10-01 runs, real 2026-10-02 runs incl. two
+# events-processor-spec scenarios EPC-08 / EPC-30, plus one synthetic file) against
 # testdata/<name>.expected.
 #
 # Usage: selftest.sh [--update]

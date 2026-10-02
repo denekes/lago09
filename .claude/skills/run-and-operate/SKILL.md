@@ -57,7 +57,7 @@ Do NOT use it for:
 | Dev stack | `docker-compose.dev.yml` (project `lago_dev`) | 25 services: traefik:v3, postgres-partman:15.0, redis:7, front/api/migrate/clock/8 workers/Karafka consumer built from `./api` `./front`, events-processor built from `./events-processor` (air), redpanda v25.2.10 + topic creator + console + Kafka Connect, clickhouse 26.2, gotenberg 8, webhook tester, pghero; profiles `mailpit`, `redis-sentinel` (+4) | developing api/front/events-processor; the ONLY variant with Kafka, ClickHouse and the events-processor | maintained |
 | Root self-host | `docker-compose.yml` | 8 services: db (postgres-partman:15.0), redis, migrate, api, api-worker, api-clock (getlago/api:v1.53.0), front (getlago/front:v1.53.0), pdf (gotenberg 7.8.2). No Kafka/ClickHouse/events-processor; events use the Postgres store | small self-host, smoke-testing a release | maintained: bumped every release (`docker-compose.yml:7,11,13,338`), CI `docker-ci.yml` brings it up on every push to main |
 | deploy/ local, light, production | `deploy/docker-compose.{local,light,production}.yml`, `deploy/deploy.sh` | api/front **v1.27.1**, postgres:15 (no partman); light/production add Traefik v3.3 + Let's Encrypt; production adds 5 dedicated workers + Portainer; db/redis/rsa-keys only via profiles | only if you accept a release 26 minors old | STALE + broken (README syntax, missing pdf-worker script, idle workers, deploy.sh bugs) |
-| All-in-one | `getlago/lago` image (`docker/`) | one container: nginx+front, api, Sidekiq, clock, local Postgres 17, Redis; optional PDF sidecar via docker.sock | demos, testing, staging (docker/README.md:5) | maintained (release-built) with data-persistence doubts (UNVERIFIED) |
+| All-in-one | `getlago/lago` image (`docker/`) | one container: nginx+front, api, Sidekiq, clock, local Postgres 17, Redis; optional PDF sidecar via docker.sock | demos, testing, staging (docker/README.md:5) | maintained (release-built) with data-persistence doubts (UNVERIFIED); no cache variable, so wallet ongoing balances never refresh (§8) |
 | events-processor binary | `events-processor/` (`event_processors`) | the Go consumer only; needs Kafka, Postgres (DB mode), Redis | debugging the processor outside compose, smoke tests | first-party code; prod image `getlago/lago-events-processor` (entrypoint `events-processor/Dockerfile:24`) |
 | Connectors | `connectors/*.yml` (Redpanda Connect 4.83.0) | HTTP / SQS / Kinesis → raw topic | high-volume ingestion into Kafka | no public image or run recipe (`connectors/Dockerfile:6`); a JSON-number `precise_total_amount_cents` is passed through and the events-processor drops the record (no DLQ); any non-number becomes `"0"` (`connectors/http.yml:32-36`); no value-preserving workaround through the connectors |
 | Agentic AI demo | `examples/agentic-ai-demo/run.sh` | all-in-one image at the root compose's api tag (v1.53.0), 127.0.0.1:8080/3001, seeded org | showing usage-based billing locally | maintained |
@@ -194,6 +194,12 @@ Parallelism = raw-topic partitions per group; dev topics are created without `-p
 a default Redpanda: UNVERIFIED). docs/architecture.md:262 sizes it at 1 replica, 2 cores / 2 Gi; the
 public Helm chart hard-codes `replicas: 1`. DB mode opens up to `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS`
 Postgres connections per replica (code default 200; the Helm chart sets 10 via `eventsProcessor.databasePool`).
+Size it: **pool × replicas + every other client ≤ the database's connection budget** (rule and budget:
+`config-and-flags` `reference/events-processor-env.md` §2a). Above the budget a burst does not wait: Postgres
+refuses connections (SQLSTATE 53300), each refused lookup is a retryable failure, and a later commit skips
+it. Measured on the reference binary (`events-processor-spec` EPC-30): pool 200 against a 30-connection limit
+lost 85-170 of a 201-record burst in nine kit runs (re-run 2026-10-02: 170). Triage: `debugging-playbook`
+`loss-db-connections`. Before raising replicas or the pool, check the budget (`reference/events-processor-ops.md` §6).
 Memory-cache mode (production, DECIDED OD-1) opens only a 10-connection pool for the start-up snapshot
 (`events-processor/cache/cache.go:63-73`), but every replica holds a full cache and creates its own 6 CDC
 groups per start: memory and orphan groups scale with replicas × restarts (`reference/memory-cache-ops.md` §3-§4).
@@ -271,6 +277,8 @@ Check any database: `psql "<url>" -X -q -f .claude/skills/run-and-operate/script
 | events "disappear" | unmarshal error (no DLQ), skipped retryable, DLQ produce failure | `debugging-playbook`, `architecture-contract` |
 | `enriched_events_default` keeps growing | no partman scheduler (root/all-in-one) | `partman-check.sql`, reference/partitioning.md §4 |
 | need EP metrics/health | none exist | broker lag + DLQ query + restart count (monitoring.md §3) |
+| DB mode: `SQLSTATE 53300` lines during a burst, raw count > enriched + DLQ | pool × replicas above the Postgres budget (§5.5) | lower the pool or raise the budget (`reference/events-processor-ops.md` §6); triage `debugging-playbook` `loss-db-connections` |
+| wallet ongoing balances never change (all-in-one, demo, a custom deploy, dev) | the clock schedules `refresh_wallets_ongoing_balance` only with `LAGO_REDIS_CACHE_URL` or `LAGO_MEMCACHE_SERVERS` set (`$API/clock.rb:55-57`); `docker/runner.sh:5-21` sets neither; dev sets `LAGO_DISABLE_WALLET_REFRESH=true` (`.env.development.default:11`) | set a cache URL on the clock (all-in-one: `/data/.env`; CANDIDATE value `redis://localhost:6379/1`, not run here) and leave `LAGO_DISABLE_WALLET_REFRESH` unset; `reference/variants.md` §5 |
 | production: everything DLQs as `fetch_billable_metric` `Key not found` after a restart | swallowed snapshot failure (empty cache) | `reference/memory-cache-ops.md` §1 |
 | production: in-advance events stop after a charge edit, return after a deploy | Debezium column list without `pay_in_advance` (OD-1b) | `reference/memory-cache-ops.md` §0 |
 | `lago_evp_*` consumer groups pile up | new CDC groups on every start | `reference/memory-cache-ops.md` §3 (gated cleanup) |
@@ -319,9 +327,13 @@ into the repo or the skill directory.
   - `sed -n 10,17p "$API/config/initializers/rsa_keys.rb"` → `Base64.decode64`, `Private key is blank`, `OpenSSL::PKey::RSA.new`
   - `grep -n 'address:' "$API/config/environments/development.rb"` → `"mailhog"` (dev service is `mailpit`; as of 2026-10-01)
   - `curl -sS https://hub.docker.com/v2/repositories/getlago/postgres-partman/tags/15.0-alpine/images | jq -r '.[0].layers[].instruction' | grep -E 'PG_VERSION=|PARTMAN_VERSION|CMD'` → `PG_VERSION=15.0`, `PARTMAN_VERSION=v5.4.0`, last CMD `["postgres"]` (no CMD after the partman layer)
+  - DB pool default and dev budget: `grep -n 'DatabaseMaxConnections, 200' events-processor/processors/main_processor.go` → `134:`; `grep -n '^max_connections' scripts/postgresql.conf` → `1000` (as of 2026-10-02)
+  - burst loss above the budget (needs Postgres; command in `reference/events-processor-ops.md` §6): `run-suite.sh … --only EPC-30` → `corrected=FAIL`, 85-170 of 201 lost (170 on 2026-10-02)
+  - wallet refresh gate: `sed -n 55,57p "$API/clock.rb"` → `LAGO_MEMCACHE_SERVERS`, `LAGO_REDIS_CACHE_URL`, `LAGO_DISABLE_WALLET_REFRESH`; `grep -c 'CACHE' docker/runner.sh` → `0`
 - Update triggers: a release bump (image tags, `docker/Dockerfile` ARGs); any edit to a compose file,
   `deploy/`, `docker/`, `scripts/`, `traefik/`, `.env.development.default`; a lago-api pin move (scripts,
   routes, migrations, `structure.sql`, Karafka routing); changes to events-processor startup, consumer or
   cache code; the owner's answer to OPEN DECISION OD-1b (production CDC config), an ADR-001 amendment or a
-  reassignment of OD-20 (W6); edits to
+  reassignment of OD-20 (W6); a ruling on `reimplementation-kit` RBD-10 (pool exhaustion) or RBD-79 (wallet
+  refresh gate); a Helm chart `databasePool` default change; edits to
   `docs/database_partitioning.md` or `docs/monitoring.md`.

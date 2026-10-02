@@ -67,7 +67,7 @@ reproduced with the real binary.
    (change-control N10).
 5. If the string is unknown (exit 1), triage by area with section 1. Once it is understood, add an
    entry with a real example to `scripts/patterns.txt` and run `scripts/selftest.sh` (expect
-   `selftest: 16 passed, 0 failed`). That is a change-class C1 change (skill scripts, change-control
+   `selftest: 18 passed, 0 failed`). That is a change-class C1 change (skill scripts, change-control
    section 2): paste the selftest summary in the PR.
 
 ## 1. What are you looking at?
@@ -78,6 +78,9 @@ reproduced with the real binary.
 | events-processor exits or restarts at startup (panic, exit 2, exit 127) | `explain-error.sh "<first ERROR or panic line>"` | section 2 |
 | DLQ volume growing | ClickHouse: count `events_dead_letter` by `error_code` (`reference/events-processor.md` E3) | section 3 |
 | events missing in ClickHouse / counts lower than sent | `triage-ep-log.sh ep.log`, then the `events_raw` NOT IN query (E4.1) | section 4 |
+| Postgres `SQLSTATE 53300` (connection limit) in events-processor logs, often during a burst | `explain-error.sh "<line>"` | sections 3-4 |
+| ERROR `error while marshaling enriched events` with no `error` field | `explain-error.sh "<line>"` | section 4 |
+| lago-api: a filtered webhook endpoint never gets refund failures; wallet ongoing balances never refresh | `explain-error.sh "<webhook type or validation error>"` | section 4.1 |
 | wrong values: 0, `"1e+06"`, `"<nil>"`, unique_count too high | the `events_enriched` string query (E5) | section 4 |
 | `context canceled` in logs around a restart | `explain-error.sh "<line>"` (benign vs regression) | section 3 |
 | production, right after a restart: everything DLQs as `fetch_billable_metric` `Key not found` | `triage-ep-log.sh` on the log from start (`snapshot loads: started 6, completed 6`?) | section 5 |
@@ -129,6 +132,7 @@ while `ingested_at` is less than 12 h old, so they feed section 4. Full table wi
 | `fetch_billable_metric` + `record not found` / `Key not found` | `Key not found` = cache mode (production): 1 empty snapshot (MANY codes, right after a start); 2 stale cache (only metrics created after the pod started); 3 wrong code or org; 4 metric deleted. `record not found` = DB mode: 3 or 4 | SQL in the entry; `triage-ep-log.sh` | `dlq-bm-not-found` |
 | `fetch_billable_metric` + `cached plan must not change result type (SQLSTATE 0A000)` | (retried DB error) a lago-api migration changed `billable_metrics`; EP still reads it with `SELECT *` (`models/billable_metrics.go:59-66`) | correlate with the API deploy time | `dlq-cached-plan`, T2 |
 | any code + `relation "<t>" does not exist (SQLSTATE 42P01)` | (retried DB error) `DATABASE_URL` points at the wrong database | `psql "$DATABASE_URL" -c '\dt'` | `dlq-missing-relation` |
+| any `fetch_*` code + `SQLSTATE 53300`: `too many connections for database`, `remaining connection slots are reserved`, `sorry, too many clients already` | (retried DB error) DB-mode pool × replicas (+ other clients) above the Postgres budget; each record of a burst opens its own connection. Silent loss of most of the burst (section 4) | `SHOW max_connections`, `pg_stat_activity` counts, `datconnlimit` (entry) | `loss-db-connections` |
 | `evaluate_expression` | 1 a bool/null/object/array property ANYWHERE in `properties`; 2 a missing property; 3 a parse error. The message embeds the event JSON (PII) | property types | `dlq-evaluate-expression` |
 | `fetch_subscription` | (retried) DB/badger error. A missing subscription is NOT an error: the event is enriched with `subscription_id:""` | the `component=db` line before it | `dlq-fetch-subscription` |
 | `fetch_pay_in_advance_charge` | (retried) DB error on `charges`. The enriched event was ALREADY produced, so a redelivery duplicates it | same | `dlq-pay-in-advance` |
@@ -136,6 +140,7 @@ while `ingested_at` is less than 12 h old, so they feed section 4. Full table wi
 | `flag_subscription_refresh` + `context canceled` | REGRESSION of `02a4bc8`: a per-record write got the process/signal context instead of the batch context (change-control N5) | errors cluster at `Received shutdown signal` | `dlq-flag-ctx-canceled`, T3 |
 | DLQ row with `error_code` `""`, log `record had a produce error while synchronously producing` | (committed) 1 topic missing (`UNKNOWN_TOPIC_OR_PARTITION`); 2 broker outage; 3 record too large. After a failed enriched push the in-advance event is still produced | DLQ `initial_error_message` `failed to push to <topic> topic` | `dlq-empty-code` |
 | WARN `No commitable record in batch, skipping commit` | the FIRST record of a batch failed retryably | see section 4 | `loss-retryable-skip` |
+| stderr `panicked at ... bigdecimal-0.4.6 ... Division by zero`, then `fatal runtime error: failed to initiate panic`, `SIGABRT: abort`; the process exits 2 and dies again after every restart | an expression metric divides by a property that is 0 in some event: the expression engine panics inside the CGO call and aborts the whole process before any commit or DLQ write, so the record is re-read after each restart (poison record; partition wedged). Only events the processor evaluates itself (connector or direct producers) can do this; the billing API answers 500 for the same event | find the metric with a `/` in `expression`; `rails-go-parity` P37 probe (`run-probe.sh value -divzero`) | `run-divzero-abort`; `reimplementation-kit` RBD-37 |
 | ERROR `Fetch error` (main consumer), then the process exits | broker-side error; there is no in-process recovery (`config/kafka/consumer.go:175-183`) | the `error` field | `run-fetch-panic` |
 | `Error when committing offets to kafka` (typo is in the code) | rebalance or coordinator move. The result is duplicates, not loss; billing dedups them only for orgs with `clickhouse_deduplication_enabled` | - | `run-commit-error` |
 | INFO `heartbeat errored ... context canceled`, `Context canceled during fetch` | a normal shutdown | followed by `Event processor stopped` | `run-shutdown-ctx` |
@@ -153,13 +158,27 @@ ClickHouse reads as 1970 (production audit: `event-accounting-campaign`
 | Symptom | Mechanism (ranked by how often it explains the gap) | Confirm | Owner |
 |---|---|---|---|
 | raw count > enriched + DLQ | L1: a retryable failure was committed past by a later batch. Measured 2026-10-01: the offset is never redelivered and never on the DLQ | `events_raw` NOT IN query (E4.1); retryable ERROR lines; `No commitable record` WARNs | `event-accounting-campaign` W1; target contract ADR-001 (DECIDED OD-2) |
+| | L1 at scale: Postgres connection exhaustion (`architecture-contract` WP12). Measured on the reference binary: a pool of 200 against a 30-connection limit lost 85-170 of a 201-record burst in nine kit runs (`events-processor-spec` EPC-30; re-run 2026-10-02: 170) | `SQLSTATE 53300` lines (`triage-ep-log.sh` NOTE), one WARN `No commitable record` at most | sizing: `config-and-flags` (pool rule); delivery: `event-accounting-campaign`, `reimplementation-kit` RBD-10 |
 | | L2: unmarshal error: committed, no DLQ. Example: a numeric `precise_total_amount_cents` from connectors (still in `events_raw`: E4.1 connector-aware query) | `Error unmarshalling message` lines; Sentry | `event-accounting-campaign` (T7) |
+| | non-finite `timestamp` (`"NaN"`, `"Inf"`): it parses, the enriched record cannot be serialised, nothing is produced, no DLQ, committed (`events-processor-spec` EPC-08, re-checked 2026-10-02). Hex floats (`"0x1.9f0e3a8p+30"`) pass silently as seconds | ERROR `error while marshaling enriched events` without `error`; Sentry `json: unsupported value` | `event-accounting-campaign`; `reimplementation-kit` RBD-4 (`loss-nonfinite-timestamp`) |
 | | L4: enriched produce failed AND DLQ produce failed | `error while pushing to dead letter topic` | same |
 | | ClickHouse ingestion behind or broken (its own Kafka engine; topic and broker list are fixed in the DDL at migration time) | ClickHouse consumer state (UNVERIFIED here, no ClickHouse server) | `config-and-flags` section 7, `run-and-operate` |
 | sum/max/latest = 0 or too low (L6) | `value` `"<nil>"`, \|x\| >= 1e12 (negatives too) or a non-numeric `%v` string (`true`, `map[x:1]`) becomes 0 through `toDecimal128OrZero(value, 26)` (`Decimal(38,26)`); `"1e+06"` parses | E5 query; `explain-error.sh --id values-decimal-overflow` | `event-accounting-campaign` W2 (a ClickHouse schema change is allowed: DECIDED OD-3); `rails-go-parity` |
 | unique_count too high | `"1e+06"` vs `"1000000"`, and `"<nil>"`, are compared as raw strings | E5 query | `rails-go-parity` |
 | event not matched to its subscription at a boundary (L7) | `ToTime` float math lands 1 ms early; RFC3339 offset not normalized; cache mode compares at microsecond precision | `rails-go-parity` time and subscription probes | `rails-go-parity` |
 | wallets / alerts / lifetime usage never refresh | lago-api's clock consumes the ZSET only if BOTH `LAGO_REDIS_STORE_URL` and `LAGO_CLICKHOUSE_ENABLED` are present (`$API/clock.rb:209-215`) | `redis-cli -n <db> ZCARD subscription_refreshed_v2` grows | `run-and-operate` |
+<!-- evidence-check: on -->
+
+### 4.1 lago-api side: pinned behaviour that looks like a pipeline bug
+
+lago-api facts at the pin 591ae90. The kit executed both rows against that pin (`billing-engine-spec`
+vectors); the code fixes live in lago-api, so this repo can only route around them.
+
+<!-- evidence-check: off triage table; per-row evidence = the Entry id's "evidence:" line in scripts/patterns.txt and the cited billing-engine-spec vectors -->
+| Symptom | Cause | Confirm | Fix / owner | Entry |
+|---|---|---|---|---|
+| a webhook endpoint with an `event_types` filter never receives refund failures, even with `credit_note.provider_refund_failure` listed; adding `credit_note.refund_failure` to the filter is rejected (`contains invalid types`) | configured and filterable as `credit_note.provider_refund_failure` (`$API/config/webhook_event_types.yml:86-87`), emitted as `credit_note.refund_failure` (`$API/app/services/webhooks/credit_notes/payment_provider_refund_failure_service.rb:19-20`); delivery matches the emitted name (`$API/app/services/webhooks/base_service.rb:41-43`). EXECUTED: `billing-engine-spec` webhooks.type_info.001, webhooks.endpoint_receives.005, webhooks.normalize_event_types.009 | the endpoint's `event_types` is a non-empty list; an unfiltered endpoint receives `credit_note.refund_failure` | use an unfiltered endpoint (`event_types` null, or `["*"]`, which lago-api turns into null) and filter by `webhook_type` on the receiver; code fix in lago-api: `reimplementation-kit` RBD-83 (ruling proposed, not decided) | `api-refund-failure-webhook` |
+| wallet ongoing balances never refresh: all-in-one image, agentic demo, any deploy without a cache setting, and dev | the clock schedules `refresh_wallets_ongoing_balance` only when `LAGO_MEMCACHE_SERVERS` or `LAGO_REDIS_CACHE_URL` is present and `LAGO_DISABLE_WALLET_REFRESH` is not `true` (`$API/clock.rb:55-57`); `docker/runner.sh:5-21` sets neither cache variable; dev sets `LAGO_DISABLE_WALLET_REFRESH=true` (`.env.development.default:11`). EXECUTED: `billing-engine-spec` clock.jobs_due.001 (`reimplementation-kit` RBD-79) | in the clock container: `sh -c '[ -n "$LAGO_REDIS_CACHE_URL$LAGO_MEMCACHE_SERVERS" ] && echo cache set \|\| echo no cache'` (prints no value) | set a cache URL and leave `LAGO_DISABLE_WALLET_REFRESH` unset: `run-and-operate` section 8, `config-and-flags` | - |
 <!-- evidence-check: on -->
 
 ## 5. Memory-cache mode = production (DECIDED OD-1)
@@ -279,9 +298,9 @@ what you measured and escalate. Do not guess and change code.
 |---|---|---|---|
 | `scripts/explain-error.sh` | map a string or log line to playbook entries; `-` reads stdin; `--brief`, `--list`, `--id`, `--self-test` | `.claude/skills/debugging-playbook/scripts/explain-error.sh 'panic: brokers not found'` | `[start-brokers] (startup) LAGO_KAFKA_BOOTSTRAP_SERVERS is empty or unset ...` + cause/confirm/fix/see/evidence; exit 0. Unknown string: `UNKNOWN`, exit 1; usage error exit 2 |
 | `scripts/triage-ep-log.sh` | bucket an events-processor log by error_code, msg, panic; silent-loss counters; snapshot completeness and row counts; playbook ids | `.claude/skills/debugging-playbook/scripts/triage-ep-log.sh .claude/skills/debugging-playbook/scripts/testdata/cache-empty-snapshot.log` | `snapshot loads: started 6, completed 0`, `WARNING: EMPTY/PARTIAL CACHE`, ids `cache-snapshot-failed`, `dlq-bm-not-found`; exit 0 (1 = not an EP log, 2 = usage, 3 = findings with `--fail-on-findings`). On `testdata/cache-healthy.log` (2026-10-02): `started 6, completed 6`, `snapshot rows: … billable_metrics=3 … charges=2 subscriptions=1` |
-| `scripts/selftest.sh` | bash -n, pattern self-test, exit codes, triage output vs `testdata/*.expected`, same output with `docker compose logs` / `kubectl logs --timestamps` prefixes | `.claude/skills/debugging-playbook/scripts/selftest.sh` | `selftest: 16 passed, 0 failed` (as of 2026-10-02) |
-| `scripts/patterns.txt` | the entry database (70 entries, 108 patterns, 90 examples; `--self-test` prints the counts) | `explain-error.sh --list` | id, area, title per line |
-| `scripts/testdata/*.log` | REAL logs from 2026-10-01 runs (startup failures, DB-mode runtime, empty-cache run), a REAL healthy cache-mode run from 2026-10-02 (`cache-healthy.log`, INFO level) + one SYNTHETIC file built from code format strings | input for `selftest.sh` | see `*.expected` |
+| `scripts/selftest.sh` | bash -n, pattern self-test, exit codes, triage output vs `testdata/*.expected`, same output with `docker compose logs` / `kubectl logs --timestamps` prefixes | `.claude/skills/debugging-playbook/scripts/selftest.sh` | `selftest: 18 passed, 0 failed` (as of 2026-10-02) |
+| `scripts/patterns.txt` | the entry database (74 entries, 118 patterns, 98 examples; `--self-test` prints the counts) | `explain-error.sh --list` | id, area, title per line |
+| `scripts/testdata/*.log` | REAL logs from 2026-10-01 runs (startup failures, DB-mode runtime, empty-cache run), a REAL healthy cache-mode run from 2026-10-02 (`cache-healthy.log`, INFO level), REAL 2026-10-02 reference-binary runs of `events-processor-spec` EPC-08 (`epc08-time-formats.log`: 2 non-finite timestamps) and EPC-30 (`epc30-db-connections.log`, excerpt: SQLSTATE 53300) + one SYNTHETIC file built from code format strings | input for `selftest.sh` | see `*.expected`; on `epc30-db-connections.log`: `NOTE: 5 line(s) carry SQLSTATE 53300`, id `loss-db-connections` |
 
 All scripts are read-only, need only bash, awk and sort, and write at most one `mktemp -d` dir.
 To triage a live log: `kubectl logs <pod> > ep.log`, or `docker compose -f docker-compose.dev.yml
@@ -298,10 +317,18 @@ logs --no-color events-processor > ep.log` (needs a daemon). Then run `triage-ep
   `app/services/billable_metrics/aggregations/base_service.rb`, `app/jobs/events/*`, `db/clickhouse_migrate/*`);
   history commits cited per trap. Runtime evidence: real binary runs on 2026-10-01 against kfake,
   miniredis/redis-server and scratch Postgres databases (dropped afterwards); `clickhouse local` 26.2.19.43.
+  Kit evidence (2026-10-02): `events-processor-spec` EPC-08 and EPC-30 runs of the reference binary
+  (tree 83e012866f29), `billing-engine-spec` vectors webhooks.type_info.001, webhooks.endpoint_receives.005,
+  webhooks.normalize_event_types.009, clock.jobs_due.001 executed at lago-api 591ae90; ids
+  `reimplementation-kit` RBD-4, RBD-10, RBD-79, RBD-83.
 - Volatile facts, each with a one-line re-check (expected values as of 2026-10-01):
   - code unchanged since the as-of commit: `git diff --stat 5308258 HEAD -- . ':!.claude'` -> empty
-  - entry count: `grep -c '^id: ' .claude/skills/debugging-playbook/scripts/patterns.txt` -> `70` (as of 2026-10-02)
-  - scripts healthy: `.claude/skills/debugging-playbook/scripts/selftest.sh | tail -1` -> `selftest: 16 passed, 0 failed` (as of 2026-10-02)
+  - entry count: `grep -c '^id: ' .claude/skills/debugging-playbook/scripts/patterns.txt` -> `73` (as of 2026-10-02)
+  - scripts healthy: `.claude/skills/debugging-playbook/scripts/selftest.sh | tail -1` -> `selftest: 18 passed, 0 failed` (as of 2026-10-02)
+  - DB exhaustion loss (needs Postgres; reference binary from `.claude/skills/events-processor-spec/scripts/maintainer/build-go-reference.sh --print-env`, which prints `EP_REF_BIN` and `EP_REF_LD_LIBRARY_PATH`): `bash .claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd "$EP_REF_BIN" --impl-env LD_LIBRARY_PATH=$EP_REF_LD_LIBRARY_PATH --mode db --profile corrected --only EPC-30` -> `EPC-30-db-connection-burst compat=- corrected=FAIL`; its `--keep` dir's `.out` ledger lists 85-170 `NO_OUTPUT_COMMITTED` rows (170 on 2026-10-02)
+  - unlogged marshal error: `grep -n 'error while marshaling enriched events' events-processor/processors/events_processor/event_producer_service.go` -> `:35` (no error attribute)
+  - refund-failure name: `grep -n -A1 'def webhook_type' "$API/app/services/webhooks/credit_notes/payment_provider_refund_failure_service.rb"` -> `"credit_note.refund_failure"`; `grep -n 'provider_refund_failure' "$API/config/webhook_event_types.yml"` -> `:86-87`
+  - wallet refresh gate: `sed -n 55,57p "$API/clock.rb"` -> `LAGO_MEMCACHE_SERVERS`, `LAGO_REDIS_CACHE_URL`, `LAGO_DISABLE_WALLET_REFRESH`
   - startup strings: `grep -n 'brokers not found\|variable is required\|max connections into integer\|flag store' events-processor/processors/main_processor.go` -> lines 57, 105-106, 136, 154
   - commit-skip WARN: `grep -n 'No commitable record' events-processor/config/kafka/consumer.go` -> `:98`
   - `SELECT *` residual: `grep -n 'Connection.First(' events-processor/models/billable_metrics.go` -> `:61`
@@ -319,4 +346,5 @@ logs --no-color events-processor > ep.log` (needs a daemon). Then run `triage-ep
   (re-run `selftest.sh`; update `patterns.txt` examples and `testdata/*.expected` with `selftest.sh
   --update`, then review the diff); a franz-go bump (the `client.go:146` frame of `start-scram`);
   a lago-expression or Go bump; compose service renames; `docker/Dockerfile` ARG changes; an
-  api/front gitlink bump (re-check every `$API` citation); a closed OPEN DECISION (grep `OD-` here).
+  api/front gitlink bump (re-check every `$API` citation and section 4.1); a closed OPEN DECISION (grep `OD-` here);
+  an owner ruling on `reimplementation-kit` RBD-4, RBD-10, RBD-79 or RBD-83, or a kit re-mint of EPC-08/EPC-30.

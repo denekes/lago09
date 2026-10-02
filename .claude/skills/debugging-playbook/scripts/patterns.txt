@@ -7,6 +7,7 @@
 # Format: one block per entry, blocks separated by one blank line, "key: value" lines.
 #   id        stable kebab-case id (cited by the docs; never rename without grepping the skill)
 #   area      startup | dlq | loss | runtime | cache | values | build | test | dev | ci | release | selfhost
+#             | api (lago-api runtime behaviour an operator of this repo meets; facts at the pin 591ae90)
 #   match     bash ERE, case-sensitive, tested with [[ $text =~ $re ]]. Repeatable (OR).
 #             Must match both the raw slog JSON line (quotes escaped as \") and the bare message.
 #   title     what it means, one line
@@ -351,6 +352,32 @@ see: SKILL.md section 4; reference/events-processor.md E4
 evidence: VERIFIED 2026-10-01 (real binary: offset 0 failed retryably, offset 2 later committed -> committed=3, offset 0 never redelivered)
 example: {"time":"2026-10-01T21:26:52.20474598Z","level":"WARN","msg":"No commitable record in batch, skipping commit. topic: events-raw partition: 0 batch_size: 2 processed: 1\n","service":"post_process","kafka-topic-consumer":"events-raw"}
 
+id: loss-db-connections
+area: loss
+match: too many connections for (database|role)
+match: remaining connection slots are reserved
+match: sorry, too many clients already
+title: Postgres refused a new connection (SQLSTATE 53300): in DB mode every lookup that needed one fails RETRYABLY, and a later commit on the partition skips those offsets forever (silent loss of most of a burst, no DLQ)
+cause: DB-mode pool larger than the database allows: LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS (default 200, processors/main_processor.go:134) x replicas + every other client (lago-api DATABASE_POOL per process, Sidekiq, clock) above max_connections minus the reserved slots, or above a CONNECTION LIMIT on the database or role; a poll of up to 10,000 records runs one goroutine per record (config/kafka/consumer.go:168) and each opens a connection while the pool is below its cap; another client holding the slots
+confirm: psql "$DATABASE_URL" -c 'SHOW max_connections' -c 'SELECT datname, usename, count(*) FROM pg_stat_activity GROUP BY 1,2 ORDER BY 3 DESC' -c 'SELECT datname, datconnlimit FROM pg_database'  (prints no secret) ; printenv LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS ; triage-ep-log.sh counts these lines as retryable fetch_* failures ; lost-offset candidates: the events_raw NOT IN query (reference/events-processor.md E4.1)
+fix: size the pool: pool x replicas + all other clients <= the database budget (config-and-flags reference/events-processor-env.md section 2a; run-and-operate reference/events-processor-ops.md section 6), or raise the budget; at its cap pgxpool queues lookups instead of failing (config/database/database.go:24-33). Do NOT patch commit logic while debugging (change-control N7): under ADR-001 (DECIDED OD-2) exhaustion is a SYSTEMIC pause, never loss (reimplementation-kit RBD-10; event-accounting-campaign). At startup the same text inside "Error connecting to the database" is start-db-connect. Memory-cache mode (production, DECIDED OD-1) uses Postgres only for the startup snapshot (10 connections, cache/cache.go:63-67), where query errors are swallowed (cache-snapshot-failed; inferred from code, not run)
+see: SKILL.md sections 3-4; reference/events-processor.md E3-E4
+evidence: VERIFIED 2026-10-02 (events-processor-spec EPC-30: reference binary of tree 83e012866f29, DB mode, pool 200 vs a 30-connection database limit, 201-record burst: 85-170 records lost in nine kit runs; re-run 2026-10-02: 170 of 201 lost, 170 fetch_billable_metric ERROR lines carrying all three texts, 1 WARN No commitable record; testdata/epc30-db-connections.log)
+example: {"time":"2026-10-02T17:08:13.100937394Z","level":"ERROR","msg":"Error fetching billable metric","service":"post_process","error_code":"fetch_billable_metric","error":"failed to connect to `user=epconf_iut database=epconf_22588`:\n\t127.0.0.1:5432 (localhost): server error: FATAL: too many connections for database \"epconf_22588\" (SQLSTATE 53300)\n\t127.0.0.1:5432 (localhost): server error: FATAL: too many connections for database \"epconf_22588\" (SQLSTATE 53300)"}
+example: {"time":"2026-10-02T11:32:39.388797215Z","level":"ERROR","msg":"Error fetching billable metric","service":"post_process","error_code":"fetch_billable_metric","error":"failed to connect to `user=epconf_iut database=epconf_3878`:\n\t127.0.0.1:5432 (localhost): server error: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute (SQLSTATE 53300)\n\t127.0.0.1:5432 (localhost): server error: FATAL: sorry, too many clients already (SQLSTATE 53300)"}
+
+id: loss-nonfinite-timestamp
+area: loss
+match: error while marshaling enriched events
+match: error while marshaling charged in advance events
+title: an enriched (or in-advance) record could not be serialised: nothing is produced, no DLQ row, the offset is committed = LOST; the line carries no error, error_code or transaction_id
+cause: event "timestamp" is a non-finite number string ("NaN", "Inf"; strconv.ParseFloat also accepts "Infinity", "+Inf", "-Inf" in any case): it passes parsing (utils/time.go:56), the enriched timestamp becomes NaN/Inf, encoding/json rejects it (event_producer_service.go:77), ProduceEnrichedEvent logs this line and returns (event_producer_service.go:29-37), processEvent still succeeds and the record is committed; any other non-finite float in the enriched record would do the same (CODE)
+confirm: a Sentry issue "json: unsupported value: NaN" (or +Inf) at the same time (CaptureError, event_producer_service.go:36); the transaction is in neither events_enriched nor events_dead_letter; find the producer in the raw topic (dev, needs a daemon): docker compose -f docker-compose.dev.yml exec redpanda rpk topic consume events-raw -f '%v\n' -o start | grep -iE '"timestamp": *"[+-]?(nan|inf)'
+fix: fix the producer (send unix seconds or RFC 3339). The silent commit is event-accounting-campaign territory: under reimplementation-kit RBD-4 a non-finite timestamp is a PERMANENT failure, dead-lettered with a cause (ADR-001, DECIDED OD-2). Related, with no log line at all: hexadecimal float strings such as "0x1.9f0e3a8p+30" are accepted as seconds (events-processor-spec EPC-08)
+see: SKILL.md section 4; reference/events-processor.md E2
+evidence: VERIFIED 2026-10-02 (events-processor-spec EPC-08, reference binary of tree 83e012866f29, DB mode: t_nan and t_inf ended NO_OUTPUT_COMMITTED with one such line each; t_hex enriched with timestamp 1740869280; testdata/epc08-time-formats.log). The in-advance variant is CODE (event_producer_service.go:46)
+example: {"time":"2026-10-02T11:28:48.731516245Z","level":"ERROR","msg":"error while marshaling enriched events","service":"post_process"}
+
 id: run-fetch-panic
 area: runtime
 match: "msg":"Fetch error".*"kafka-topic-consumer"
@@ -361,6 +388,21 @@ fix: fix the broker side; no in-process recovery exists
 see: SKILL.md section 3
 evidence: CODE consumer.go:181-182 (synthetic example built from it)
 example: {"level":"ERROR","msg":"Fetch error","service":"post_process","kafka-topic-consumer":"events-raw","error":"UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition."}
+
+id: run-divzero-abort
+area: runtime
+match: Division by zero
+match: failed to initiate panic, error 5, aborting
+match: bigdecimal-[0-9.]+/src/impl_ops_div\.rs
+title: an expression divided by zero: the expression engine panicked inside the CGO call and aborted the whole events-processor (exit 2) before any commit or DLQ write; the record is re-read after every restart (poison record)
+cause: a billable metric's expression divides by an event property that is 0 (e.g. event.properties.a / event.properties.b with b=0); the Rust core (bigdecimal 0.4.6) panics, the panic cannot cross the C boundary, Go receives SIGABRT (enrichment_service.go:132 evaluates it); only events the processor evaluates itself can trigger it (connector or direct producers: rails-go-parity P17); the billing API answers HTTP 500 for the same event and stores nothing
+confirm: the crash output contains "Division by zero" followed by "SIGABRT: abort"; list metrics whose expression contains "/" (psql "$DATABASE_URL" -c "select code, expression from billable_metrics where expression like '%/%' and deleted_at is null"); reproduce: .claude/skills/rails-go-parity/scripts/run-probe.sh value -divzero
+fix: stop the crash loop by changing the expression (or the producer) so the divisor is never 0, then restart; the record stays on the raw topic and is re-read. The contract fix (DLQ evaluate_expression instead of an abort; 422 at the API) is reimplementation-kit RBD-37 (owner ruling: change-control OD-21) and event-accounting-campaign territory
+see: SKILL.md section 3; rails-go-parity reference/contract-table.md P37
+evidence: VERIFIED 2026-10-02 (rails-go-parity value-format-probe -divzero child output on the reference expression engine lago-expression v0.2.0: "panicked at .../bigdecimal-0.4.6/src/impl_ops_div.rs:10:13: Division by zero", "fatal runtime error: failed to initiate panic, error 5, aborting", "SIGABRT: abort", child exit status 2)
+example: thread '<unnamed>' (3811) panicked at <cargo>/bigdecimal-0.4.6/src/impl_ops_div.rs:10:13:
+example: Division by zero
+example: fatal runtime error: failed to initiate panic, error 5, aborting
 
 id: run-commit-error
 area: runtime
@@ -801,6 +843,19 @@ fix: dump with the old image, restore into the new one; no upgrade doc exists in
 see: SKILL.md section 7
 evidence: UNVERIFIED (standard Postgres message; not reproduced)
 example: FATAL:  database files are incompatible with server
+
+id: api-refund-failure-webhook
+area: api
+match: credit_note\.refund_failure
+match: credit_note\.provider_refund_failure
+title: lago-api configures the refund-failure webhook as credit_note.provider_refund_failure but emits it as credit_note.refund_failure: an endpoint with an event_types filter never receives it, and the emitted name is rejected as a filter value
+cause: Webhooks::CreditNotes::PaymentProviderRefundFailureService#webhook_type returns "credit_note.refund_failure" ($API/app/services/webhooks/credit_notes/payment_provider_refund_failure_service.rb:19-20) while $API/config/webhook_event_types.yml:86-87 configures credit_note.provider_refund_failure; delivery checks event_types.include?(webhook_type) ($API/app/services/webhooks/base_service.rb:41-43); validation rejects any name outside the configured list ($API/app/models/webhook_endpoint.rb:43-53)
+confirm: the endpoint's event_types is a non-empty list; the payment provider shows failed refunds but no credit_note.refund_failure delivery reached that endpoint; an unfiltered endpoint (event_types null) receives them with webhook_type credit_note.refund_failure
+fix: receivers that need refund failures: use an unfiltered endpoint (event_types null, or ["*"], which lago-api normalises to null, $API/app/models/webhook_endpoint.rb:65-66) and filter on webhook_type credit_note.refund_failure on the receiving side. The code fix lives in lago-api (separate repo; cross-repo rules: change-control); proposed ruling reimplementation-kit RBD-83 (emit the configured name; not decided)
+see: SKILL.md section 4.1
+evidence: VERIFIED 2026-10-02 by the kit oracle at lago-api 591ae90 (billing-engine-spec webhooks.type_info.001, webhooks.endpoint_receives.005, webhooks.normalize_event_types.009: RBD-83 EXECUTED) + CODE as cited; the examples are built from those vectors' outputs
+example: contains invalid types: ["credit_note.refund_failure"]
+example: "webhook_type":"credit_note.refund_failure","object_type":"credit_note_payment_provider_refund_error"
 
 id: ci-action-too-old
 area: ci
