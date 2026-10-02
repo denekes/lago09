@@ -33,7 +33,8 @@ lifecycle: starts=5 shutdown_signals=5 stopped=5
   main consumer fetch error -> process panic                         0
   offset commit errors (redelivery = duplicates)                     0
 == memory-cache mode
-  not active in this log (no snapshot / CDC lines)
+  not active in this log (no snapshot / CDC lines): DB mode (dev), or the process start is not in this log.
+  Production runs memory-cache mode: capture the log from pod start (kubectl logs --previous for a restarted pod).
 == other ERROR/WARN messages
       3  [db] ERROR ERROR: relation "billable_metrics" does not exist (SQLSTATE 42P01)
       1  [db] ERROR ERROR: cached plan must not change result type (SQLSTATE 0A000)

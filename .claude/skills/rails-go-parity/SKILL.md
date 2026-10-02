@@ -12,6 +12,8 @@ and ships the probes that re-prove it. Divergences are documented here and fixed
 
 Facts verified 2026-10-01. Code facts as of `5308258` (events-processor tree `83e012866f29`); the working
 branch may carry skills-only commits on top. lago-api at the pin `591ae90` (2026-09-08) unless marked.
+Owner decisions of 2026-10-02 folded in (register: `change-control` §9): production runs memory-cache mode
+(DECIDED OD-1 (owner, 2026-10-02)), so the `go_cache` column is the production path; dev runs DB mode.
 
 ## When to use / when NOT to use
 
@@ -74,22 +76,23 @@ Full list with `$API` lines (drift items DR1-DR8) and rules: `reference/pinned-s
 
 Full rows with Go and Rails `file:line`, evidence and consequence: `reference/contract-table.md`.
 The K# column names change-control's cross-repo contract (`.claude/skills/change-control/reference/cross-repo-protocol.md`
-section 1): changing a row with a K# follows that contract's paired-PR and deploy-order rules (change-control N6).
+section 1): changing a row with a K# follows change-control N6: a paired PR in each repo listed in that K row's
+"External dependents" cell (DECIDED OD-4 (owner, 2026-10-02): dependency-driven), plus deploy order.
 
 <!-- evidence-check: off index of contract rows; each row's file:line and probe evidence is in reference/contract-table.md -->
 | # | Behaviour | Status | Contract (change-control K#) | If you break it |
 |---|---|---|---|---|
 | P1 | Subscription window with `date_trunc('millisecond', …)` | MATCH | K8 | events attach to the wrong subscription |
 | P2 | `ORDER BY terminated_at DESC NULLS FIRST, started_at DESC` | MATCH | K8 | wrong sub on upgrade/downgrade boundaries |
-| P3 | Cache mode skips ms truncation | DIVERGE-VERIFIED | K9 | memory-cache mode only (OD-1) |
+| P3 | Cache mode skips ms truncation | DIVERGE-VERIFIED | K9 | production path (cache mode, DECIDED OD-1): events in the `started_at` ms lose the sub |
 | P4 | `utils.ToTime` float math: 496/1000 ms strings land 1 ms early | DIVERGE-VERIFIED | K2 | boundary-ms events miss their sub |
-| P5 | RFC3339 timestamps: offset kept, not truncated; CH raw MV rejects them | DIVERGE-VERIFIED | K2 | wrong sub by the offset (DB mode) |
+| P5 | RFC3339 timestamps: offset kept, not truncated; CH raw MV rejects them | DIVERGE-VERIFIED | K2 | wrong sub by the offset in DB mode (dev); cache mode matched |
 | P6 | No `status` filter in Go; Rails PostProcess excludes `incomplete` | DIVERGE-VERIFIED | K8 | refresh / in-advance for incomplete subs |
-| P7 | Recurring fallback: Go window at now(), Rails `.active` | DIVERGE-VERIFIED | K8 | backdated events on non-active subs |
+| P7 | Recurring fallback: Go window at now(), Rails `.active` | DIVERGE-VERIFIED | K8 | backdated events on non-active subs (both modes; cache: OPEN DECISION OD-1b) |
 | P8 | BM lookup on kept rows | MATCH | K8 | deleted BMs billed again |
 | P9 | count → `"1"`, else `properties[field_name]` | MATCH | K4 | wrong quantity |
 | P10 | `value` = Go `%v`: `1000000→"1e+06"`, missing → `"<nil>"` | DIVERGE-VERIFIED | K4 | feeds P11/P12 |
-| P11 | `Decimal(38,26)`: values with \|x\| ≥ 1e12 and `"<nil>"` become 0 | DIVERGE-VERIFIED | K4 | silent zero billing (OD-3) |
+| P11 | `Decimal(38,26)`: values with \|x\| ≥ 1e12 and `"<nil>"` become 0 | DIVERGE-VERIFIED | K4 | silent zero billing (schema fix allowed: DECIDED OD-3) |
 | P12 | unique_count compares raw `value` strings | DIVERGE-VERIFIED | K4 | double-counted uniques, `"<nil>"` counted |
 | P13 | CH `properties` map text ≠ `value` text in the same row | DIVERGE-VERIFIED | K4 | never compare them as strings |
 | P14 | lago-expression core source identical (Go v0.2.0, Rails gem `2abd2b3`); `Cargo.lock` crate versions differ | MATCH (source) / UNVERIFIED (behaviour) | — (N3 pins) | different formula results |
@@ -169,15 +172,21 @@ tree (the probe module `replace`s onto `../../../../events-processor`), so they 
    Any line that differs from EXPECTED is a behaviour change. It is fine only if intended and written into
    `reference/contract-table.md` in the same PR.
 5. If a MATCH row, a payload field, the `value` string format (P10-P13), a topic, or the Redis protocol changes
-   (in either direction, including closing a DIVERGE row): it is cross-repo (change-control N6; a `value` change in
-   `enrichment_service.go` is C3 + C4, a ClickHouse schema part needs OD-3). Open the paired lago-api PR (OPEN DECISION
-   OD-4 (owner), default YES), version the key/topic, write the deploy order, and run the guard against the
-   paired branch: `.claude/skills/rails-go-parity/scripts/parity-constants.sh --api <dir of the lago-api branch>`.
-   The K# column of section 2 names the contract.
+   (in either direction, including closing a DIVERGE row): it is a contract change (change-control N6; a `value`
+   change in `enrichment_service.go` is C3 + C4). The K# column of section 2 names the contract. Decide the paired
+   PRs by dependency (DECIDED OD-4 (owner, 2026-10-02)): open one in each repo whose file in that K row's
+   "External dependents" cell (`.claude/skills/change-control/reference/cross-repo-protocol.md` §1) reads or writes
+   the part you change; if none does, write "no external dependent of K# is touched" in the PR. Every K# in
+   section 2 (K1-K6, K8, K9) lists lago-api files, so most changes here still need a paired lago-api PR; an extra
+   enriched field that the ClickHouse queue does not read touches no dependent. A ClickHouse schema part is
+   allowed (DECIDED OD-3 (owner, 2026-10-02)) but its DDL lives in lago-api, so it always rides in the paired
+   lago-api PR. Whenever a dependent exists: version the key/topic, write the deploy order, and run the guard
+   against the paired branch: `.claude/skills/rails-go-parity/scripts/parity-constants.sh --api <dir of the lago-api branch>`.
 6. If the change closes or widens a DIVERGE row: update that row and the EXPECTED block here, and
    reference the `event-accounting-campaign` workstream (W2 value: P10-P13 and P30, which its accounting-probe
-   ledger case 5 measures; W3 time: P3-P5, P23; W4 parity harness: P1-P7). Closing a value row (P10-P13) is
-   also step 5.
+   ledger case 5 measures; W3 time: P3-P5, P23; W4 parity harness: P1-P7; W6 memory-cache correctness: P3
+   (W6-4) and the cache notes of P7 and P19 (W6-1)). Closing a value row (P10-P13) is also step 5. Re-run
+   `run-probe.sh subscription` for both columns: `go_cache` is the production path (DECIDED OD-1).
 7. Paste the commands and their summary lines in the PR body (change-control N13), next to the output of
    change-control's "Pre-PR gate for events-processor code" block (N9).
 
@@ -185,10 +194,10 @@ tree (the probe module `replace`s onto `../../../../events-processor`), so they 
 
 | You see | Likely row | Do |
 |---|---|---|
-| Sum billed 0 for large numbers on a CH-store org | P11 | Check whether the property has \|x\| ≥ 1e12: `ch-decimal-probe.sh` section D. Do not change the CH schema here (OD-3) |
+| Sum billed 0 for large numbers on a CH-store org | P11 | Check whether the property has \|x\| ≥ 1e12: `ch-decimal-probe.sh` section D. A schema fix is allowed (DECIDED OD-3) but the DDL lives in lago-api: route to `event-accounting-campaign` W2 (paired lago-api PR, runbook step 5) |
 | unique_count higher than distinct business values | P12, P10 | Look for `"1e+06"` vs `"1000000"` or `"<nil>"` in `events_enriched.value` (compared raw: `$API/app/services/events/stores/clickhouse/unique_count_query.rb:311`) |
 | `value` is `"<nil>"` | P10 | Property missing or `null` (`events-processor/processors/events_processor/enrichment_service.go:114`); PG enrich would store 0 (`$API/app/services/events/enrich_service.rb:59`) |
-| Event enriched with `subscription_id:""` but Rails bills it | P3, P4, P5 | Run `run-probe.sh subscription`; check ms boundary and timestamp form |
+| Event enriched with `subscription_id:""` but Rails bills it | P3, P4, P5 | Run `run-probe.sh subscription`; check ms boundary and timestamp form. In production (cache mode, DECIDED OD-1) read the `go_cache` column: an event in the `started_at` millisecond is P3 |
 | In-advance fee or refresh for an `incomplete` subscription | P6 | Expected today (DIVERGE); route to `event-accounting-campaign` |
 | Wallet / alert refresh never happens for CH-store orgs | P20, P21 | `parity-constants.sh` lines `P20a`-`P20e`, `P21`; check Rails env gating (`$API/clock.rb:210`) |
 | Expression result differs between API and connector events | P15 | `event.timestamp` precision differs (`$API/app/services/events/calculate_expression_service.rb:22` passes `to_i`); avoid it in expressions or fix both sides together |
@@ -263,10 +272,13 @@ crates differ: pest 2.7.13 vs 2.8.5, bigdecimal 0.4.6 vs 0.4.10, serde_json 1.0.
 - Fixes, option menus and acceptance numbers live in `event-accounting-campaign` (target: "the golden
   corpus matches Rails/PG semantics, or each divergence has an owner-approved exception"; "0/1000 ms
   mismatches in `utils.ToTime`"). These are TARGETS, not current state.
-- Open decisions this skill touches, all routed through `change-control`:
-  OPEN DECISION OD-1 (owner): is memory-cache mode used in production (P3, P7, P19 cache notes);
-  OPEN DECISION OD-3 (owner): ClickHouse schema change for `decimal_value` (P11);
-  OPEN DECISION OD-4 (owner): paired lago-api PR for contract changes (default YES);
+- Owner decisions this skill touches (register and full text: `change-control` §9):
+  DECIDED OD-1 (owner, 2026-10-02): production runs memory-cache mode, so P3 and the cache notes of P5, P7
+  and P19 are production-relevant (code-level VERIFIED by the probes; production impact UNVERIFIED);
+  OPEN DECISION OD-1b (owner): the production Debezium column list, Kafka auth and broker list (decides whether
+  the P7/P19 cache notes are live in production);
+  DECIDED OD-3 (owner, 2026-10-02): a ClickHouse schema change for `decimal_value` is allowed (P11);
+  DECIDED OD-4 (owner, 2026-10-02): a paired PR only in repos that depend on the changed contract (runbook step 5);
   OPEN DECISION OD-8 (owner): production state of `pre_filter_events`, `lazy_charge_usage_cache`,
   `enriched_events_aggregation` (pinned-SHA drift DR2-DR7).
 <!-- evidence-check: off maintenance instruction, not a claim -->
@@ -304,7 +316,7 @@ crates differ: pest 2.7.13 vs 2.8.5, bigdecimal 0.4.6 vs 0.4.10, serde_json 1.0.
 - Update triggers: an `api` gitlink bump (release); any change to the files listed in step 2 of the runbook;
   a lago-expression ref bump on either side; a ClickHouse version bump (re-run `ch-decimal-probe.sh --version`);
   a new raw-topic producer; lago-api removing `events_enriched_expanded` or `reprocess`; an owner answer to
-  OD-1, OD-3, OD-4 or OD-8.
+  OD-1b or OD-8; an amendment of OD-1, OD-3 or OD-4; a lago-api ClickHouse migration touching `decimal_value`.
 - Probe module upkeep: `scripts/go.mod` replaces onto `../../../../events-processor`; `run-probe.sh` absorbs
   dependency bumps in a temp copy. Refresh `scripts/go.sum` only when it drifts far:
   `cd .claude/skills/rails-go-parity/scripts && go mod tidy` (C0 change).

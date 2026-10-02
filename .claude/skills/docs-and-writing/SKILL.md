@@ -11,6 +11,7 @@ incident notes that the next engineer can act on; and which docs to re-check whe
 Facts verified 2026-10-01 unless marked. Code facts as of `5308258` (events-processor tree
 `83e012866f29`); the working branch may carry skills-only commits on top. lago-api at the pin
 `591ae90` (v1.53.0, 2026-09-08); full-history clone `$H` (776 commits as of 2026-10-01).
+Owner decisions OD-1..OD-5 of 2026-10-02 folded in (register: `change-control` §9).
 
 ## When to use / when NOT to use
 
@@ -94,7 +95,7 @@ The ones that cost the most time if believed:
 
 | ID | Doc says | Truth (evidence in the register) |
 |---|---|---|
-| SC-01 | `events-processor/CLAUDE.md:10`: direct `go test` "won't work locally"; always `lago exec` | It works with `CGO_LDFLAGS` + `LD_LIBRARY_PATH` (`ep-test.sh`: 6 packages ok). CI runs it on the host. Policy: OPEN DECISION OD-5 (owner) |
+| SC-01 | `events-processor/CLAUDE.md:10`: direct `go test` "won't work locally"; always `lago exec` | It works with `CGO_LDFLAGS` + `LD_LIBRARY_PATH` (`ep-test.sh`: 6 packages ok). CI runs it on the host. DECIDED OD-5 (owner, 2026-10-02): `ep-test.sh` is an accepted pre-PR gate, `lago exec` stays valid; the correction is APPROVED, not yet applied (the file is outside `.claude/skills`: the owner's C0 PR) |
 | SC-12 | `docs/dev_environment.md:154`: `LAGO_CLICKHOUSE_ENABLED=false` disables ClickHouse | MIXED (semantics: `config-and-flags`). The `.present?` sites (`$API/app/services/events/stores/store_factory.rb:10`) stay ON; org creation (`$API/app/services/organizations/create_service.rb:17`, boolean cast) turns OFF. Set it empty |
 | SC-13 | `docs/dev_environment.md:158`: env files "are not interpolated" | They are: `docker compose -f docker-compose.dev.yml config api` renders `DATABASE_URL` from `${POSTGRES_USER}`… |
 | SC-30 | `deploy/README.md:21` (14 commands): `docker compose up --profile all` | `unknown flag: --profile`. It is a global flag: `docker compose --profile all up` |
@@ -142,7 +143,7 @@ measurements and the commit-msg check live in `change-control`.
 |---|---|---|---|
 | S1 | **Every factual claim carries evidence**: `path:line`, a 7-char sha, `(#PR)`, or a command with its output (change-control N13) | "Direct `go test` won't work locally" (`events-processor/CLAUDE.md:10`, no evidence, wrong) | "`go test` needs `libexpression_go.so` on `CGO_LDFLAGS` (`events-processor/go.mod:10`); `ep-test.sh` -> ok x6 (2026-10-01)" |
 | S2 | **Date-stamp volatile facts**: versions, counts, line numbers, image tags, "currently" | "Deploy images are up to date" | "`deploy/*.yml` pin `getlago/api:v1.27.1` (`deploy/docker-compose.local.yml:14`, as of 2026-10-01)" |
-| S3 | **Label confidence**: VERIFIED (ran or read, with date), UNVERIFIED, CANDIDATE, OPEN DECISION OD-n (owner), TARGET. Never present a target or an open decision as the current state | "Production uses the memory cache" | "Whether production runs `LAGO_USE_MEMORY_CACHE=true` is OPEN DECISION OD-1 (owner)" |
+| S3 | **Label confidence**: VERIFIED (ran or read, with date), UNVERIFIED, CANDIDATE, OPEN DECISION OD-n (owner), DECIDED OD-n (owner, <date>), TARGET. Never present a target or an open decision as the current state; quote a decided one with its label | "Production's Debezium list drops `pay_in_advance`" | "The repo's Debezium list drops `pay_in_advance` (VERIFIED, `extra/debezium_config.json:2`); production runs the memory cache (DECIDED OD-1 (owner, 2026-10-02)); whether it uses that list is OPEN DECISION OD-1b (owner)" |
 | S4 | **No marketing in technical docs**: no unquantified superlatives ("high throughput", "robust", "simply", "seamless") in `docs/`, component READMEs, agent files or skills. Product copy stays in `README.md` | "High throughput events processor" (`events-processor/README.md:3`); "Simply go in the submodule directory" (`docs/dev_environment.md:253`) | "Consumes `LAGO_KAFKA_RAW_EVENTS_TOPIC` and produces to the enriched, in-advance and dead-letter topics (`processors/main_processor.go:118-128,171`)" |
 | S5 | **Commands are copy-pasteable and alias-free.** State the cwd. Never write `lago exec` without the `docker compose -f` form beside it. No `$ ` prompts. Placeholders only as `<angle>`. Add `-T` to `exec` in non-TTY shells | `lago exec events-processor go test ./...` alone (`events-processor/CLAUDE.md:7`) | `docker compose -f "$LAGO_PATH/docker-compose.dev.yml" exec events-processor go test ./...` (alias form: `lago exec events-processor go test ./...`) |
 | S6 | **Run what you document**, and paste the expected key output. If it cannot run here (no Docker daemon), say "not runnable in a daemon-less sandbox; verified by reading `<path:line>`" | `docker compose up --profile all` (never run: SC-30) | `docker compose -f deploy/docker-compose.local.yml --profile all config --services` -> 9 services |
@@ -281,7 +282,9 @@ mode gives the same result from any subdirectory. `-- <paths>` expects repo-rela
     turn RECHECK.
   - any edit under `docs/` or to a README, `CONTRIBUTING.md`, `PULL_REQUEST_TEMPLATE.md` or
     `events-processor/CLAUDE.md`;
-  - a decision on OD-5 (rewrite SC-01's policy line) or on OD-7 (SC-36, templates §1-2);
+  - the owner applying the approved SC-01 correction (DECIDED OD-5; `doc-drift-check.sh --only SC-01`
+    then prints `PASS`: mark SC-01 FIXED and drop STALE to 39), an amendment of OD-1..OD-5, or a
+    decision on OD-7 (SC-36, templates §1-2);
   - a fix of the dev mail host, in the compose file or in lago-api (SC-39 turns RECHECK);
   - a new doc file (add it to the inventory) or a new top-level code dir (add a map row);
   - a sibling script renamed: `grep -rn 'docs-and-writing' .claude/skills` for inbound references.

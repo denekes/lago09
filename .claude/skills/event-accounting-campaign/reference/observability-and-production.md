@@ -44,8 +44,10 @@ Rules for the implementation:
   provider is on; the log field must work without it.
 - Gate: `scoreboard.sh --check-baseline` must print `moved=0` (observability must not change any
   disposition), plus a unit test per disposition (`validation-and-qa` for test conventions).
-- Verify with the probe: run `run.sh accounting-probe -v` and check that each case prints its disposition
-  line (case 1 must show `withheld` for offset 0 and a batch line committing 3).
+- Verify with the probe: run `run.sh accounting-probe -v` (and `-mode cache -v`) and check that each case
+  prints its disposition line (case 1 must show `withheld` for offset 0 and a batch line committing 3).
+- These are TODAY's dispositions. ADR-001 replaces `withheld` with `retried` (to the retry topic) and adds a
+  SYSTEMIC pause signal (section 5); Phase 1 ships first so that the ADR-001 PR can show the change.
 
 <!-- evidence-check: on -->
 
@@ -93,14 +95,18 @@ GROUP BY r.organization_id ORDER BY r.organization_id;
   finds them. Leave a lag margin (rows enriched after `t` are still found because the subqueries only bound below).
 - A non-zero answer on today's code is expected for every transient DB/Redis error followed by traffic
   (case 1) and, with the connector-aware WHERE clause, every connector event with a numeric amount
-  (case 5). The size of that number is the owner's first production fact for OD-2.
+  (case 5). The size of that number is the production baseline that the ADR-001 rollout
+  (DECIDED OD-2 (owner, 2026-10-02)) must drive to 0; run it before and after each Phase 4 step.
 
 ## 4. Phase 6 rollout checklist (per merged campaign change)
 
 1. Before deploy: the PR's evidence block (ledger, scoreboard, parity probes) is in the PR; deploy order and
    rollback are written (change-control N6 for contract changes).
-2. Know the mode: OPEN DECISION OD-1 (owner). If production runs memory-cache mode, the DB-mode ledger does
-   not cover it: run the Phase 5 cache-mode ledger first.
+2. Know the mode: production runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)); its CDC config
+   (Debezium column list, CDC brokers and auth) is OPEN DECISION OD-1b (owner). Before deploy, both
+   ledgers (`run.sh accounting-probe` and `run.sh accounting-probe -mode cache`) and the cache smoke runs
+   (`memory-cache-w6.md` s.4) carry the evidence; dev keeps DB mode, so a dev-stack check alone proves
+   nothing about production.
 3. Know the flags: OPEN DECISION OD-8 (owner) (`pre_filter_events`, `lazy_charge_usage_cache`,
    `enriched_events_aggregation`): value/time changes affect only orgs whose billing reads `events_enriched`.
 4. Canary one replica. Production topology (replicas, partitions, grace period) is UNVERIFIED;
@@ -115,3 +121,26 @@ GROUP BY r.organization_id ORDER BY r.organization_id;
    lago-api work).
 7. Record the outcome in the PR / incident note (`docs-and-writing` templates) and update the scoreboard
    baseline in this skill.
+
+## 5. ADR-001 observability (contract point 4; DECIDED OD-2 (owner, 2026-10-02); names CANDIDATE)
+
+ADR-001 (`delivery-options.md` s.0.3 point 4) makes these part of the delivery contract: a Phase 4 step
+that changes a disposition ships the signal that shows it.
+
+<!-- evidence-check: off CANDIDATE signal spec; emission path evidence is in section 1 -->
+| Signal | Type and labels | Alert / use |
+|---|---|---|
+| records by disposition | counter `lago_evp_records_total{disposition=enriched\|retried\|dlq, error_code}` | DLQ rate per `error_code` (alert on a jump); retried share |
+| in-place retries | counter `lago_evp_inplace_retries_total{error_code}` | blips absorbed without the retry topic |
+| SYSTEMIC pause | counter `lago_evp_systemic_pause_seconds_total{dependency=postgres\|cache\|redis\|kafka}` + gauge of paused partitions | alert when a pause lasts longer than the backoff cap (60 s) several times in a row |
+| consumer lag | per partition, raw and retry groups, from the broker side or `kadm` lag | alert on growth; expected to grow during a SYSTEMIC pause |
+| retry topic | depth (retry group lag) and age (now - `first_failed_at` of the oldest parked record) | age near the 12 h max age = records about to be DLQ'd |
+| reconciliation | the section 3 query, connector-aware WHERE clause, daily per org | `unaccounted` must stay 0 after ADR-001 |
+| memory cache (W6) | `lago_evp_cdc_records_dropped_total{model}`, snapshot rows loaded per model at start, cache misses by kind | a dropped CDC record or a 0-row snapshot is a W6 incident (`memory-cache-w6.md`) |
+<!-- evidence-check: on -->
+
+Emission: there is no metrics endpoint today (section 1); counters go through the OpenTelemetry meter
+provider the Kafka client hooks already use (`events-processor/config/tracing/otel_tracer.go:132,183`),
+which is active only with the OpenTelemetry provider (section 1 row "Kafka client metrics"). Whether
+production runs that provider is UNVERIFIED (owner); a `/metrics` endpoint is a CANDIDATE alternative. The
+log field `disposition` (section 2) must work without either.

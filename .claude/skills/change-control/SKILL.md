@@ -431,7 +431,7 @@ a clean `precommit-guard.sh --release` (0 FAIL) run.
   - PR CI scope: `sed -n 7,13p .github/workflows/events-processor-tests.yml` -> `pull_request` with `paths: "events-processor/**"`.
   - Lint baseline, in `events-processor/`: `golangci-lint run --allow-serial-runners ./... | tail -3` -> `21 issues:` (errcheck 16, staticcheck 5; v2.5.0, no ep-env.sh needed).
   - Patch float: `curl -fsS https://hub.docker.com/v2/repositories/library/golang/tags/1.25 | grep -o '"digest":"[^"]*'` -> same digest as tag `1.25.14` (needs network).
-  - C3-vs-C4 baseline: `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline | tail -1` -> `scoreboard: moved=0 unmeasured=0 targets_missed=12 …`, exit 0 (a `--check-*` run with skipped rows exits 5, never 0).
+  - C3-vs-C4 baseline: `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline | tail -1` -> `scoreboard: moved=0 unmeasured=0 targets_missed=13 …`, exit 0 (a `--check-*` run with skipped rows exits 5, never 0).
   - Pass count: `.claude/skills/build-and-env/scripts/ep-test.sh -v -count=1 ./... 2>&1 | grep -c -- '--- PASS'` -> `235`.
   - N4 residual: `sed -n 59,66p events-processor/models/billable_metrics.go` -> still `.First(`.
   - N7 gap: `grep -rn "processRecordsAndCommit" --include=*_test.go events-processor` -> no output.

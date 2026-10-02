@@ -5,7 +5,8 @@ top. Verified 2026-10-01 by reading `events-processor/config/kafka/consumer.go`,
 `processors/events_processor/{processor,event_producer_service}.go` and franz-go v1.20.5 (`go.mod:18`), and by
 re-running a kfake probe that drives the repo's `kafka.NewConsumerGroup` (numbers in §4). Paths are relative to
 `events-processor/`. Changing anything here is change class C4: change-control N7 (kfake test of
-`processRecordsAndCommit` + ADR + owner sign-off, OPEN DECISION OD-2).
+`processRecordsAndCommit` + conformance to ADR-001, the accepted delivery contract (DECIDED OD-2 (owner,
+2026-10-02); `event-accounting-campaign` `reference/delivery-options.md`) + owner sign-off).
 
 ## 1. Goroutines
 
@@ -37,8 +38,9 @@ Properties that follow from the code:
   default rebalance timeout is 60 s (`franz-go@v1.20.5/pkg/kgo/config.go:595`).
 - **No ordering inside a batch**: records of one partition run concurrently; output keys are
   `<org>-<transaction_id>`, so there is no per-subscription ordering downstream either (`731e18f`).
-- **Unbounded fan-out**: up to 10 000 records per poll (`:168`), each a goroutine hitting the DB pool (200, DB mode,
-  `main_processor.go:134`) and the Redis pool (`PoolSize 10`, `PoolTimeout 4s`, `config/redis/redis.go:38-39`).
+- **Unbounded fan-out**: up to 10 000 records per poll (`:168`), each a goroutine hitting the DB pool (200, DB mode =
+  dev, `main_processor.go:134`; in memory-cache mode, which production runs (DECIDED OD-1), badger instead) and the
+  Redis pool (`PoolSize 10`, `PoolTimeout 4s`, `config/redis/redis.go:38-39`, both modes).
   Pool timeouts surface as **retryable** failures → loss L1 below.
 - **No context deadlines**: batch ctx is `context.Background()` (`consumer.go:83`), passed unchanged to every
   record (one ctx for the whole batch); gorm calls have no `WithContext`;
@@ -93,12 +95,12 @@ the ZADD. Not-found results are `NonCapturable().NonRetryable()` (`models/billab
 
 | # | Loss | Mechanism | Evidence | Fix plan |
 |---|---|---|---|---|
-| L1 | **retryable failure skipped forever** | record not marked → prefix commit stops before it → fetch position already past it → next fully processed batch on the partition commits past it; no DLQ, no metric, only Sentry | code §2; scratch kfake probe re-run 2026-10-01 (1 partition, group `probe`, the repo's `kafka.NewConsumerGroup` with a `ProcessRecords` that leaves offset 2 unmarked once; offsets 0-4 pre-produced, then 5 and 6 produced 3 s / 5 s later) → `batch offsets=[0 1 2 3 4] processed=4`, `batch offsets=[5] processed=1`, `batch offsets=[6] processed=1`, `times each offset seen: map[0:1 1:1 2:1 3:1 4:1 5:1 6:1]`, `committed offset for group probe_raw p0: 7`. The probe is not shipped here; rebuild it with the `diagnostics-and-tooling` kfake harness | `event-accounting-campaign` W1 (OD-2) |
+| L1 | **retryable failure skipped forever** | record not marked → prefix commit stops before it → fetch position already past it → next fully processed batch on the partition commits past it; no DLQ, no metric, only Sentry | code §2; scratch kfake probe re-run 2026-10-01 (1 partition, group `probe`, the repo's `kafka.NewConsumerGroup` with a `ProcessRecords` that leaves offset 2 unmarked once; offsets 0-4 pre-produced, then 5 and 6 produced 3 s / 5 s later) → `batch offsets=[0 1 2 3 4] processed=4`, `batch offsets=[5] processed=1`, `batch offsets=[6] processed=1`, `times each offset seen: map[0:1 1:1 2:1 3:1 4:1 5:1 6:1]`, `committed offset for group probe_raw p0: 7`. The probe is not shipped here; rebuild it with the `diagnostics-and-tooling` kfake harness | `event-accounting-campaign` W1, target ADR-001 (DECIDED OD-2) |
 | L2 | undecodable record dropped | committed with no DLQ; connectors that send numeric `precise_total_amount_cents` hit it (`connectors/http.yml:32-33` vs `models/event.go:18`; verified `json: cannot unmarshal number into Go struct field Event.precise_total_amount_cents of type string`) | `processor.go:49-60` | `event-accounting-campaign` |
 | L3 | produce failure ⇒ DLQ + commit | the failed output (enriched or in-advance) is lost and a DLQ copy (`error_code ""`) is written; the other output and the refresh ZADD still happen, so an enriched failure still produces the in-advance event (pay-in-advance without an enriched row; accounting-probe case 6 in `event-accounting-campaign`: `enriched 0 in_adv 1 dlq 1`) | `event_producer_service.go:87-89`; independent goroutines `processor.go:110-126` | `event-accounting-campaign` |
 | L4 | DLQ produce failure ⇒ commit | Sentry is the only copy (marshal error of the DLQ payload is also ignored, `:60-64`) | `event_producer_service.go:66-73` | `event-accounting-campaign` |
 | L5 | partial side effects | enriched is produced before the in-advance check and the ZADD; if those fail retryably the enriched copy exists, the in-advance/refresh are lost under L1, or duplicated on redelivery | `processor.go:110-131` | `event-accounting-campaign` |
-| L6 | value silently changed | `fmt.Sprintf("%v")` on float64: `1000000`→`"1e+06"`, `1e-7`→`"1e-07"`, `12345678901234567890`→`"1.2345678901234567e+19"`, null/missing→`"<nil>"` (verified 2026-10-01); downstream `decimal_value Decimal(38,26) DEFAULT toDecimal128OrZero(value, 26)` (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`, 12 integer digits) then yields 0 for `"<nil>"` and for values ≥ 1e12 (not re-run here: UNVERIFIED in this skill; the ClickHouse probe belongs to `rails-go-parity`) | `enrichment_service.go:114` | `rails-go-parity` (divergence), `event-accounting-campaign` W2 (OD-3) |
+| L6 | value silently changed | `fmt.Sprintf("%v")` on float64: `1000000`→`"1e+06"`, `1e-7`→`"1e-07"`, `12345678901234567890`→`"1.2345678901234567e+19"`, null/missing→`"<nil>"` (verified 2026-10-01); downstream `decimal_value Decimal(38,26) DEFAULT toDecimal128OrZero(value, 26)` (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`, 12 integer digits) then yields 0 for `"<nil>"` and for values ≥ 1e12 (not re-run here: UNVERIFIED in this skill; the ClickHouse probe belongs to `rails-go-parity`) | `enrichment_service.go:114` | `rails-go-parity` (divergence), `event-accounting-campaign` W2 (schema change allowed: DECIDED OD-3) |
 | L7 | time silently shifted | `utils.ToTime` float math: 496/1000 ms-precision strings land 1 ms early (verified 2026-10-01: `ToTime wrong ms: 496/1000 ; ToFloat64Timestamp wrong ms: 0/1000`); RFC3339 branch returns un-normalised time | `utils/time.go:20-23,25-29,48` | `rails-go-parity`, campaign W3 |
 
 Duplicates (not losses): commit failure, SIGKILL mid-batch, rebalance before commit, group rename (new group starts

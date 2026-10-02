@@ -13,8 +13,10 @@ Topic env names (both sides): `LAGO_KAFKA_RAW_EVENTS_TOPIC`, `LAGO_KAFKA_ENRICHE
 `LAGO_KAFKA_EVENTS_CHARGED_IN_ADVANCE_TOPIC`, `LAGO_KAFKA_EVENTS_DEAD_LETTER_TOPIC`
 (`events-processor/processors/main_processor.go:32-36`; dev values `.env.development.default:78-86`:
 `events-raw` with a hyphen, `events_enriched`, `events_charged_in_advance`, `events_dead_letter`).
-Any field change here is a cross-repo contract change: change-control N6 (paired lago-api PR, OPEN
-DECISION OD-4 (owner)), and a versioned topic if the format changes incompatibly.
+Any field change here is a cross-repo contract change: change-control N6, with a paired PR in each repo whose
+file in the K row's "External dependents" cell reads or writes that field (DECIDED OD-4 (owner, 2026-10-02):
+dependency-driven; K2, K4, K5 and K6 all list lago-api readers or writers), and a versioned topic if the format
+changes incompatibly.
 
 ## 1. Raw event (topic `LAGO_KAFKA_RAW_EVENTS_TOPIC`)
 
@@ -110,7 +112,10 @@ Idempotency: `already_processed?` on `pay_in_advance_event_transaction_id` (`pay
 Producer: Go `ProduceToDeadLetterQueue` (`event_producer_service.go:51-74`), **no key**, for non-retryable
 failures, retryable failures older than 12 h by `ingested_at` (`processor.go:74-82`), and enriched/in-advance
 produce failures (`event_producer_service.go:87-89`, empty `error_code`). JSON unmarshal failures never reach
-it (`processor.go:50-60`). Consumer: ClickHouse `events_dead_letter_queue`
+it (`processor.go:50-60`). Planned, not built: ADR-001 (DECIDED OD-2 (owner, 2026-10-02), delegated;
+`event-accounting-campaign` `reference/delivery-options.md`) sends them to the DLQ with the raw bytes; a non-JSON
+`event` does not fit the ClickHouse DLQ readers below, so that part is a K6 change with a paired lago-api PR
+(DECIDED OD-4). Consumer: ClickHouse `events_dead_letter_queue`
 (`$API/db/clickhouse_migrate/20251110130723_create_events_dead_letter_queue.rb:14-20`) → MV
 (`20260430075848_update_events_dead_letter_mv.rb:7-26`) → `events_dead_letter` (plain `MergeTree`,
 `20251110100317_create_events_dead_letter.rb:5-8`: duplicates are kept).

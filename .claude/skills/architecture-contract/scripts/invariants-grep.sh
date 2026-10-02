@@ -157,7 +157,7 @@ contract() { # rule file fixed-string description
   contract "CONTRACT" models/stores.go 'SUBSCRIPTION_BUCKET_DURATION int64 = 10' 'ZSET member bucket = 10 s'
   contract "CONTRACT" models/stores.go 'fmt.Sprintf("%s|%d", value, bucket)' 'ZSET member = <value>|<bucket>'
   contract "CONTRACT" processors/events_processor/subscription_refresh_service.go 'fmt.Sprintf("%s:%s", event.OrganizationID, event.SubscriptionID)' 'ZSET value = <organization_id>:<subscription_id>'
-  contract "CONTRACT" processors/events_processor/processor.go '12*time.Hour' 'retryable failures older than 12 h (ingested_at) go to the DLQ (OD-2)'
+  contract "CONTRACT" processors/events_processor/processor.go '12*time.Hour' 'retryable failures older than 12 h (ingested_at) go to the DLQ (12 h = ADR-001 default max age, DECIDED OD-2)'
   contract "CONTRACT" config/kafka/consumer.go 'PollRecords(ctx, 10000)' 'poll size 10000 records'
   contract "CONTRACT" config/kafka/consumer.go 'kgo.BlockRebalanceOnPoll()' 'BlockRebalanceOnPoll on the raw-topic group'
   contract "CONTRACT" config/kafka/consumer.go 'kgo.DisableAutoCommit()' 'manual commits only'

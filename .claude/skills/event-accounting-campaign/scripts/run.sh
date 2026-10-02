@@ -12,7 +12,7 @@
 #   accounting-probe  kfake fault matrix through the REAL consumer group + processor. -mode db
 #                     (default) needs Postgres at DATABASE_URL, default postgres://lago:lago@localhost:5432/lago,
 #                     role with CREATEDB (a throwaway database is created and dropped); -mode cache
-#                     runs memory-cache mode (production's mode, DECIDED OD-1) with a seeded cache, no Postgres
+#                     runs memory-cache mode (production's mode: DECIDED OD-1 (owner, 2026-10-02)), seeded, no Postgres
 #   value-corpus      golden property corpus through the REAL unmarshal + EnrichEvent; Rails/PG
 #                     expected column; ClickHouse Decimal(38,26) emulation; utils.ToTime ms count;
 #                     -value (repeatable, needs ruby) triages one customer value instead of the corpus

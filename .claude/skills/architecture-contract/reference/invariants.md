@@ -77,14 +77,16 @@ CONTRACT FLAGs as intended.
 ### I9 Retry horizon: a retryable failure older than 12 h (by `ingested_at`) goes to the DLQ — HOLDS
 - Enforced: `processors/events_processor/processor.go:74`. Missing `ingested_at` = zero time = "old" ⇒ immediate DLQ
   (verified: `since>12h=true` for an event without `ingested_at`).
-- Breaks / open: whether 12 h is a product decision is OPEN DECISION OD-2.
+- Breaks / decided: ADR-001 (DECIDED OD-2 (owner, 2026-10-02), `event-accounting-campaign`
+  `reference/delivery-options.md`) keeps 12 h as the default max age of a retried record before the DLQ; the
+  as-is mechanism (no retry at all, loss L1) is what ADR-001 replaces.
 - Guard: none (`ProcessEvents` has 0% coverage; tests call `processEvent`).
 
 ### I10 Redis refresh contract `subscription_refreshed_v2` / `<org>:<sub>|<10 s bucket>` / score = now — HOLDS
 - Enforced: `processors/main_processor.go:152`, `processors/events_processor/subscription_refresh_service.go:22`,
   `models/stores.go:16,54-69`; Rails `$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb:7,14,26-37`.
 - Breaks: Rails never refreshes subscriptions (stale usage, alerts, wallets) or refresh starvation (`42615c9`).
-  Rule: change-control N6 (paired lago-api PR, OPEN DECISION OD-4).
+  Rule: change-control N6 (the Rails clock reads it, so a paired lago-api PR: DECIDED OD-4).
 - Guard: `models/stores_test.go TestFlag` (format, bucket, same-window dedup), `subscription_refresh_service_test.go`.
   Cross-repo constants: `rails-go-parity`.
 

@@ -6,9 +6,10 @@ description: "Symptom-to-fix triage for the Lago umbrella repo; start here when 
 
 Start here when something is broken and you have an error string, a log, or a wrong number. Each
 row gives the exact text, the likely causes ranked, a command that confirms the cause, and the fix
-or the skill that owns it. Facts verified 2026-10-01. Code facts as of `5308258` (events-processor tree
+or the skill that owns it. Facts verified 2026-10-01 unless marked; owner decisions OD-1..OD-5 of
+2026-10-02 folded in (register: `change-control` §9). Code facts as of `5308258` (events-processor tree
 `83e012866f29`); the working branch may carry skills-only commits on top. Most error strings were
-reproduced that day with the real binary.
+reproduced with the real binary.
 
 ## When to use / when NOT to use
 
@@ -36,8 +37,9 @@ reproduced that day with the real binary.
 - **commit prefix**: the processor commits the longest run of processed records from the start of a
   batch (`config/kafka/consumer.go:89-104`; `findMaxCommitableRecord` at `:278-308`).
 - **LOST**: in no output topic and not on the DLQ. At most it is in Sentry.
-- **DB mode / memory-cache mode**: lookups come from Postgres (default, dev), or from an in-memory
-  badger cache fed by a Postgres snapshot plus Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`).
+- **DB mode / memory-cache mode**: lookups come from Postgres (dev), or from an in-memory badger cache
+  fed by a Postgres snapshot plus Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`). PRODUCTION runs
+  memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)).
 - **CDC**: change data capture. Debezium publishes Postgres row changes to topics
   `<LAGO_DEBEZIUM_TOPIC_PREFIX>.public.<table>`, and the memory cache consumes them.
 - **kfake / binary smoke**: an in-process Kafka, and an end-to-end run of the real binary against
@@ -49,17 +51,23 @@ reproduced that day with the real binary.
 
 ## 0. Triage protocol
 
-1. Capture the FIRST failing line, not the last. A panic stack is the result. The cause is usually
-   the line above it (example: the `TestNewConnection` panic hides `connection refused`, `build-and-env` B6).
+1. Know the mode. A production symptom happens in memory-cache mode (DECIDED OD-1); a dev or local
+   repro runs DB mode unless you start it with `LAGO_USE_MEMORY_CACHE=true` (reproduce cache behaviour
+   with `diagnostics-and-tooling` `smoke-binary.sh cache` / `cache-cdc`). Capture the FIRST failing line,
+   not the last; for a production pod capture the log from process start (the cache snapshot lines are
+   written once). A panic stack is the result. The cause is usually the line above it (example: the
+   `TestNewConnection` panic hides `connection refused`, `build-and-env` B6).
 2. Run `.claude/skills/debugging-playbook/scripts/explain-error.sh "<that line>"`. For a whole log,
    run `.claude/skills/debugging-playbook/scripts/triage-ep-log.sh <file>`.
 3. Run the row's **confirm** command before you change anything (change-control N13).
 4. While debugging, change nothing in delivery semantics, cross-repo contracts or the ClickHouse
-   schema (change-control N7, change-control N6; OPEN DECISION OD-2 (owner), OPEN DECISION OD-3
-   (owner)). Write probes outside the repo (change-control N10).
+   schema. Those are planned changes, not hotfixes: delivery follows ADR-001 (DECIDED OD-2) as a C4
+   change (change-control N7); a ClickHouse schema change is allowed (DECIDED OD-3) but ships as a paired
+   lago-api PR with a deploy order (change-control N6, DECIDED OD-4). Write probes outside the repo
+   (change-control N10).
 5. If the string is unknown (exit 1), triage by area with section 1. Once it is understood, add an
    entry with a real example to `scripts/patterns.txt` and run `scripts/selftest.sh` (expect
-   `selftest: 15 passed, 0 failed`). That is a change-class C1 change (skill scripts, change-control
+   `selftest: 16 passed, 0 failed`). That is a change-class C1 change (skill scripts, change-control
    section 2): paste the selftest summary in the PR.
 
 ## 1. What are you looking at?
@@ -72,7 +80,9 @@ reproduced that day with the real binary.
 | events missing in ClickHouse / counts lower than sent | `triage-ep-log.sh ep.log`, then the `events_raw` NOT IN query (E4.1) | section 4 |
 | wrong values: 0, `"1e+06"`, `"<nil>"`, unique_count too high | the `events_enriched` string query (E5) | section 4 |
 | `context canceled` in logs around a restart | `explain-error.sh "<line>"` (benign vs regression) | section 3 |
-| memory-cache mode: everything DLQs, edits not seen, in-advance stopped | `triage-ep-log.sh` (snapshot started vs completed) | section 5 |
+| production, right after a restart: everything DLQs as `fetch_billable_metric` `Key not found` | `triage-ep-log.sh` on the log from start (`snapshot loads: started 6, completed 6`?) | section 5 |
+| production: in-advance events stopped after a charge edit (back after a deploy) | the production Debezium column list (OPEN DECISION OD-1b (owner)) | section 5 |
+| production: a new metric, subscription or edit is not seen (stale cache) | CDC lag checks (`run-and-operate` `reference/memory-cache-ops.md` §2) | section 5 |
 | `go build` / `go vet` fails | `explain-error.sh "<line>"` | section 6 |
 | `go test` fails or panics | first `--- FAIL` line, then the line above any panic | section 6 |
 | dev stack (`docker compose -f docker-compose.dev.yml`) broken | `docker compose -f docker-compose.dev.yml config -q` (works without a daemon) | section 7 |
@@ -116,7 +126,7 @@ while `ingested_at` is less than 12 h old, so they feed section 4. Full table wi
 | `error_code` / line | Likely causes, ranked | Confirm | Entry |
 |---|---|---|---|
 | `build_enriched_event` | timestamp is neither unix seconds nor RFC3339, e.g. `"2025-03-06 12:00:00"` | DLQ `.event.timestamp` | `dlq-build-enriched-event` |
-| `fetch_billable_metric` + `record not found` / `Key not found` | 1 wrong code or org; 2 metric deleted; 3 cache mode with an empty snapshot (then EVERY event fails) | SQL in the entry; `triage-ep-log.sh` | `dlq-bm-not-found` |
+| `fetch_billable_metric` + `record not found` / `Key not found` | `Key not found` = cache mode (production): 1 empty snapshot (MANY codes, right after a start); 2 stale cache (only metrics created after the pod started); 3 wrong code or org; 4 metric deleted. `record not found` = DB mode: 3 or 4 | SQL in the entry; `triage-ep-log.sh` | `dlq-bm-not-found` |
 | `fetch_billable_metric` + `cached plan must not change result type (SQLSTATE 0A000)` | (retried DB error) a lago-api migration changed `billable_metrics`; EP still reads it with `SELECT *` (`models/billable_metrics.go:59-66`) | correlate with the API deploy time | `dlq-cached-plan`, T2 |
 | any code + `relation "<t>" does not exist (SQLSTATE 42P01)` | (retried DB error) `DATABASE_URL` points at the wrong database | `psql "$DATABASE_URL" -c '\dt'` | `dlq-missing-relation` |
 | `evaluate_expression` | 1 a bool/null/object/array property ANYWHERE in `properties`; 2 a missing property; 3 a parse error. The message embeds the event JSON (PII) | property types | `dlq-evaluate-expression` |
@@ -142,26 +152,33 @@ ClickHouse reads as 1970 (production audit: `event-accounting-campaign`
 <!-- evidence-check: off triage table; per-row evidence = the Entry id's "evidence:" line in scripts/patterns.txt and reference/events-processor.md -->
 | Symptom | Mechanism (ranked by how often it explains the gap) | Confirm | Owner |
 |---|---|---|---|
-| raw count > enriched + DLQ | L1: a retryable failure was committed past by a later batch. Measured 2026-10-01: the offset is never redelivered and never on the DLQ | `events_raw` NOT IN query (E4.1); retryable ERROR lines; `No commitable record` WARNs | `event-accounting-campaign` W1; OPEN DECISION OD-2 (owner) |
+| raw count > enriched + DLQ | L1: a retryable failure was committed past by a later batch. Measured 2026-10-01: the offset is never redelivered and never on the DLQ | `events_raw` NOT IN query (E4.1); retryable ERROR lines; `No commitable record` WARNs | `event-accounting-campaign` W1; target contract ADR-001 (DECIDED OD-2) |
 | | L2: unmarshal error: committed, no DLQ. Example: a numeric `precise_total_amount_cents` from connectors (still in `events_raw`: E4.1 connector-aware query) | `Error unmarshalling message` lines; Sentry | `event-accounting-campaign` (T7) |
 | | L4: enriched produce failed AND DLQ produce failed | `error while pushing to dead letter topic` | same |
 | | ClickHouse ingestion behind or broken (its own Kafka engine; topic and broker list are fixed in the DDL at migration time) | ClickHouse consumer state (UNVERIFIED here, no ClickHouse server) | `config-and-flags` section 7, `run-and-operate` |
-| sum/max/latest = 0 or too low (L6) | `value` `"<nil>"`, \|x\| >= 1e12 (negatives too) or a non-numeric `%v` string (`true`, `map[x:1]`) becomes 0 through `toDecimal128OrZero(value, 26)` (`Decimal(38,26)`); `"1e+06"` parses | E5 query; `explain-error.sh --id values-decimal-overflow` | OPEN DECISION OD-3 (owner); `rails-go-parity` |
+| sum/max/latest = 0 or too low (L6) | `value` `"<nil>"`, \|x\| >= 1e12 (negatives too) or a non-numeric `%v` string (`true`, `map[x:1]`) becomes 0 through `toDecimal128OrZero(value, 26)` (`Decimal(38,26)`); `"1e+06"` parses | E5 query; `explain-error.sh --id values-decimal-overflow` | `event-accounting-campaign` W2 (a ClickHouse schema change is allowed: DECIDED OD-3); `rails-go-parity` |
 | unique_count too high | `"1e+06"` vs `"1000000"`, and `"<nil>"`, are compared as raw strings | E5 query | `rails-go-parity` |
 | event not matched to its subscription at a boundary (L7) | `ToTime` float math lands 1 ms early; RFC3339 offset not normalized; cache mode compares at microsecond precision | `rails-go-parity` time and subscription probes | `rails-go-parity` |
 | wallets / alerts / lifetime usage never refresh | lago-api's clock consumes the ZSET only if BOTH `LAGO_REDIS_STORE_URL` and `LAGO_CLICKHOUSE_ENABLED` are present (`$API/clock.rb:209-215`) | `redis-cli -n <db> ZCARD subscription_refreshed_v2` grows | `run-and-operate` |
 <!-- evidence-check: on -->
 
-## 5. Memory-cache mode (OPEN DECISION OD-1 (owner): production use UNKNOWN; hardening unowned, OPEN DECISION OD-20 (owner))
+## 5. Memory-cache mode = production (DECIDED OD-1)
 
-<!-- evidence-check: off triage table; per-row evidence = the Entry id's "evidence:" line in scripts/patterns.txt and architecture-contract WP6-WP10 -->
+Production runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)), so these are production symptoms,
+not edge cases. What is still unknown is the production CDC config (Debezium column list, Kafka auth,
+brokers): OPEN DECISION OD-1b (owner); check it first when a cache symptom appears (`run-and-operate`
+`reference/memory-cache-ops.md` §0). Fix owner: `event-accounting-campaign` W6 (DEFAULT APPLIED OD-20);
+as-is defects `architecture-contract` WP6-WP10, WP27. Detail and evidence: `reference/events-processor.md` E6.
+
+<!-- evidence-check: off triage table; per-row evidence = the Entry id's "evidence:" line in scripts/patterns.txt, reference/events-processor.md E6 and architecture-contract WP6-WP10 -->
 | Symptom | Cause | Confirm | Entry |
 |---|---|---|---|
-| EVERY event DLQs `fetch_billable_metric` `Key not found` | the snapshot failed and was swallowed (`cache/cache.go:78-106`), so the cache is empty | `triage-ep-log.sh`: `snapshot loads: started 6, completed 0` | `cache-snapshot-failed`, T4 |
-| edits never reach the cache, nothing logged | a comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS` is passed as ONE seed to the CDC clients (`cache/consumer.go:28-35`) | there is a comma in the env var | T5 |
+| right after a (re)start, EVERY event DLQs `fetch_billable_metric` `Key not found`, across many codes | the snapshot failed and was swallowed (`cache/cache.go:78-106`), so the cache is empty; or it read the wrong database (0 rows) | `triage-ep-log.sh` on the log from start: `snapshot loads: started 6, completed 0` or `WARNING: snapshot loaded 0 billable_metrics`; DLQ burst query (`run-and-operate` `reference/memory-cache-ops.md` §1) | `cache-snapshot-failed`, T4 |
+| pay-in-advance stops for a plan after a charge edit; recurring fallback stops after a metric edit; both come back after a restart | `extra/debezium_config.json:2` omits `pay_in_advance`, `accepts_target_wallet`, `recurring`; a CDC update rewrites the cached row without them; a restart re-snapshots full rows | the production connector's column list (OD-1b); `events_charged_in_advance` volume per plan around the edit; smoke `cache-cdc` row A | T6 |
+| stale cache: a new metric DLQs `Key not found` for that code only, a new subscription's events have `subscription_id:""`, a deleted metric is still enriched | CDC not delivering: connector down, slot behind, consumer lag, comma broker list, or SASL/TLS (CDC clients have neither, `cache/consumer.go:28-35`) | `reference/memory-cache-ops.md` §2 (connector state, slot lag, `lago_evp_*` group lag); a comma in `LAGO_KAFKA_BOOTSTRAP_SERVERS` | T5, `cache-cdc-fetch` |
 | CDC errors on a secured cluster | the CDC clients have no SASL/TLS options | `cache-cdc-fetch` lines | `cache-cdc-fetch` |
-| pay-in-advance stops after a charge edit; recurring fallback stops after a metric edit | `extra/debezium_config.json:2` omits `pay_in_advance`, `accepts_target_wallet`, `recurring` | print the column list (E6) | T6 |
-| event at the exact ms a subscription starts: matched in DB mode, not in cache mode | full-precision compare (`cache/subscriptions.go:56-66`) | binary smoke row H | - |
+| `lago_evp_<model>_<uuid>` groups pile up on the broker | 6 new groups per process start, never removed (`cache/consumer.go:27`) | `rpk group list` | gated cleanup: `run-and-operate` `reference/memory-cache-ops.md` §3 |
+| event at the exact ms a subscription starts: matched in DB mode (dev), not in cache mode (production) | full-precision compare (`cache/subscriptions.go:56-66`) | binary smoke row H | - |
 | `LAGO_USE_MEMORY_CACHE=TRUE` or `1` runs DB mode | only the literal `true` enables it (`main.go:67`) | no `Starting snapshot load` lines | - |
 <!-- evidence-check: on -->
 
@@ -242,14 +259,15 @@ section 9) when one of these holds:
 
 | You found / need | Stop because | Label |
 |---|---|---|
-| the fix changes commit, retry or DLQ behaviour (T1; `architecture-contract` L1-L5; a new DLQ `error_code` counts, change class C4), or someone wants to re-feed DLQ rows (no DLQ replay tool exists) | delivery semantics need an ADR and owner sign-off (change-control N7) | OPEN DECISION OD-2 (owner) |
-| the impact of any memory-cache defect (T4-T6), or who hardens it | nobody here knows whether production runs cache mode, or with which Debezium config; hardening (`architecture-contract` WP6-WP10) has no owner | OPEN DECISION OD-1 (owner); OPEN DECISION OD-20 (owner) |
-| zeroed values need `decimal_value` precision or a new column | ClickHouse schema change | OPEN DECISION OD-3 (owner) |
-| the fix changes a topic name, the ZSET name/member/bucket, or a payload or `value` format | cross-repo contract (change-control N6); paired lago-api PR | OPEN DECISION OD-4 (owner) |
+| the fix changes commit, retry or DLQ behaviour (T1; `architecture-contract` L1-L5; a new DLQ `error_code` counts, change class C4) | it is a C4 change that must conform to ADR-001, the decided delivery contract (change-control N7); a deviation needs an ADR-001 amendment by the owner | DECIDED OD-2 (owner, 2026-10-02): ADR-001 in `event-accounting-campaign` |
+| someone wants to re-feed DLQ rows | no DLQ replay tool exists today; ADR-001 plans an operator-gated one; a manual re-feed re-runs side effects | CANDIDATE; owner sign-off |
+| the impact of a memory-cache defect (T4-T6) in production | production runs cache mode, but its Debezium column list, Kafka auth and brokers are unknown here | DECIDED OD-1 (owner, 2026-10-02); OPEN DECISION OD-1b (owner); fixes: `event-accounting-campaign` W6 (DEFAULT APPLIED OD-20) |
+| zeroed values need `decimal_value` precision or a new column | a ClickHouse schema change is allowed, but its DDL lives in lago-api: paired PR + deploy order (change-control N6) | DECIDED OD-3 (owner, 2026-10-02); `event-accounting-campaign` W2 |
+| the fix changes a topic name, the ZSET name/member/bucket, or a payload or `value` format | cross-repo contract (change-control N6): a paired PR in every repo that reads or writes the changed part (lago-api reads all of these) | DECIDED OD-4 (owner, 2026-10-02) |
 | behaviour depends on lago-api flags `pre_filter_events`, `lazy_charge_usage_cache`, `enriched_events_aggregation` (e.g. Rails reading `events_enriched_expanded`) | production flag state is unknown | OPEN DECISION OD-8 (owner) |
 | a secret or licence value shows up in history, logs or DLQ payloads | never print it; rotation unknown | OPEN DECISION OD-9 (owner) |
 | full event JSON (PII) in Sentry extras, `evaluate_expression` messages or the TTL-less DLQ | retention policy is an owner call (`security-and-supply-chain`) | OPEN DECISION OD-19 (owner) |
-| someone insists on `lago exec` instead of `ep-test.sh`, or on new lint rules | gate policy | OPEN DECISION OD-5 (owner) / OPEN DECISION OD-6 (owner) |
+| someone insists on new lint rules | gate policy (`ep-test.sh` is already an accepted pre-PR gate: DECIDED OD-5 (owner, 2026-10-02); `lago exec` stays valid too) | OPEN DECISION OD-6 (owner) |
 | you reproduced locally (binary smoke, kfake) and it does NOT reproduce, and the remaining hypotheses need production facts (env, replicas, partitions, ClickHouse version, grace period) | those facts are invisible from this repo (UNVERIFIED) | owner question via `research-methodology` |
 
 Time-box: if two cheap confirms (logs + one query or probe) have not moved you closer, write down
@@ -260,10 +278,10 @@ what you measured and escalate. Do not guess and change code.
 | Script | Purpose | Example | Expected output (2026-10-01) |
 |---|---|---|---|
 | `scripts/explain-error.sh` | map a string or log line to playbook entries; `-` reads stdin; `--brief`, `--list`, `--id`, `--self-test` | `.claude/skills/debugging-playbook/scripts/explain-error.sh 'panic: brokers not found'` | `[start-brokers] (startup) LAGO_KAFKA_BOOTSTRAP_SERVERS is empty or unset ...` + cause/confirm/fix/see/evidence; exit 0. Unknown string: `UNKNOWN`, exit 1; usage error exit 2 |
-| `scripts/triage-ep-log.sh` | bucket an events-processor log by error_code, msg, panic; silent-loss counters; snapshot completeness; playbook ids | `.claude/skills/debugging-playbook/scripts/triage-ep-log.sh .claude/skills/debugging-playbook/scripts/testdata/cache-empty-snapshot.log` | `snapshot loads: started 6, completed 0`, `WARNING: EMPTY/PARTIAL CACHE`, ids `cache-snapshot-failed`, `dlq-bm-not-found`; exit 0 (1 = not an EP log, 2 = usage, 3 = findings with `--fail-on-findings`) |
-| `scripts/selftest.sh` | bash -n, pattern self-test, exit codes, triage output vs `testdata/*.expected`, same output with `docker compose logs` / `kubectl logs --timestamps` prefixes | `.claude/skills/debugging-playbook/scripts/selftest.sh` | `selftest: 15 passed, 0 failed` |
+| `scripts/triage-ep-log.sh` | bucket an events-processor log by error_code, msg, panic; silent-loss counters; snapshot completeness and row counts; playbook ids | `.claude/skills/debugging-playbook/scripts/triage-ep-log.sh .claude/skills/debugging-playbook/scripts/testdata/cache-empty-snapshot.log` | `snapshot loads: started 6, completed 0`, `WARNING: EMPTY/PARTIAL CACHE`, ids `cache-snapshot-failed`, `dlq-bm-not-found`; exit 0 (1 = not an EP log, 2 = usage, 3 = findings with `--fail-on-findings`). On `testdata/cache-healthy.log` (2026-10-02): `started 6, completed 6`, `snapshot rows: … billable_metrics=3 … charges=2 subscriptions=1` |
+| `scripts/selftest.sh` | bash -n, pattern self-test, exit codes, triage output vs `testdata/*.expected`, same output with `docker compose logs` / `kubectl logs --timestamps` prefixes | `.claude/skills/debugging-playbook/scripts/selftest.sh` | `selftest: 16 passed, 0 failed` (as of 2026-10-02) |
 | `scripts/patterns.txt` | the entry database (70 entries, 108 patterns, 90 examples; `--self-test` prints the counts) | `explain-error.sh --list` | id, area, title per line |
-| `scripts/testdata/*.log` | REAL logs from 2026-10-01 runs (startup failures, DB-mode runtime, empty-cache run) + one SYNTHETIC file built from code format strings | input for `selftest.sh` | see `*.expected` |
+| `scripts/testdata/*.log` | REAL logs from 2026-10-01 runs (startup failures, DB-mode runtime, empty-cache run), a REAL healthy cache-mode run from 2026-10-02 (`cache-healthy.log`, INFO level) + one SYNTHETIC file built from code format strings | input for `selftest.sh` | see `*.expected` |
 
 All scripts are read-only, need only bash, awk and sort, and write at most one `mktemp -d` dir.
 To triage a live log: `kubectl logs <pod> > ep.log`, or `docker compose -f docker-compose.dev.yml
@@ -282,8 +300,8 @@ logs --no-color events-processor > ep.log` (needs a daemon). Then run `triage-ep
   miniredis/redis-server and scratch Postgres databases (dropped afterwards); `clickhouse local` 26.2.19.43.
 - Volatile facts, each with a one-line re-check (expected values as of 2026-10-01):
   - code unchanged since the as-of commit: `git diff --stat 5308258 HEAD -- . ':!.claude'` -> empty
-  - entry count: `grep -c '^id: ' .claude/skills/debugging-playbook/scripts/patterns.txt` -> `69`
-  - scripts healthy: `.claude/skills/debugging-playbook/scripts/selftest.sh | tail -1` -> `selftest: 15 passed, 0 failed`
+  - entry count: `grep -c '^id: ' .claude/skills/debugging-playbook/scripts/patterns.txt` -> `70` (as of 2026-10-02)
+  - scripts healthy: `.claude/skills/debugging-playbook/scripts/selftest.sh | tail -1` -> `selftest: 16 passed, 0 failed` (as of 2026-10-02)
   - startup strings: `grep -n 'brokers not found\|variable is required\|max connections into integer\|flag store' events-processor/processors/main_processor.go` -> lines 57, 105-106, 136, 154
   - commit-skip WARN: `grep -n 'No commitable record' events-processor/config/kafka/consumer.go` -> `:98`
   - `SELECT *` residual: `grep -n 'Connection.First(' events-processor/models/billable_metrics.go` -> `:61`

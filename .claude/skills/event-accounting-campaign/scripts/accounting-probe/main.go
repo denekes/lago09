@@ -307,7 +307,7 @@ func (o *observer) waitDelivered(offsets []int64, times int, timeout time.Durati
 	}
 }
 
-// ---------- scratch Postgres (db mode = the dev default; production runs cache mode, DECIDED OD-1) ----------
+// ---------- scratch Postgres (db mode = the dev default; production runs cache mode: DECIDED OD-1 (owner, 2026-10-02)) ----------
 
 const schemaSQL = `
 CREATE TABLE billable_metrics (id uuid PRIMARY KEY, organization_id uuid NOT NULL, name varchar NOT NULL DEFAULT 'n',

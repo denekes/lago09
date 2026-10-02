@@ -58,8 +58,8 @@ it empty to disable) and do not change `POSTGRES_USER/PASSWORD/DB` (hard-coded i
    has a stray space after the comma, docs/dev_environment.md:199), dedicated workers (set
    `SIDEKIQ_<X>=true` in `.env.development` AND start `api-<x>-worker`, or jobs are never picked up).
 9. Tests inside the stack: `docker compose -f docker-compose.dev.yml exec events-processor go test ./...`
-   (the Docker-free equivalent is `.claude/skills/build-and-env/scripts/ep-test.sh`; OPEN DECISION OD-5
-   (owner), default until decided: the Docker-free recipe is accepted as the local gate).
+   (the Docker-free equivalent is `.claude/skills/build-and-env/scripts/ep-test.sh`, an accepted pre-PR gate:
+   DECIDED OD-5 (owner, 2026-10-02); `lago exec events-processor go test ./...` stays valid for dev-stack users).
 10. Teardown: `docker compose -f docker-compose.dev.yml down` (keeps volumes).
     WARNING (dev only): `down -v` DELETES the `lago_dev_*` volumes (Postgres, Redis, Redpanda topics,
     ClickHouse data); it never removes the external `lago_front_pnpm_store`. Never run `down -v` against

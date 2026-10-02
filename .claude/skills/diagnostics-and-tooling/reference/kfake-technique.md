@@ -19,7 +19,8 @@ the working branch may carry skills-only commits on top.
 - So a probe can call the repo's own `kafka.NewConsumerGroup` and `events_processor.NewEventProcessor`
   (imported through a `replace` directive) and observe real commits. No Docker, no Redpanda.
 - change-control N7 requires a test that drives `processRecordsAndCommit` before any delivery-semantics
-  change (the target contract is OPEN DECISION OD-2 (owner)). This module is the building block for
+  change (the target contract is ADR-001, DECIDED OD-2 (owner, 2026-10-02); text in
+  `event-accounting-campaign` `reference/delivery-options.md`). This module is the building block for
   that test; the fault-matrix ledger itself belongs to `event-accounting-campaign`.
 
 ## 2. The version trap (verified 2026-10-01)
@@ -101,7 +102,8 @@ Exit codes: 0 PASS, 1 FAIL, 2 setup error; `kfake-run.sh` passes them through (V
 Question: do the memory-cache CDC consumers receive updates when `LAGO_KAFKA_BOOTSTRAP_SERVERS` holds
 a comma-separated list? (The main consumer splits it with `utils.ParseBrokersEnv`, `events-processor/utils/env.go:22`;
 the CDC consumer passes the raw string to `kgo.SeedBrokers`, `events-processor/cache/consumer.go:28-31`.)
-Only relevant if memory-cache mode runs in production: OPEN DECISION OD-1 (owner).
+Production-relevant: production runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)); whether
+production sets a broker list is OPEN DECISION OD-1b (owner).
 ```bash
 .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh cdc-brokers
 ```
@@ -111,9 +113,9 @@ LAGO_KAFKA_BOOTSTRAP_SERVERS brokers=1 comma_joined=false: ConsumeChanges err=<n
 LAGO_KAFKA_BOOTSTRAP_SERVERS brokers=2 comma_joined=true: ConsumeChanges err=<nil>, CDC update visible in cache=false
 ```
 No ERROR log line is printed in the failing case (that silence is part of the measurement).
-Meaning: `architecture-contract` WP10 (as-is weak point); the variable: `config-and-flags`. Fixing it is
-unowned: memory-cache hardening is owner question OPEN DECISION OD-20 (owner), next to OD-1; candidate
-future campaign (`event-accounting-campaign` excludes it).
+Meaning: `architecture-contract` WP10 (as-is weak point); the variable: `config-and-flags`. Fixing it:
+`event-accounting-campaign` W6-2 (DEFAULT APPLIED OD-20: W6 owns memory-cache hardening; the owner may
+reassign it); its acceptance flips the second line to `visible in cache=true`.
 
 ## 5. Writing a new scenario (template)
 

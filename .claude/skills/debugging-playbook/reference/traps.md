@@ -30,7 +30,8 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
 - **Shortcut.** `triage-ep-log.sh` prints the retryable count; the `events_raw` NOT IN query
   (`events-processor.md` E4.1) lists candidate transaction_ids. Restore the failing dependency first.
 - **Rule.** change-control N7: no commit/delivery change without a `processRecordsAndCommit` test,
-  a design note and owner sign-off (OPEN DECISION OD-2 (owner)). The fix is `event-accounting-campaign` W1.
+  conformance to ADR-001 (the delivery contract, DECIDED OD-2 (owner, 2026-10-02)) and owner sign-off.
+  The fix is `event-accounting-campaign` W1.
 
 ## T2. SQLSTATE 0A000 after every Rails column add
 
@@ -69,14 +70,16 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
   lago-api schema -> 6 `SQLSTATE 42P01` lines, no `Completed snapshot load`, 8 of 9 events DLQ'd as
   `fetch_billable_metric` `Key not found`, offsets committed 9/9, process healthy-looking.
 - **Tell-tale.** `Key not found` for EVERY metric code; DLQ volume equals input volume.
-- **Shortcut.** `triage-ep-log.sh` prints `snapshot loads: started 6, completed 0` and a WARNING. Fix
-  `DATABASE_URL` and restart (the snapshot runs only at startup). Events already DLQ'd as `Key not found`
-  stay there: no DLQ replay tool exists (`run-and-operate` section 5.4); a manual re-feed is CANDIDATE and
-  needs OPEN DECISION OD-2 (owner). Count them with the E3 query (`events-processor.md`) and escalate
-  (SKILL.md section 9).
-- **Rule.** Production use of cache mode is OPEN DECISION OD-1 (owner). Memory-cache hardening is
-  unowned: owner question OPEN DECISION OD-20 (owner), candidate future campaign; the as-is defects are
-  `architecture-contract` WP6-WP10. Not a debugging-session fix.
+- **Shortcut.** `triage-ep-log.sh` on the log FROM PROCESS START prints `snapshot loads: started 6,
+  completed 0` and a WARNING (or `WARNING: snapshot loaded 0 billable_metrics` when the pod read the wrong
+  database). Fix `DATABASE_URL` and restart (the snapshot runs only at startup). Events already DLQ'd as
+  `Key not found` stay there: no DLQ replay tool exists today (`run-and-operate` section 5.4); ADR-001
+  (DECIDED OD-2) plans an operator-gated one, and until then a manual re-feed is CANDIDATE and needs owner
+  sign-off. Count them with the E3 query (`events-processor.md`) or the burst query in `run-and-operate`
+  `reference/memory-cache-ops.md` §1, and escalate (SKILL.md section 9).
+- **Rule.** Production runs cache mode (DECIDED OD-1 (owner, 2026-10-02)), so this is a production
+  outage mode, silent today. Hardening is `event-accounting-campaign` W6 (DEFAULT APPLIED OD-20); the as-is
+  defects are `architecture-contract` WP6-WP10. Not a debugging-session fix.
 
 ## T5. Comma-separated brokers: the CDC consumers are silently dead
 
@@ -89,7 +92,8 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
   "Starting consumer", zero WARN/ERROR lines.
 - **Shortcut.** `printenv LAGO_KAFKA_BOOTSTRAP_SERVERS` contains a comma + cache mode on = this trap.
   Measure with `diagnostics-and-tooling` (`cdc-brokers` scenario: visible=false).
-- **Rule.** OPEN DECISION OD-1 (owner); hardening: OPEN DECISION OD-20 (owner).
+- **Rule.** Production runs cache mode (DECIDED OD-1); whether production passes a broker list or needs
+  SASL/TLS is OPEN DECISION OD-1b (owner). Hardening: `event-accounting-campaign` W6 (DEFAULT APPLIED OD-20).
 
 ## T6. Pay-in-advance silently stops after a charge edit (memory-cache mode)
 
@@ -97,11 +101,14 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
   `charges.accepts_target_wallet` and `billable_metrics.recurring` (`recurring` was added to the Go model
   later, `b4ad153`, 2026-07-27). CDC upserts replace the whole cached row, so the flag reads false.
 - **Tell-tale.** `events_charged_in_advance` drops to zero for a plan right after someone edits a
-  charge, while `events_enriched` keeps flowing; no error anywhere. Binary smoke `cache-cdc` row A shows
-  `in_advance=no`.
-- **Shortcut.** Print the column list (`events-processor.md` E6) and check whether production uses
-  that file at all (UNVERIFIED: OPEN DECISION OD-1 (owner)).
-- **Rule.** OPEN DECISION OD-1 (owner); cross-repo fields follow change-control N6.
+  charge, while `events_enriched` keeps flowing; no error anywhere; the volume comes back after the next
+  deploy or restart (the snapshot re-reads full rows; INFERRED from `cache/consumer.go:143-156`) and drops
+  again at the next edit. Binary smoke `cache-cdc` row A shows `in_advance=no` (re-run 2026-10-02).
+- **Shortcut.** Print the column list (`events-processor.md` E6) and get the production connector's list
+  (`run-and-operate` `reference/memory-cache-ops.md` §0). Production runs cache mode (DECIDED OD-1);
+  whether its connector uses this file is OPEN DECISION OD-1b (owner), the first thing to verify.
+- **Rule.** Fix: `event-accounting-campaign` W6 (DEFAULT APPLIED OD-20); cross-repo fields follow
+  change-control N6 (the Debezium config lives outside this repo: contract K9).
 
 ## T7. Connector events vanish: numeric `precise_total_amount_cents`
 
@@ -135,7 +142,8 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
 - **Tell-tale.** A customer's sum is 0 or far too low for large quantities; unique_count higher than
   the number of distinct business values.
 - **Shortcut.** The `events_enriched` string query in `events-processor.md` E5.
-- **Rule.** Any ClickHouse schema change is OPEN DECISION OD-3 (owner); value fidelity is
+- **Rule.** A ClickHouse schema change is allowed (DECIDED OD-3 (owner, 2026-10-02)); its DDL lives in
+  lago-api, so it ships as a paired lago-api PR with a deploy order (DECIDED OD-4). Value fidelity is
   `event-accounting-campaign` W2; the contract table is `rails-go-parity`.
 
 ## T9. "Direct go build / go test won't work" (it does)
@@ -146,8 +154,8 @@ Format per trap: **Story** (what happened, how long, commits) / **Tell-tale** (w
   needs a workaround; five of six tested packages need no CGO at all.
 - **Tell-tale.** `cannot find -lexpression_go`, `libexpression_go.so: cannot open shared object file`,
   `go: no such tool "covdata"`.
-- **Shortcut.** `.claude/skills/build-and-env/scripts/ep-test.sh` (same shape as CI, not identical: CI uses a PG 14 service and builds the whole lago-expression workspace). Accepted as the local
-  gate by default (OPEN DECISION OD-5 (owner)).
+- **Shortcut.** `.claude/skills/build-and-env/scripts/ep-test.sh` (same shape as CI, not identical: CI uses a PG 14 service and builds the whole lago-expression workspace). An accepted
+  pre-PR gate: DECIDED OD-5 (owner, 2026-10-02); `lago exec` stays valid for dev-stack users.
 - **Rule.** change-control N9 (pre-PR gate) and change-control N3 (do not "fix" `go.mod`'s expression-go v0.1.4).
 
 ## T10. `TestNewConnection` nil-pointer panic hides "Postgres is down"

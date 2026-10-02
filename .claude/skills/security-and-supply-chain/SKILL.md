@@ -9,7 +9,7 @@ provenance, personal data in errors. This skill audits and recommends. It does n
 every fix goes through change-control as a C7 overlay on the file's own class.
 Code facts as of `5308258` (events-processor tree `83e012866f29`); the working branch may carry
 skills-only commits on top. lago-api at the pinned SHA `591ae90` (2026-09-08), unless marked.
-Verified 2026-10-01.
+Verified 2026-10-01; owner decisions OD-1..OD-5 of 2026-10-02 folded in (register: change-control section 9).
 
 Start: `S=.claude/skills/security-and-supply-chain/scripts; $S/secret-defaults-scan.sh | tail -1; $S/unpinned-scan.sh --summary`
 (expected SUMMARY lines: Scripts table; C7 baselines: section 6).
@@ -102,8 +102,8 @@ Kafka or OTEL client, or a connector).
 | Finding | Where | Status |
 |---|---|---|
 | events-processor Redis TLS never verifies the server | `events-processor/config/redis/redis.go:44` (`InsecureSkipVerify: true`); TLS on via `LAGO_REDIS_STORE_TLS` or legacy `ENV=production` (`processors/main_processor.go:84-91`) | VERIFIED by reading; go-redis v9.17.1 reads `TLSConfig` at dial time, so it takes effect |
-| lago-api Redis TLS: Sidekiq and cache always `VERIFY_NONE`; the store reader verifies unless `LAGO_REDIS_STORE_DISABLE_SSL_VERIFY` | `$API/lib/lago/redis_config_builder.rb:56,76`; `$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb:63-69` | VERIFIED by reading; fix needs a paired lago-api PR (change-control N6, OD-4) |
-| Memory-cache CDC consumers: no TLS, no SASL | `events-processor/cache/consumer.go:27-35` | only with `LAGO_USE_MEMORY_CACHE=true`; prod use OPEN DECISION OD-1 (owner); hardening unowned, OPEN DECISION OD-20 (as-is defects: `architecture-contract` WP6-WP10) |
+| lago-api Redis TLS: Sidekiq and cache always `VERIFY_NONE`; the store reader verifies unless `LAGO_REDIS_STORE_DISABLE_SSL_VERIFY` | `$API/lib/lago/redis_config_builder.rb:56,76`; `$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb:63-69` | VERIFIED by reading; lago-api code, so the fix is a lago-api PR (change-control N6; DECIDED OD-4 (owner, 2026-10-02): PRs go where the dependent code lives) |
+| Memory-cache CDC consumers: no TLS, no SASL | `events-processor/cache/consumer.go:27-35` | HIGH, production-relevant (as of 2026-10-02): production runs `LAGO_USE_MEMORY_CACHE=true` (DECIDED OD-1 (owner, 2026-10-02)). Both clients read `LAGO_KAFKA_BOOTSTRAP_SERVERS` (`cache/consumer.go:28`, `processors/main_processor.go:30`); the main clients add SCRAM and TLS when set (`config/kafka/kafka.go:48-68`), the CDC clients never do. So either production's broker accepts plaintext, unauthenticated clients (anyone who reaches it can read the Debezium topics and produce forged billing-config rows into the cache: INFERRED) or the CDC consumers cannot connect and the cache stays at its snapshot (`architecture-contract` WP10). Which: OPEN DECISION OD-1b (owner). Fix: `event-accounting-campaign` W6-2 (DEFAULT APPLIED OD-20) |
 | Positive controls | Kafka `kgo.DialTLS()` (`config/kafka/kafka.go:66-69`); OTEL secure unless `OTEL_INSECURE=true` (`config/tracing/tracer.go:128-129`); lago-api HTTP client verifies outside dev/test (`$API/lib/lago_http_client/lago_http_client/session_client.rb:52-55`) | VERIFIED |
 | HTTP connector trusts the client's `organization_id`, no auth | `connectors/http.yml:25` (`root.organization_id = this.event.organization_id`), `:1-7` (`http_server` on `0.0.0.0:3000`, no auth) | VERIFIED by reading; SQS and Kinesis pin `${ORGANIZATION_ID}` (`sqs.yml:27`, `kinesis.yml:31`) |
 
@@ -219,8 +219,10 @@ only). Tick every line that applies and paste the script SUMMARY lines into the 
 - [ ] `.gitignore` covers any new path that can hold keys or certificates.
 - [ ] If something secret was ever pushed: rotate it, record the date (not the value), tell the
       owner (OD-9 pattern). History rewriting is not a remedy (change-control N2).
-- [ ] OPEN DECISIONS you rely on are labelled (OD-1/OD-20 memory cache, OD-4 paired lago-api PR, OD-9,
-      OD-16..OD-19; register: change-control section 9).
+- [ ] Owner decisions you rely on are labelled: DECIDED OD-1 (production runs the memory cache),
+      DECIDED OD-4 (paired PRs follow dependencies), OPEN DECISION OD-1b (production CDC auth and
+      brokers), DEFAULT APPLIED OD-20 (memory-cache hardening = campaign W6), OPEN DECISION OD-9,
+      OD-16..OD-19 (register: change-control section 9).
 
 ## 7. If you see X, do Y
 
@@ -287,5 +289,6 @@ Volatile facts and one-line re-verification (expected as of 2026-10-01; run from
 Update triggers: an `api` gitlink bump (re-read `$API` routes, Sidekiq, Redis TLS, Segment, DLQ
 migrations); any change to compose, `deploy/`, `docker/`, `traefik/`, `extra/`, `connectors/` or
 `.github/workflows/`; a new Sentry call or DLQ field; a lago-expression, Go, Rust or base-image bump;
-an owner answer to OD-1, OD-9, OD-16..OD-19 (Sidekiq default, HTTP connector exposure, AWS
-account id policy, PII in Sentry/DLQ) or OD-20 (memory-cache hardening owner).
+an owner answer to OD-1b (production CDC auth and brokers), OD-9, OD-16..OD-19 (Sidekiq default,
+HTTP connector exposure, AWS account id policy, PII in Sentry/DLQ), an amendment of OD-1 or OD-4, or
+a reassignment of OD-20 (memory-cache hardening owner).

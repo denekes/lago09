@@ -7,7 +7,8 @@
 #   smoke-binary.sh [db|cache|cache-cdc|all] [--keep] [--no-expected] [--env K=V ...]
 #     db         DB mode (default; the dev default)
 #     cache      LAGO_USE_MEMORY_CACHE=true (snapshot from the scratch DB, no CDC traffic)
-#     cache-cdc  cache + one hand-shaped Debezium `charges` row before start (OD-1 territory)
+#     cache-cdc  cache + one hand-shaped Debezium `charges` row before start (production path,
+#                DECIDED OD-1; the production column list is OPEN DECISION OD-1b)
 #     all        the three modes in sequence
 #     --keep         keep the temp dir (binary + logs) and print its path
 #     --no-expected  do not compare with fixtures/smoke-expected-<mode>.txt

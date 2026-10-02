@@ -45,8 +45,8 @@ script's known list (verified 2026-10-01) and does not fail the run.
 | C0 docs/skills | each new claim has `path:line`, a sha or a command + output; each documented command was run, or is marked "not runnable here; verified by reading `<file:line>`" | the commands you document; `research-methodology` citation lint | outputs pasted; nothing unlabelled |
 | C1 tests/tooling | full suite green; PASS count up by exactly your new tests; `-race` ok on the unit suite (which never runs `processRecordsAndCommit`); new leaves pass alone; no NEW unmet sqlmock expectation; for a regression test: its failing run on the unfixed code | `$V/baseline.sh`; `$V/race-shuffle.sh --isolation`; `$V/sqlmock-strict.sh`; for skill scripts `bash -n` + a real run + clean `git status` | 0 FAIL; `isolation ... 0 new`; `0 new` unmet |
 | C2 refactor (no behaviour change) | C1 + no test expectation changed + vet clean + `gofmt -l` empty on changed `.go` files + no new lint + coverage of touched packages not lower | `$V/baseline.sh`; `golangci-lint run --allow-serial-runners --new-from-rev="$BASE" ./...`; `git diff "$BASE" -- 'events-processor/*_test.go' \| grep -E '^-[^-]'` | `SUMMARY baseline: 0 FAIL`; `0 issues.`; the diff grep prints nothing |
-| C3 behaviour | C2 + a new or changed test that FAILS on `$BASE` and PASSES on the branch; both data modes when the logic exists in both; exact SQL pinned for query changes; parity evidence | `$V/fails-on-base.sh -- -count=1 -run '<TestName>' ./<pkg>/` then the same `go test` green; parity probe from `rails-go-parity`; before/after table for value/time changes (`event-accounting-campaign`) | `EVIDENCE OK` + green run; both `WithCache` and `WithoutCache` subtests listed |
-| C4 delivery / contract | C3 + a kfake-driven test through `processRecordsAndCommit` with a per-offset outcome (enriched / DLQ / redelivered / LOST) + one `GOFLAGS=-race` kfake run + ADR + paired lago-api PR | kfake harness from `diagnostics-and-tooling` (`GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4`); ledger from `event-accounting-campaign` | `RESULT: PASS` (exit 0); ledger pasted; ADR linked; lago-api PR linked (OPEN DECISION OD-4 (owner), default YES); owner sign-off (OPEN DECISION OD-2 (owner)) |
+| C3 behaviour | C2 + a new or changed test that FAILS on `$BASE` and PASSES on the branch; both data modes when the logic exists in both (cache mode is production: DECIDED OD-1); exact SQL pinned for query changes; parity evidence | `$V/fails-on-base.sh -- -count=1 -run '<TestName>' ./<pkg>/` then the same `go test` green; parity probe from `rails-go-parity`; before/after table for value/time changes (`event-accounting-campaign`) | `EVIDENCE OK` + green run; both `WithCache` and `WithoutCache` subtests listed |
+| C4 delivery / contract | C3 + a kfake-driven test through `processRecordsAndCommit` with a per-offset outcome (enriched / DLQ / redelivered / LOST) + one `GOFLAGS=-race` kfake run + conformance to ADR-001 + paired PRs where a dependent exists | kfake harness from `diagnostics-and-tooling` (`GOFLAGS=-race .claude/skills/diagnostics-and-tooling/scripts/kfake-run.sh happy-path -n 5000 -partitions 4`); ledger from `event-accounting-campaign` | `RESULT: PASS` (exit 0); ledger pasted; ADR-001 points named (DECIDED OD-2 (owner, 2026-10-02)); a paired PR linked for each repo whose external dependent is touched, or "no external dependent of K# is touched" (DECIDED OD-4 (owner, 2026-10-02)); owner sign-off |
 | C5 release/pins/CI | pin-sync output; for dependency, Go or lago-expression bumps the full C2 rung on the new versions; workflow YAML parses; actionlint shows no NEW finding; images "not built locally" | `pin-sync-check.sh` (change-control); `$V/baseline.sh` (expect a `go`/toolchain WARN on a Go bump); `python3 -c 'import yaml,sys;[yaml.safe_load(open(f)) for f in sys.argv[1:]]' .github/workflows/*`; actionlint via `release-and-images` | 0 FAIL; YAML command prints nothing |
 | C6 dev env/compose/deploy | `docker compose -f <file> config --quiet` exit 0 for each touched file; service-list diff; `bash -n` on touched scripts; bring-up either done on a machine with a daemon (paste it) or labelled "not runnable in a daemon-less sandbox" | see `run-and-operate` (compose matrix) | exit 0; diff explained |
 | C7 security overlay | counts-only scan output and file:line, never a value | `security-and-supply-chain` scans; change-control `precommit-guard.sh` | 0 FAIL |
@@ -57,7 +57,7 @@ log line, span attribute or counter that changes no control flow, return value, 
 call or payload field is C3 when `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline`
 prints `moved=0` (paste it). Anything that alters commit, retry, DLQ or skip behaviour is C4.
 A change to the enriched `value` string format (`enrichment_service.go:114`) is C3 + C4 (contract
-K4 under change-control N6: paired lago-api PR, OD-4); time parsing (`utils/time.go`) is C3 unless
+K4 under change-control N6: a paired lago-api PR, because lago-api's ClickHouse tables read `value`, DECIDED OD-4); time parsing (`utils/time.go`) is C3 unless
 the enriched `timestamp` payload format changes. A new DLQ cause or `error_code` is C4.
 
 ### C1 detail: a new test
@@ -93,8 +93,9 @@ $V/fails-on-base.sh -- -count=1 -run 'TestFoo' ./processors/events_processor/
 ### Both data modes (C3)
 
 The enrichment path exists twice: DB mode (Postgres via gorm) and memory-cache mode (badger fed by
-a snapshot + Debezium CDC, `LAGO_USE_MEMORY_CACHE=true`). Whether production runs the cache is
-OPEN DECISION OD-1 (owner), so a change to shared logic needs evidence in BOTH modes:
+a snapshot + Debezium CDC, `LAGO_USE_MEMORY_CACHE=true`). Dev runs DB mode; PRODUCTION runs
+memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)). A change to shared logic needs evidence in
+BOTH modes, and the cache-mode half is the production evidence:
 the `-v` output must show `.../WithCache/<case>` and `.../WithoutCache/<case>`.
 Use `templates/enrichment_template_test.go.tmpl`.
 

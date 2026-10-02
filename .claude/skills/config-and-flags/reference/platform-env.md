@@ -96,7 +96,8 @@ nil: see SKILL.md section 5). Line refs: `DEF:n` = `.env.development.default`, `
 
 Set only in `.env.development.default:76-93` and `:33-36`. ROOT and deploy ship **no** events-processor,
 Redpanda or ClickHouse, so none of these exist there. Production values live outside this repo
-(UNVERIFIED; see OPEN DECISION OD-1 for the cache mode).
+(UNVERIFIED). Production runs the events-processor in memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)); its
+CDC settings (Debezium column list, Kafka auth, brokers) are OPEN DECISION OD-1b (owner).
 
 | Variable | DEF | Readers |
 |---|---|---|

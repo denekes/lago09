@@ -84,9 +84,9 @@ an unmarshal error is committed with NO dead-letter record (`events-processor/pr
 **LC9 [EP] both. Enrich** (`events-processor/processors/events_processor/enrichment_service.go:27`).
 1. Timestamp to float seconds (ms-truncated) and to `time.Time` (`events-processor/models/event.go:70`,
    `events-processor/utils/time.go:58`, `events-processor/utils/time.go:48`). Failure: DLQ `build_enriched_event`.
-2. Billable metric by `(organization_id, code, deleted_at IS NULL)`: Postgres in DB mode
-   (`events-processor/models/billable_metrics.go:63`), badger in memory-cache mode
-   (`events-processor/processors/events_processor/enrichment_service.go:37`). Not found: DLQ
+2. Billable metric by `(organization_id, code, deleted_at IS NULL)`: Postgres in DB mode (dev)
+   (`events-processor/models/billable_metrics.go:63`), badger in memory-cache mode (production,
+   DECIDED OD-1 (owner, 2026-10-02)) (`events-processor/processors/events_processor/enrichment_service.go:37`). Not found: DLQ
    `fetch_billable_metric` (`events-processor/processors/events_processor/enrichment_service.go:42`).
 3. Expression, only when `source != "http_ruby"` (`events-processor/processors/events_processor/enrichment_service.go:104`).
 4. `value`: `"1"` for count, else `fmt.Sprintf("%v", properties[field_name])`

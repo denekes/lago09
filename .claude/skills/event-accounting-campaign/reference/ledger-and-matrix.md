@@ -3,31 +3,39 @@
 Read when you run `accounting-probe`, read a ledger row, add a fault case, or need to know which
 code path a case exercises. Code facts as of 5308258 (events-processor tree 83e012866f29); the working
 branch may carry skills-only commits on top. Verified 2026-10-01 with franz-go v1.20.5, kfake pseudo-version
-`v0.0.0-20251123185109-2b5c574e9ddd`, Postgres 16.
+`v0.0.0-20251123185109-2b5c574e9ddd`, Postgres 16; memory-cache mode (`-mode cache`) added and verified
+2026-10-02.
 
 ## 1. What the probe drives (and what it does not touch)
 
 - Real code: `kafka.NewConsumerGroup` (`events-processor/config/kafka/consumer.go:227`), the poll loop
   (`:167`), `processRecordsAndCommit` (`:82`), `findMaxCommitableRecord` (`:278`),
   `EventProcessor.ProcessEvents` (`events-processor/processors/events_processor/processor.go:32`), real
-  `kafka.Producer` clients, the real Redis flag store, DB mode (`models.ApiStore` over pgx/gorm).
+  `kafka.Producer` clients, the real Redis flag store, and one of two data sources: DB mode (the probe's default
+  `-mode db`: `models.ApiStore` over pgx/gorm, what dev runs) or `-mode cache`: a real `cache.Cache` (badger in
+  memory, `events-processor/cache/cache.go:36-53`), the mode production runs (DECIDED OD-1 (owner, 2026-10-02)).
 - Wiring: the `pipeline` package of the `diagnostics-and-tooling` kfake harness (it mirrors
   `StartProcessingEvents`, `events-processor/processors/main_processor.go:102`, minus env parsing, SASL/TLS
   and panics). Data: that harness's `fixture` tenant (org `11111111-…`, BM `api_calls` = sum of `amount`
   with a pay-in-advance charge, subscription `sub_ext_1`), loaded into a throwaway Postgres database
-  `acct_probe_<pid>_<n>` that the probe creates and drops (also on SIGINT/SIGTERM).
+  `acct_probe_<pid>_<n>` that the probe creates and drops (also on SIGINT/SIGTERM); in cache mode the
+  same tenant is written into a fresh cache per case by `fixture.SeedCache` (no Postgres; no Debezium
+  snapshot or CDC traffic: `smoke-binary.sh cache-cdc` covers CDC, `memory-cache-w6.md` s.4).
 - Faults are injected only at the edges: a gorm `Query` callback (DB), `miniredis.SetError` (Redis), a kfake
   `ControlKey(Produce)` answering `INVALID_RECORD` (Kafka produce), or the payload itself. No
   events-processor file is modified (change-control N10).
-- Each case: fresh kfake cluster, fresh miniredis, consumer group `acct_events-raw`.
+- Each case (`runCase`, `scripts/accounting-probe/main.go:437`): fresh kfake cluster, fresh miniredis, consumer group `acct_events-raw`.
   Session 1 produces the fault record alone and waits until `ProcessEvents` has seen it, disarms the
   fault (all faults are transient: they fire once), then (cases with neighbours) produces 2 good
   records and waits for them. Session 1 stops (real graceful shutdown). Session 2 restarts in the same
   group, produces a sentinel and waits until the committed offset passes it. Outputs are read back to
   the high watermark.
+- Cases 1-3 inject at the Postgres edge and have no cache-mode counterpart; `-mode cache` runs cases 4-10
+  (`run.sh accounting-probe -mode cache -case retryable-only-batch` exits 100: "unknown case(s) for -mode cache").
 - Not modelled (UNVERIFIED by this probe): rebalance mid-batch, SIGKILL mid-batch, commit failure
-  (`consumer.go:104-108` logs and captures, does not retry), multi-partition interleaving, memory-cache
-  mode (OPEN DECISION OD-1 (owner)), SASL/TLS. Add them as cases (section 5) before claiming them.
+  (`consumer.go:104-108` logs and captures, does not retry), multi-partition interleaving, CDC updates and
+  snapshot failures in cache mode (smoke-level evidence only, `memory-cache-w6.md`), SASL/TLS. Add them as
+  cases (section 5) before claiming them.
 
 ## 2. Outcome definitions (one per raw offset)
 
@@ -46,6 +54,10 @@ branch may carry skills-only commits on top. Verified 2026-10-01 with franz-go v
 
 <!-- evidence-check: on -->
 
+ADR-001 step 4a adds two outcomes: RETRIED (finally ENRICHED or DLQ after a hop through the retry topic;
+accounted) and RETRY_PARKED (on the retry topic at the end of the case, inside the max age; accounted,
+bounded): `delivery-options.md` s.6.
+
 `UNACCOUNTED = LOST + SKIPPED_RETRY + SENTRY_ONLY` is the gate metric. The probe's exit code is
 `min(UNACCOUNTED, 99)`; 100 = setup error. So `-case <one fault case>` exits 1 on today's code: that is the
 expected result, not a failure.
@@ -62,7 +74,7 @@ expected result, not a failure.
 | 6 | `enriched-produce-failure` | kfake rejects produce to `events_enriched` | `event_producer_service.go:87-89` -> DLQ, record still processed | DLQ `''(failed to push to events_enriched topic)`, **in_adv=1** | DLQ (and decide whether an in-advance event without an enriched one is acceptable) |
 | 7 | `dlq-produce-failure` | unknown code + kfake rejects produce to `events_dead_letter` | `processor.go:82` -> `event_producer_service.go:70-73` Sentry only, record processed | **SENTRY_ONLY** | PENDING/REDELIVERED (never commit what reached no topic) |
 | 8 | `redis-flag-then-later-batch` | Redis error while the fault record is in flight | `processor.go:110-113` enriched produced first, `:128-131` retryable flag failure, then as case 1 | **SKIPPED_RETRY** (enriched=1, in_adv=1, refresh never retried) | REDELIVERED |
-| 9 | `redis-flag-only-batch` (control) | same, no neighbours | as case 2; the retry re-produces | REDELIVERED, **enriched=2, in_adv=2** | REDELIVERED (duplicates absorbed downstream, see `delivery-options.md` s.4) |
+| 9 | `redis-flag-only-batch` (control) | same, no neighbours | as case 2; the retry re-produces (`processor.go:110-126` runs again) | REDELIVERED, **enriched=2, in_adv=2** | REDELIVERED (duplicates absorbed downstream, see `delivery-options.md` s.4) |
 | 10 | `missing-bm-nonretryable` | unknown metric code | `models/billable_metrics.go:75-83` NonRetryable+NonCapturable -> DLQ | DLQ `fetch_billable_metric(record not found)` | DLQ |
 
 Line references are under `events-processor/`; `processor.go`, `enrichment_service.go` and
@@ -107,6 +119,28 @@ Per-case footer lines (committed offset after session 1 / after restart, Sentry 
 The first record of every case is offset 0; the full per-case tables print transaction ids
 `<case>-fault`, `<case>-n1`, `<case>-n2`, `<case>-sentinel`.
 
+Memory-cache mode (2026-10-02; identical on 3 runs, one of them under `GOFLAGS=-race`):
+```
+$ .claude/skills/event-accounting-campaign/scripts/run.sh accounting-probe -mode cache
+== mode: cache (memory-cache data source, fixture.SeedCache; no Postgres, no CDC; 7 of 10 cases have a cache-mode counterpart)
+...per-case tables...
+== fault-record outcome per case
+unmarshal-bad-json                   SENTRY_ONLY    (expected today: fault=SENTRY_ONLY)
+numeric-precise-total-amount-cents   SENTRY_ONLY    (expected today: fault=SENTRY_ONLY)
+enriched-produce-failure             DLQ            (expected today: fault=DLQ(push events_enriched))
+dlq-produce-failure                  SENTRY_ONLY    (expected today: fault=SENTRY_ONLY)
+redis-flag-then-later-batch          SKIPPED_RETRY  (expected today: fault=SKIPPED_RETRY)
+redis-flag-only-batch                REDELIVERED    (expected today: fault=REDELIVERED (enriched x2))
+missing-bm-nonretryable              DLQ            (expected today: fault=DLQ(fetch_billable_metric: Key not found))
+TOTALS rows=26 ENRICHED=19 DLQ=2 REDELIVERED=1 LOST=0 SKIPPED_RETRY=1 SENTRY_ONLY=3 PENDING=0 ENRICHED+DLQ=0 UNACCOUNTED=4
+elapsed: 1.7s
+$ echo $?
+4
+```
+Per-case footers match DB mode for the shared cases (committed `3 -> 4`, case 9 `-1 -> 2`; Sentry 1,
+case 7: 2, case 10: 0); the only text difference is the case-10 DLQ cause `fetch_billable_metric(Key not found)`
+(badger) instead of `(record not found)` (gorm).
+
 ## 5. Adding a case
 
 <!-- evidence-check: off procedure, not claims -->
@@ -117,11 +151,25 @@ The first record of every case is offset 0; the full per-case tables print trans
 3. Append a `scenario{...}` with `expected` = today's outcome; keep the fault transient (fires once) unless
    the case is about permanent faults (then expect PENDING growth and say so).
 4. `run.sh --check` (vet, gofmt, franz-go pin), run the case 3 times plus once with `GOFLAGS=-race`.
-5. Update section 3 and 4 here, the `ledger_rows` and UNACCOUNTED baselines in `scripts/scoreboard.sh`,
-   and SKILL.md Phase 0. This is a C1 change (change-control).
+5. Update section 3 and 4 here, the `ledger_rows` / `cache_ledger_rows` and UNACCOUNTED baselines in
+   `scripts/scoreboard.sh`, and SKILL.md Phase 0. Give the case a `cacheExp` (or "" when its fault needs the
+   Postgres edge) and run it in both modes. This is a C1 change (change-control).
 
 <!-- evidence-check: on -->
 
+Planned for ADR-001 (step 4a, `delivery-options.md` s.6): the retry topic in the kfake topic list, the
+RETRIED / RETRY_PARKED outcomes, repeatable DB/Redis faults, cases 11-14 (`delivery-options.md` s.0.6).
 Ideas not built yet (each is a hypothesis to test, UNVERIFIED): commit failure via
 `ControlKey(OffsetCommit)`; crash after produce before commit (cancel inside a `Wrap`); 2 partitions with the
-fault on one; in-advance produce failure (expect ENRICHED+DLQ); memory-cache mode (`fixture.SeedCache`).
+fault on one; in-advance produce failure (expect ENRICHED+DLQ); a CDC update or a failed snapshot table in
+cache mode (needs the CDC consumers on kfake, as `kfake-run.sh cdc-brokers` does).
+
+## 6. Troubleshooting the probes (rare cases; the common ones are in SKILL.md Phase 0)
+
+| You see | It means | Do |
+|---|---|---|
+| exit 2, `building accounting-probe failed` | your events-processor tree does not compile, or no CGO env | fix the build; `build-and-env` for `-lexpression_go` |
+| exit 2, `missing diagnostics-and-tooling/scripts/kfake-harness` | the sibling harness moved (this module depends on it by relative path) | `diagnostics-and-tooling`; fix the `replace` in `scripts/go.mod` |
+| `--check` prints different franz-go versions | events-processor bumped franz-go | re-pin kfake per `diagnostics-and-tooling` (kfake technique, version trap), then `go mod tidy` in `scripts/` |
+| coverage of `ProcessEvents` > 0 | someone added a test | good: update the baseline in `scripts/scoreboard.sh` (same PR) |
+| leftover `acct_probe_*` databases | the probe was killed hard | `psql "${DATABASE_URL:-postgres://lago:lago@localhost:5432/lago}" -Atc "select datname from pg_database where datname like 'acct_probe%'"`, drop them |

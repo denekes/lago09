@@ -37,7 +37,7 @@ Payload field semantics and Rails/CH parity: `rails-go-parity`, `domain-referenc
 | Group id | Built at | Value in dev | Offsets |
 |---|---|---|---|
 | `<LAGO_KAFKA_CONSUMER_GROUP>_<LAGO_KAFKA_RAW_EVENTS_TOPIC>` | `config/kafka/consumer.go:237` | `lago_dev_events-raw` | manual commit; a **new** group starts at the earliest offset (franz-go default `resetOffset: NewOffset().AtStart()`, `franz-go@v1.20.5/pkg/kgo/config.go:578`; observed `"input":{"events-raw":{"0":{"At":-2,…}}}` in the startup log) |
-| `lago_evp_<model>_<uuid>` × 6 (memory-cache mode only) | `cache/consumer.go:27` | n/a (dev runs DB mode) | fresh UUID per process start ⇒ full replay of each CDC topic from the earliest retained offset, and 6 orphan groups left on the broker per restart |
+| `lago_evp_<model>_<uuid>` × 6 (memory-cache mode only: production, DECIDED OD-1) | `cache/consumer.go:27` | n/a (dev runs DB mode) | fresh UUID per process start ⇒ full replay of each CDC topic from the earliest retained offset, and 6 orphan groups left on the broker per restart per replica (cleanup with safety gates: `run-and-operate` `reference/memory-cache-ops.md`) |
 | `$LAGO_KAFKA_CLICKHOUSE_CONSUMER_GROUP` (ClickHouse Kafka engines, not EP) | `$API/db/clickhouse_migrate/*_queue.rb:10` | `clickhouse` | owned by ClickHouse; broker list and topic are baked into the DDL at migration time |
 | `lago_events_charged_in_advance_consumer` (Karafka, not EP) | `$API/karafka.rb:51` | — | Rails |
 
@@ -45,14 +45,16 @@ Consequence (load-bearing): renaming `LAGO_KAFKA_CONSUMER_GROUP` **or** the raw 
 new group re-processes the whole retained raw topic (duplicates are absorbed downstream only where ClickHouse dedup is
 on, invariant I12 CONDITIONAL).
 
-## 3. Memory-cache CDC topics (only with `LAGO_USE_MEMORY_CACHE=true`; OPEN DECISION OD-1)
+## 3. Memory-cache CDC topics (only with `LAGO_USE_MEMORY_CACHE=true`, which production runs: DECIDED OD-1)
 
 Topic = `$LAGO_DEBEZIUM_TOPIC_PREFIX` + `.public.<table>` (constants `cache/<model>.go:15`, `cache/subscriptions.go:18`).
 The prefix is not validated: empty gives topics `.public.billable_metrics` etc. (verified, `startup-contract.sh` S6).
 Reference connector config `extra/debezium_config.json`: `topic.prefix` `lago_proc_cdc` (line 47), six tables
 (line 41), column whitelist (line 2), `snapshot.mode: no_data` (line 39), unwrap SMT with
 `delete.handling.mode: rewrite` (lines 48-54). The events-processor `README.md` example uses `lago_dbz` instead.
-Whether production uses this file is unknown (OD-1). Details: `memory-cache.md`.
+Whether the production connector uses this file (column list, prefix) is OPEN DECISION OD-1b (owner), the
+first thing to verify: with this column list, in-advance charges and the recurring fallback break silently after
+edits (`memory-cache.md` §4). Details: `memory-cache.md`.
 
 ## 4. Redis
 
@@ -68,7 +70,7 @@ Whether production uses this file is unknown (OD-1). Details: `memory-cache.md`.
 | Connection | `LAGO_REDIS_STORE_URL` (`redis://`/`rediss://` prefix stripped, does NOT enable TLS), `_PASSWORD`, `_DB`, `_TLS` (default `ENV=="production"`) | `main_processor.go:78-100`, `config/redis/redis.go:25-48` |
 
 This is a cross-repo contract: change only with lago-api, versioned key, planned deploy order
-(change-control N6, OPEN DECISION OD-4: paired lago-api PR). History: `7421650` (SADD on `subscription_refreshed`)
+(change-control N6; the Rails clock reads it, so a paired lago-api PR is required: DECIDED OD-4). History: `7421650` (SADD on `subscription_refreshed`)
 → `42615c9` (bucketed ZADD on `_v2`) → `fb6401d` (bucket 15 s → 10 s).
 
 ## 5. Downstream readers at the pinned lago-api SHA

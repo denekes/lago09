@@ -1,0 +1,35 @@
+== events-processor log triage: cache-healthy.log
+lines: 50 (json 50, of which service=post_process 50; plain 0; unrecognised 0; # comments skipped 3)
+levels: ERROR=4 WARN=0 INFO=46 DEBUG=0
+time: 2026-10-02T09:07:31.07106243Z .. 2026-10-02T09:07:31.144072313Z
+lifecycle: starts=1 shutdown_signals=1 stopped=1
+== startup / crash
+  none
+== per-event failures by error_code
+  error_code                      lines   to-DLQ  retryable
+  build_enriched_event                1        1          0
+      e.g.    1  strconv.ParseFloat: parsing "2025-03-06 12:00:00": invalid syntax
+  evaluate_expression                 1        1          0
+      e.g.    1  failed to evaluate expr: event.properties.a * 2 with json: {...}
+  fetch_billable_metric               1        1          0
+      e.g.    1  Key not found
+== silent-loss signals
+  dropped, committed, NO DLQ (Error unmarshalling message)           1
+      e.g.    1  invalid character 'n' looking for beginning of object key string
+  head-of-batch retryable, commit skipped (No commitable record)     0
+  produce failed -> DLQ row with empty error_code                    0
+  DLQ produce failed too -> Sentry only, LOST                        0
+  main consumer fetch error -> process panic                         0
+  offset commit errors (redelivery = duplicates)                     0
+== memory-cache mode
+  snapshot loads: started 6, completed 6
+  snapshot rows: billable_metric_filters=0 billable_metrics=3 charge_filter_values=0 charge_filters=0 charges=2 subscriptions=1
+  CDC consumers started: 6 | CDC fetch errors: 0 | CDC decode/write errors: 0
+== other ERROR/WARN messages
+  none
+== playbook entries (explain-error.sh on each distinct ERROR/WARN/panic line)
+  dlq-build-enriched-event     1  event timestamp unparsable or of an unsupported type -> DLQ (non-retryable)
+  dlq-bm-not-found             1  no billable metric for (organization_id, code) -> DLQ (non-retryable, not sent to Sentry)
+  dlq-evaluate-expression      1  lago-expression returned nil for the metric's custom expression -> DLQ (non-retryable)
+  loss-unmarshal               1  raw record is not valid JSON for models.Event: committed, NO DLQ, Sentry only = LOST
+  (4 distinct line(s) examined; details: explain-error.sh --id <id>)

@@ -8,7 +8,8 @@ This skill says what counts as proof in this repo, what the suite measures today
 test that holds up. It ships the scripts that compare your branch with the baseline and the
 templates for the five common kinds of test.
 Facts verified 2026-10-01 unless marked. Code facts as of 5308258 (events-processor tree
-83e012866f29); the working branch may carry skills-only commits on top.
+83e012866f29); the working branch may carry skills-only commits on top. Owner decisions OD-1..OD-5
+of 2026-10-02 folded in (register: `change-control` §9).
 
 ## When to use / when NOT to use
 
@@ -42,7 +43,7 @@ Do NOT use it for:
 | PASS count | Number of `"Action":"pass"` test events (top-level tests + subtests at any depth). 235 today. |
 | leaf test | A test or subtest that has no subtests of its own. 202 today. |
 | own coverage | Statement coverage of the packages that have tests, each by its own tests (47.4%). The gated number. |
-| DB mode / cache mode | EP reads Postgres per event (default) / reads an in-memory badger cache fed by snapshot + Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`). Production use of cache mode is OPEN DECISION OD-1 (owner). |
+| DB mode / cache mode | EP reads Postgres per event (dev runs this) / reads an in-memory badger cache fed by snapshot + Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`). PRODUCTION runs cache mode: DECIDED OD-1 (owner, 2026-10-02), so cache-mode evidence is required, not optional. |
 | dual-mode test | One scenario run in both modes through the `DataStore` test interface (`processors/events_processor/processor_test.go:46-121`). |
 | SQL pin | The exact SQL a query must emit, held in a test with `regexp.QuoteMeta` (`models/subscriptions_test.go:14-22`). |
 | overlay | `go test -overlay=<json>`: build as if files were replaced or added, without touching disk. All scripts here use it. |
@@ -69,8 +70,8 @@ Classes are defined by `change-control`. Each rung includes the rungs above it f
 | C0 docs/skills | every claim carries `path:line`, a sha or command + output; every documented command was run or labelled "not runnable here; verified by reading `<file:line>`" | the commands themselves |
 | C1 tests/tooling | full suite green, PASS count up by exactly the new tests, `-race` ok on the unit suite (which never runs `processRecordsAndCommit`), new leaves pass alone, no NEW unmet sqlmock expectation; a regression test is shown failing on the unfixed code | `baseline.sh`, `race-shuffle.sh --isolation`, `sqlmock-strict.sh`, `fails-on-base.sh` |
 | C2 refactor | C1 + no existing test expectation changed + vet clean + `gofmt -l` empty on changed `.go` files + no new lint issue + own coverage not lower on any package (= change-control N9 plus the coverage rule) | `baseline.sh` (0 FAIL), `golangci-lint run --allow-serial-runners --new-from-rev="$BASE"` (`0 issues.`) |
-| C3 behaviour | C2 + a new/changed test that FAILS on `$BASE` and PASSES after; both data modes when the logic exists in both; exact SQL pinned for query changes (a DB-only query: both pins, `reference/evidence-ladder.md` §2); parity evidence (probe output + `$API/<file>:line`) | `fails-on-base.sh` (`EVIDENCE OK`) + green run; `rails-go-parity` probe |
-| C4 delivery/contract | C3 + a kfake-driven test through `processRecordsAndCommit` with per-offset outcomes + one `GOFLAGS=-race` kfake run + ADR + paired lago-api PR (OPEN DECISION OD-4 (owner)) + owner sign-off (OPEN DECISION OD-2 (owner)). A log/span/counter-only edit to a C4 file is C3 when the diff changes no control flow and `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline` prints `moved=0` (change-control §2, "behaviour test wins") | `diagnostics-and-tooling` kfake harness, `event-accounting-campaign` ledger |
+| C3 behaviour | C2 + a new/changed test that FAILS on `$BASE` and PASSES after; both data modes when the logic exists in both (cache mode is production, DECIDED OD-1); exact SQL pinned for query changes (a DB-only query: both pins, `reference/evidence-ladder.md` §2); parity evidence (probe output + `$API/<file>:line`) | `fails-on-base.sh` (`EVIDENCE OK`) + green run; `rails-go-parity` probe |
+| C4 delivery/contract | C3 + a kfake-driven test through `processRecordsAndCommit` with per-offset outcomes + one `GOFLAGS=-race` kfake run + the ADR-001 points it implements (DECIDED OD-2 (owner, 2026-10-02)) + a paired PR in each repo whose external dependent is touched, or "no external dependent of K# is touched" (DECIDED OD-4 (owner, 2026-10-02); change-control `reference/cross-repo-protocol.md` §1) + owner sign-off. A log/span/counter-only edit to a C4 file is C3 when the diff changes no control flow and `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline` prints `moved=0` (change-control §2, "behaviour test wins") | `diagnostics-and-tooling` kfake harness, `event-accounting-campaign` ledger |
 | C5 release/pins/CI | pin-sync clean; the full C2 rung on the new versions; workflow YAML parses; no new actionlint finding; images "not built locally" | change-control `pin-sync-check.sh`, `baseline.sh`, `release-and-images` |
 | C6 dev env/compose | `docker compose -f <f> config --quiet` exit 0 per touched file; `bash -n` on scripts; bring-up pasted or labelled not runnable | `run-and-operate` |
 | C7 security | counts and file:line only, never a value | `security-and-supply-chain`, change-control `precommit-guard.sh` |
@@ -98,8 +99,8 @@ Measured with go1.25.0, golangci-lint 2.5.0, Postgres 16, 4 vCPU. Full tables: `
 | strict sqlmock | 4 KNOWN unmet expectations (HD1) | no NEW one | `sqlmock-strict.sh` |
 | time | suite warm 4-5 s; empty build cache 60-75 s typical (up to ~120 s under load); `-race` warm ~7-8 s | n/a | `.claude/skills/build-and-env/scripts/ep-test.sh` under `time` |
 
-These thresholds are the default under OPEN DECISION OD-5 (owner): the Docker-free recipe
-(`ep-test.sh`) is the accepted local gate. `lago exec events-processor go test ./...`
+DECIDED OD-5 (owner, 2026-10-02): the Docker-free recipe (`ep-test.sh`) is an accepted pre-PR gate,
+and these thresholds apply to it. `lago exec events-processor go test ./...`
 (`events-processor/CLAUDE.md:7`) stays valid for people running the dev stack.
 
 ## 3. Runbook: validate a change before the PR
@@ -277,7 +278,9 @@ current state. List and commands: `reference/baselines.md` §6.
 
 ## 9. Cross-repo changes: lago-api specs
 
-Only for C4 contract changes. The paired lago-api PR pins the Rails side; rules at the pin
+Only for C4 contract changes whose K row lists a lago-api dependent (DECIDED OD-4 (owner, 2026-10-02):
+paired PRs follow dependencies; change-control `reference/cross-repo-protocol.md` §1). The paired
+lago-api PR pins the Rails side; rules at the pin
 (`API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)`):
 never `aggregate_failure` in new tests, prefer `have_received`, run the minimum set
 (`$API/AGENTS.md:212-218`); `clickhouse: true` metadata for ClickHouse specs
@@ -352,5 +355,5 @@ only to `mktemp -d` (and `--write FILE`), and leave `events-processor/` untouche
   changes; a dependency or Go/golangci-lint version changes; `events-processor-tests.yml` changes;
   a harness defect is fixed (empty the KNOWN lists in `race-shuffle.sh` / `sqlmock-strict.sh`);
   franz-go is bumped (re-run `templates-check.sh`: the producer-option template pins its defaults);
-  the owner decides OPEN DECISION OD-5 (owner) or OPEN DECISION OD-6 (owner); a lint config or new CI job lands; lago-api's pin moves
+  the owner amends OD-5 (DECIDED 2026-10-02) or decides OPEN DECISION OD-6 (owner); a lint config or new CI job lands; lago-api's pin moves
   (re-check §9 line numbers).

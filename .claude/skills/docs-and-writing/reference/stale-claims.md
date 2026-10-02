@@ -26,7 +26,7 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
 
 | ID | Where (as of 2026-10-01) | Wrong claim, short | Fix class | Status |
 |---|---|---|---|---|
-| SC-01 | `events-processor/CLAUDE.md:7,10` | direct `go build`/`go test` "won't work locally"; always `lago exec` | C0 (wording depends on OD-5) | STALE |
+| SC-01 | `events-processor/CLAUDE.md:7,10` | direct `go build`/`go test` "won't work locally"; always `lago exec` | C0; correction APPROVED (DECIDED OD-5, 2026-10-02), not yet applied | STALE |
 | SC-02 | `events-processor/README.md:6` | the service needs ClickHouse | C0 | STALE |
 | SC-03 | `events-processor/README.md:13-16` | plain `go build -o event_processors .` | C0 | STALE |
 | SC-04 | `events-processor/README.md:38` | `ENV=production` disables `.env` loading | C0 | STALE |
@@ -34,7 +34,7 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
 | SC-06 | `events-processor/README.md:41,43` | topic examples `events_raw`, `events_charge_in_advance` | C0 | STALE |
 | SC-07 | `events-processor/README.md:68` | `USE_MEMORY_CACHE`; prefix example `lago_dbz` | C0 | STALE |
 | SC-08 | `events-processor/README.md:56` | `LAGO_REDIS_STORE_TLS` default false | C0 | STALE |
-| SC-09 | `events-processor/README.md:40` | multi-broker example (breaks memory-cache consumers) | C0 doc; C3 code (OD-1) | STALE |
+| SC-09 | `events-processor/README.md:40` | multi-broker example (breaks memory-cache consumers) | C0 doc; C4 code (`event-accounting-campaign` W6-2; production path, DECIDED OD-1) | STALE |
 | SC-10 | `events-processor/README.md:32-68` | env tables omit 8 variables; required ones unmarked | C0 | STALE |
 | SC-11 | `events-processor/Dockerfile.staging:20-22` | lago-expression: "bump both together" | C0 comment (C5 file) | STALE |
 | SC-12 | `docs/dev_environment.md:154` | `LAGO_CLICKHOUSE_ENABLED=false` disables ClickHouse | C0 | STALE |
@@ -120,10 +120,13 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
   add `-T` to `exec` when there is no TTY.
   ````
 
-- **Class:** C0. Which local gate is policy is OPEN DECISION OD-5 (owner). The default is that the
-  Docker-free recipe is accepted, so the text above presents both and mandates neither. The
-  `docker compose ... exec` line cannot run in a daemon-less sandbox. It is the alias expansion of
-  `docs/dev_environment.md:53`.
+- **Class:** C0. **Status: APPROVED correction, not yet applied** (as of 2026-10-02). DECIDED OD-5
+  (owner, 2026-10-02): the Docker-free recipe (`ep-test.sh`) is an accepted pre-PR gate and
+  `lago exec` stays valid for dev-stack users, which is what the text above says (it presents both).
+  `events-processor/CLAUDE.md` is outside `.claude/skills`, so applying it is the owner's C0 PR;
+  until then `doc-drift-check.sh` prints `STALE` for SC-01, and after it `PASS` (then mark it FIXED).
+  The `docker compose ... exec` line cannot run in a daemon-less sandbox. It is the alias expansion
+  of `docs/dev_environment.md:53`.
   <!-- evidence-check: on -->
 
 ### SC-02 `events-processor/README.md:6`: "configured with Clickhouse"
@@ -236,8 +239,9 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
   - The variable is `LAGO_USE_MEMORY_CACHE`. Only the literal value `true` enables it
     (`events-processor/main.go:23,67`).
   - The repo's Debezium config uses `"topic.prefix": "lago_proc_cdc"`
-    (`extra/debezium_config.json:47`). Whether production runs memory-cache mode is OPEN DECISION
-    OD-1 (owner).
+    (`extra/debezium_config.json:47`). Production runs memory-cache mode (DECIDED OD-1 (owner,
+    2026-10-02)), so operators configure this variable; the production prefix is not visible here
+    (OPEN DECISION OD-1b (owner) covers the production CDC config).
   <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
 - **Corrected text:**
 
@@ -269,13 +273,14 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
   - The memory-cache consumers pass the raw string as one seed broker
     (`cache/consumer.go:28,31`: `kgo.SeedBrokers(brokers)`). A list therefore works in DB mode but
     not with `LAGO_USE_MEMORY_CACHE=true`.
-  - Production impact depends on OPEN DECISION OD-1 (owner). Runtime behaviour with a list:
-    see `architecture-contract` (weak points).
+  - Production runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)), so a broker list breaks
+    production's CDC consumers. Which list production actually sets is OPEN DECISION OD-1b (owner).
+    Runtime behaviour with a list: see `architecture-contract` (weak points).
   <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
 - **Corrected text:** "Comma-separated list, no quotes, e.g. `redpanda:9092`. With
   `LAGO_USE_MEMORY_CACHE=true` use a single broker (the cache consumers do not split the list)."
-- **Class:** C0 for the doc. The code fix is a C3 change owned by `architecture-contract` /
-  `event-accounting-campaign`.
+- **Class:** C0 for the doc. The code fix (CDC clients through the main Kafka client: broker split,
+  SASL/TLS) is a C4 change in `event-accounting-campaign` W6-2 (DEFAULT APPLIED OD-20).
   <!-- evidence-check: on -->
 
 ### SC-10 `events-processor/README.md:32-68`: incomplete env tables
@@ -898,8 +903,8 @@ Sources: `$API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh 
   `2146a18` and `4955f79` (August 2026).
   <!-- evidence-check: off (prescription; the evidence is in Claim/Truth above) -->
 - **Corrected text:** none possible (history is immutable, change-control N2). Never repeat the
-  claim. Cite this entry instead. Whether the account id may stay in public workflows is OPEN
-  DECISION OD-18 (owner; `security-and-supply-chain`).
+  claim. Cite this entry instead. Whether the account id may stay in public workflows is
+  OPEN DECISION OD-18 (owner; `security-and-supply-chain`).
 - **Class:** n/a. The check prints `KNOWN`.
   <!-- evidence-check: on -->
 

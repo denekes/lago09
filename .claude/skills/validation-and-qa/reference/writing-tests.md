@@ -117,7 +117,9 @@ Verified in `github.com/DATA-DOG/go-sqlmock@v1.5.2` (`query.go`), the version in
 ## 6. lago-api specs (only for cross-repo changes)
 
 You need lago-api specs only when a change is C4 (a contract both repos read or write). The
-paired lago-api PR (OPEN DECISION OD-4 (owner), default YES) pins the format on the Rails side.
+paired lago-api PR pins the format on the Rails side; it is needed when the K row lists a lago-api
+dependent of the changed part (DECIDED OD-4 (owner, 2026-10-02); change-control
+`reference/cross-repo-protocol.md` §1).
 Read lago-api at the pin: `API=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh api)`.
 
 | Rule or fact | Where (`$API` = lago-api@591ae90) |

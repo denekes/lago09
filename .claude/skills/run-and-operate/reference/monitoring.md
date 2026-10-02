@@ -16,7 +16,7 @@ Exposure and auth hardening: `security-and-supply-chain`.
 | Sidekiq Pro per-job metrics (DogStatsD) | push to `LAGO_SIDEKIQ_STATSD_ENDPOINT` (`host:port`) | Sidekiq Pro installed + env set | `sidekiq.rb:30-56` |
 | Sidekiq liveness | TCP 8080 inside each worker container (answers after a Redis PING) | always in workers | `sidekiq.rb:16,73-75`; compose healthchecks `curl -f http://localhost:8080` |
 | Through Traefik (light/production) | `https://$LAGO_DOMAIN/api/metrics`, `/api/sidekiq`, `/api/sidekiq/prometheus/metrics` (router `PathPrefix(/api/)` + stripprefix) | reachable from the internet if the domain is public (inferred from labels; UNVERIFIED runtime) | deploy/docker-compose.production.yml:201-208 |
-| events-processor | NOTHING scrapeable: no HTTP server, no health/readiness, no lag/DLQ/failure counters. Only traces (OTel or Datadog) and, with OTel + `KAFKA_TRACING_ENABLED=true`, franz-go kotel client meters exported by the OTel meter provider (60 s reader) | `grep -rn 'ListenAndServe\|net/http' events-processor --include=*.go` → nothing; config/tracing/otel_tracer.go; config/kafka/kafka.go:40-46 |
+| events-processor | NOTHING scrapeable: no HTTP server, no health/readiness, no lag/DLQ/failure counters | only traces (OTel or Datadog) and, with OTel + `KAFKA_TRACING_ENABLED=true`, franz-go kotel client meters exported by the OTel meter provider (60 s reader) | `grep -rn 'ListenAndServe\|net/http' events-processor --include=*.go` → nothing; config/tracing/otel_tracer.go; config/kafka/kafka.go:40-46 |
 | Kafka consumer lag | broker side: `rpk group describe lago_dev_events-raw` (dev) / your Kafka tooling | always | standard rpk (not run here) |
 | Redpanda | admin API :9644 inside the container (`/v1/status/ready` used by the healthcheck); Console UI https://console.lago.dev | dev | docker-compose.dev.yml:384-389, 411-433 |
 | Postgres | pghero https://pghero.lago.dev (+ `pg_stat_statements` preloaded) | dev | docker-compose.dev.yml:494-517; scripts/postgresql.conf:81-84 |
@@ -39,6 +39,10 @@ Exposure and auth hardening: `security-and-supply-chain`.
   events-processor group and the ClickHouse `clickhouse` group.
 - DLQ rate: `SELECT error_code, count() FROM events_dead_letter WHERE failed_at > now() - INTERVAL 1 HOUR GROUP BY error_code`.
 - Liveness: process restarts (container restart count) — a fetch error panics the process.
+- Memory cache (production runs it: DECIDED OD-1): snapshot completeness after every start (six
+  `Completed snapshot load` lines), Debezium connector state, replication-slot lag of `lago_dbz_evt_proc`,
+  lag of the pod's six `lago_evp_*` groups, and a `fetch_billable_metric` `Key not found` burst alert.
+  Commands: `memory-cache-ops.md` §1-§2.
 - Silent losses (unmarshal errors, skipped retryables) produce only Sentry events/log lines: count
   `Error unmarshalling message` log lines. Turning these into metrics is workstream W5 of
   `event-accounting-campaign` (target, not current state).

@@ -35,7 +35,7 @@ FRONT=$(.claude/skills/research-methodology/scripts/pinned-checkout.sh front)   
      payload field (commit path: `events-processor/config/kafka/consumer.go:82-109`), and
    - (b) `.claude/skills/event-accounting-campaign/scripts/scoreboard.sh --check-baseline`
      prints `moved=0 unmeasured=0` (paste it; exit 0; about 20 s, needs Postgres; verified 2026-10-02:
-     `scoreboard: moved=0 unmeasured=0 targets_missed=12`; skipped rows exit 5).
+     `scoreboard: moved=0 unmeasured=0 targets_missed=13`; skipped rows exit 5).
 
    Anything that alters commit, retry, DLQ or skip behaviour, or a contract K1-K10, is **C4**
    (N7, N6). Say in the PR which rule you applied.

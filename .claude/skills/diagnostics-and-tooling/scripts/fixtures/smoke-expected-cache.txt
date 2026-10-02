@@ -4,7 +4,7 @@
 # Lines are compared in order; '#' lines and blank lines are ignored.
 # What the lines mean and which are defects: architecture-contract (dispositions, DLQ codes),
 # rails-go-parity (value/time semantics), event-accounting-campaign (silent loss).
-# cache: memory-cache mode (LAGO_USE_MEMORY_CACHE=true) — production use is OPEN DECISION OD-1 (owner).
+# cache: memory-cache mode (LAGO_USE_MEMORY_CACHE=true) — the production path (DECIDED OD-1 (owner, 2026-10-02)).
 tx_A enriched=yes value="1e-07" subscription_id="bbbbbbbb-0000-0000-0000-000000000001" in_advance=yes
 tx_B enriched=no in_advance=no dlq=fetch_billable_metric(Key not found)
 tx_C enriched=no in_advance=no dlq=build_enriched_event(strconv.ParseFloat: parsing "2025-03-06 12:00:00": invalid syntax)

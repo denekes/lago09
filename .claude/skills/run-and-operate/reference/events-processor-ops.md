@@ -108,9 +108,10 @@ docker compose -f docker-compose.dev.yml stop events-processor                  
 docker compose -f docker-compose.dev.yml exec redpanda rpk group seek lago_dev_events-raw --to end --topics events-raw   # SKIPS unconsumed records; dev only
 ```
 Any seek, reset or group delete on a shared or production cluster is an operational change with
-delivery consequences: do not run it without owner sign-off (OPEN DECISION OD-2 (owner) for the delivery
-contract; OD-1 (owner) for memory-cache groups). change-control N7 covers code changes to commit/delivery
-semantics.
+delivery consequences: do not run it without the owner's sign-off for that operation (the delivery
+contract itself is ADR-001, DECIDED OD-2 (owner, 2026-10-02); production's memory-cache CDC groups have
+their own gated cleanup in `memory-cache-ops.md` §3). change-control N7 covers code changes to
+commit/delivery semantics.
 
 ## 4. The DLQ (`events_dead_letter`)
 
@@ -125,7 +126,12 @@ subscription is NOT an error: the event is enriched without one), `fetch_pay_in_
 processors/events_processor/event_producer_service.go:87-89). What does NOT land there:
 unparseable JSON (committed, Sentry + log only, processor.go:49-60), retryable failures younger than
 12 h (not committed; may be skipped forever by a later commit: architecture-contract), and a DLQ produce
-failure (Sentry only). Decoding the codes: `debugging-playbook`.
+failure (Sentry only). Decoding the codes: `debugging-playbook`. Target behaviour (not built yet): ADR-001
+(DECIDED OD-2) sends PERMANENT failures to the DLQ at once with a cause (unmarshal errors too), retries
+TRANSIENT ones through a retry topic and DLQs them after N attempts or the 12 h max age, and pauses on
+SYSTEMIC failures (`event-accounting-campaign` `reference/delivery-options.md`). In production's
+memory-cache mode, a burst of `fetch_billable_metric` `Key not found` across many codes right after a start
+is a swallowed snapshot failure: `memory-cache-ops.md` §1.
 
 Inspect (dev; not runnable here):
 ```bash
@@ -152,9 +158,12 @@ including customer `properties` (PII: `security-and-supply-chain`).
   2026-03-06, charges/filters created after the subscription start) and re-produces them to the raw topic
   with `source_metadata.reprocess`. It is a re-enrichment migration aid, not a DLQ replay.
   `events:recover_pay_in_advance_fees` (:119-) recovers fees for events never post-processed.
-- No replay tool exists. A manual re-feed (consume `.event` from DLQ records, re-produce to the raw
-  topic) is CANDIDATE and needs OPEN DECISION OD-2 (owner): it re-runs pay-in-advance and refresh side
-  effects. Design work belongs to `event-accounting-campaign`.
+- No replay tool exists today. ADR-001 (DECIDED OD-2 (owner, 2026-10-02), point 5) plans an
+  operator-gated DLQ to raw-topic replay tool that stamps a replay header, safe only together with the
+  downstream idempotency ADR-001 requires (design and build: `event-accounting-campaign`). Until it ships,
+  a manual re-feed (consume `.event` from DLQ records, re-produce to the raw topic) is CANDIDATE and needs
+  the owner's sign-off: it re-runs pay-in-advance and refresh side effects, which dedup only where
+  `architecture-contract` I12 (CONDITIONAL) holds.
 
 ## 6. Scaling
 
@@ -167,32 +176,33 @@ including customer `properties` (PII: `security-and-supply-chain`).
 - docs/architecture.md:262 sizes the Events Processor Worker at 2 cores / 2 Gi, 1 replica; the Helm chart
   hard-codes `replicas: 1`. Postgres load in DB mode: up to `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS`
   connections per replica (code default 200, processors/main_processor.go:134; the public Helm chart
-  sets 10 via `eventsProcessor.databasePool`).
+  sets 10 via `eventsProcessor.databasePool`). In memory-cache mode (production, DECIDED OD-1) Postgres sees
+  only the 10-connection snapshot pool at start (cache/cache.go:63-73); each replica then holds a full cache
+  and its own 6 CDC groups (`memory-cache-ops.md` §3-§4).
 - A fetch error other than context cancellation panics the process (consumer.go:175-183): rely on the
   restart policy (`restart: unless-stopped` in dev).
 
-## 7. Memory-cache mode (OPEN DECISION OD-1 (owner): production use UNKNOWN; dev runs DB mode)
+## 7. Memory-cache mode (production: DECIDED OD-1; full runbook `memory-cache-ops.md`)
 
-Enable: `LAGO_USE_MEMORY_CACHE=true` (exact string) + `LAGO_DEBEZIUM_TOPIC_PREFIX` matching the
-Debezium connector (`extra/debezium_config.json` uses `lago_proc_cdc`; the README example `lago_dbz` does
-not match) + Postgres `wal_level=logical` (dev `scripts/postgresql.conf:44`) + the connector registered on
-`redpanda-kafka-connect` (no script or doc registers it: UNVERIFIED procedure).
+Production runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)); dev runs DB mode. Enable:
+`LAGO_USE_MEMORY_CACHE=true` (exact string) + `LAGO_DEBEZIUM_TOPIC_PREFIX` matching the Debezium
+connector (`extra/debezium_config.json` uses `lago_proc_cdc`; the README example `lago_dbz` does not
+match) + Postgres `wal_level=logical` (dev `scripts/postgresql.conf:44`) + the connector registered on
+`redpanda-kafka-connect` (no script or doc registers it: UNVERIFIED procedure). The production connector
+config, Kafka auth and broker list are OPEN DECISION OD-1b (owner): verify them first (`memory-cache-ops.md` §0).
 
-Operational facts (code-level; production impact UNVERIFIED per OD-1):
+Operational facts (production-relevant; each has a check in `memory-cache-ops.md`):
 - Startup blocks on a full snapshot of 6 tables (whole tables held in memory before writing to badger,
-  models/query_streaming.go:95-113). Memory grows with table size: measure with `diagnostics-and-tooling`.
+  models/query_streaming.go:95-113); ~0.8 GB RSS per 1M subscriptions on synthetic rows (§4 there).
 - Snapshot query errors are discarded, not fatal (only the DB logger prints them; cache/cache.go:63-107):
-  the process runs with an empty cache and DLQs events as `fetch_billable_metric` (`Key not found`).
+  the process runs with an empty cache and DLQs events as `fetch_billable_metric` (`Key not found`) (§1 there).
 - CDC consumers use a NEW group `lago_evp_<model>_<uuid>` per start (cache/consumer.go:27) → every
-  restart replays every CDC topic from the start and leaves 6 stale groups on the broker. Find them with
-  `rpk group list | grep lago_evp_`; delete only stale groups (no member: `rpk group describe <g>` lists
-  no consumers) and only on a dev broker, with `rpk group delete <g>` (UNVERIFIED commands). On a shared
-  or production cluster this is an operational change that needs owner sign-off (OPEN DECISION OD-1
-  (owner)). WARNING: deleting the group of a running replica drops its committed offsets.
+  restart replays every CDC topic from the start and leaves 6 orphan groups per replica. Cleanup has a
+  KEEP-list gate, an empty-state gate, a WARNING and owner sign-off on production (§3 there).
 - CDC consumers pass `LAGO_KAFKA_BOOTSTRAP_SERVERS` unsplit and without SASL/TLS (cache/consumer.go:28-35):
-  a comma-separated list or an authenticated cluster silently gets no CDC updates.
+  a comma-separated list or an authenticated cluster silently gets no CDC updates (§0, §2 there).
 - 3 of the 6 cached models have no readers since `d9c32b6`.
 
-Details and defects: `architecture-contract` WP6-WP10; parity of DB vs cache results: `rails-go-parity`.
-Hardening is unowned: owner question OPEN DECISION OD-20 (owner), next to OD-1; candidate future
-campaign.
+Details and defects: `architecture-contract` WP6-WP10, WP27; parity of DB vs cache results:
+`rails-go-parity`. Fix owner: `event-accounting-campaign` W6 (DEFAULT APPLIED OD-20; the owner may
+reassign it).

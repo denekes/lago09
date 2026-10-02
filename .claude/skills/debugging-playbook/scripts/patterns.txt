@@ -1,6 +1,8 @@
 # patterns.txt - known failure strings of the Lago umbrella repo, read by explain-error.sh
 # (and, through it, by triage-ep-log.sh). Single source of truth: SKILL.md and reference/*.md
 # cite these ids. Facts verified 2026-10-01 (code at 5308258) unless the evidence line says otherwise.
+# Owner decisions of 2026-10-02 folded in: production runs memory-cache mode (DECIDED OD-1); delivery contract =
+# ADR-001 (DECIDED OD-2); ClickHouse schema change allowed (DECIDED OD-3); paired PRs by dependency (DECIDED OD-4).
 #
 # Format: one block per entry, blocks separated by one blank line, "key: value" lines.
 #   id        stable kebab-case id (cited by the docs; never rename without grepping the skill)
@@ -166,7 +168,7 @@ match: Error starting cache consumers
 title: memory-cache mode could not open badger or create a CDC client (LAGO_USE_MEMORY_CACHE=true)
 cause: badger open failure (memory); kgo.NewClient rejected the CDC options
 confirm: code main.go:67-80, cache/consumer.go:30-38
-fix: check memory limits; OPEN DECISION OD-1 (owner) on whether cache mode is used at all; hardening is unowned (OPEN DECISION OD-20 (owner))
+fix: check memory limits (sizing: run-and-operate reference/memory-cache-ops.md section 4); production runs cache mode (DECIDED OD-1), so this is a production outage; hardening is event-accounting-campaign W6 (DEFAULT APPLIED OD-20)
 see: SKILL.md section 5
 evidence: CODE main.go:73,79 (not reproduced; the example is synthetic)
 example: {"level":"ERROR","msg":"Error starting cache consumers","service":"post_process","error":"failed to start billable metrics consumer: ..."}
@@ -201,7 +203,7 @@ area: dlq
 match: fetch_billable_metric.*(record not found|Key not found)
 match: (record not found|Key not found).*fetch_billable_metric
 title: no billable metric for (organization_id, code) -> DLQ (non-retryable, not sent to Sentry)
-cause: wrong code or organization in the event; metric deleted (deleted_at IS NULL filter, models/billable_metrics.go:63); memory-cache mode: snapshot empty/failed or CDC not delivering ("Key not found" for EVERY event = cache-snapshot-failed)
+cause: wrong code or organization in the event; metric deleted (deleted_at IS NULL filter, models/billable_metrics.go:63); memory-cache mode (production, DECIDED OD-1): snapshot empty/failed ("Key not found" for MANY codes right after a start = cache-snapshot-failed) or CDC not delivering (only metrics created after the pod started fail = stale cache, debugging-playbook section 5)
 confirm: DB mode: SELECT id FROM billable_metrics WHERE organization_id='<org>' AND code='<code>' AND deleted_at IS NULL; cache mode: triage-ep-log.sh shows snapshot started vs completed
 fix: correct the event / metric; cache mode: see cache-snapshot-failed
 see: SKILL.md sections 3 and 5
@@ -299,7 +301,7 @@ match: record had a produce error while synchronously producing
 title: produce to events_enriched / events_charged_in_advance failed -> DLQ row with error_code "" and the record is COMMITTED (no per-event ERROR line); after a failed ENRICHED push the in-advance event is still produced
 cause: topic missing (UNKNOWN_TOPIC_OR_PARTITION); broker outage; record too large; ACL
 confirm: component=kafka-producer ERROR line; DLQ rows with empty error_code and initial_error_message "failed to push to <topic> topic"
-fix: create/fix the topic. No DLQ replay tool exists (run-and-operate section 5.4); a manual re-feed is CANDIDATE and needs OPEN DECISION OD-2 (owner). A re-feed of a failed-ENRICHED row duplicates its in-advance event (processor.go:110-126)
+fix: create/fix the topic. No DLQ replay tool exists today (run-and-operate section 5.4); ADR-001 (DECIDED OD-2) plans an operator-gated one; until then a manual re-feed is CANDIDATE and needs owner sign-off. A re-feed of a failed-ENRICHED row duplicates its in-advance event (processor.go:110-126)
 see: SKILL.md sections 3-4
 evidence: VERIFIED 2026-10-01 (real binary, LAGO_KAFKA_ENRICHED_EVENTS_TOPIC=missing_topic)
 example: {"time":"2026-10-01T21:27:28.545768341Z","level":"ERROR","msg":"record had a produce error while synchronously producing","service":"post_process","component":"kafka-producer","error":"UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition."}
@@ -311,7 +313,7 @@ match: error while pushing to dead letter topic
 title: the DLQ produce failed too: the event is now only in Sentry (if SENTRY_DSN is set) and the record is committed = LOST
 cause: DLQ topic missing; broker outage
 confirm: Sentry issue with extra "event"; code processors/events_processor/event_producer_service.go:66-73 (if !pushed at :70)
-fix: restore the topic; recover from Sentry by hand; delivery redesign is OPEN DECISION OD-2 (owner), event-accounting-campaign
+fix: restore the topic; recover from Sentry by hand; the target contract is ADR-001 (DECIDED OD-2: a failed DLQ produce becomes SYSTEMIC = pause, never Sentry-only), built by event-accounting-campaign W1
 see: SKILL.md section 4
 evidence: CODE event_producer_service.go:71 (synthetic example built from it)
 example: {"level":"ERROR","msg":"error while pushing to dead letter topic","service":"post_process","topic":"events_dead_letter"}
@@ -322,7 +324,7 @@ match: Error unmarshalling message
 title: raw record is not valid JSON for models.Event: committed, NO DLQ, Sentry only = LOST
 cause: invalid JSON; a field of the wrong type (numeric precise_total_amount_cents from connectors, properties not an object); ingested_at not parseable (e.g. "2026-10-01 14:28:15")
 confirm: the error text names the field; code processors/events_processor/processor.go:49-59
-fix: fix the producer; the drop itself is event-accounting-campaign territory (OPEN DECISION OD-2 (owner))
+fix: fix the producer; the drop itself is event-accounting-campaign W1 territory (ADR-001, DECIDED OD-2: unmarshal failures go to the DLQ with the raw bytes, never a silent commit)
 see: SKILL.md section 4
 evidence: VERIFIED 2026-10-01 (binary smoke tx_D; probe of models.Event)
 example: {"time":"2026-10-01T21:19:06.3456212Z","level":"ERROR","msg":"Error unmarshalling message","service":"post_process","error":"invalid character 'n' looking for beginning of object key string"}
@@ -344,7 +346,7 @@ match: No commitable record in batch
 title: the FIRST record of a batch failed retryably, so nothing was committed; if any later batch on that partition commits, the failed offset is skipped forever (no DLQ, no retry)
 cause: retryable codes (fetch_subscription, fetch_pay_in_advance_charge, flag_subscription_refresh, fetch_billable_metric with a DB error) with ingested_at < 12 h
 confirm: compare per-transaction: ERROR line with a retryable code AND no DLQ row AND not in events_enriched; committed offset (rpk group describe / kadm) moved past it
-fix: do NOT patch commit logic while debugging (change-control N7, OPEN DECISION OD-2 (owner)); measure with event-accounting-campaign; restore the failing dependency
+fix: do NOT patch commit logic while debugging (change-control N7; the target is ADR-001, DECIDED OD-2, built as a C4 change by event-accounting-campaign W1); measure with event-accounting-campaign; restore the failing dependency
 see: SKILL.md section 4; reference/events-processor.md E4
 evidence: VERIFIED 2026-10-01 (real binary: offset 0 failed retryably, offset 2 later committed -> committed=3, offset 0 never redelivered)
 example: {"time":"2026-10-01T21:26:52.20474598Z","level":"WARN","msg":"No commitable record in batch, skipping commit. topic: events-raw partition: 0 batch_size: 2 processed: 1\n","service":"post_process","kafka-topic-consumer":"events-raw"}
@@ -413,7 +415,7 @@ match: does not exist.*SELECT id,organization_id
 title: memory-cache snapshot query failed; the error is SWALLOWED (cache/cache.go:78-106) and the process serves an EMPTY cache: every event DLQs as fetch_billable_metric "Key not found"
 cause: DATABASE_URL points at a DB without the lago-api schema; permissions; statement timeout
 confirm: triage-ep-log.sh -> "snapshot loads: started 6, completed 0"; no "Completed snapshot load" line per model
-fix: fix DATABASE_URL and restart (snapshot only runs at startup). DLQ'd events stay there: no DLQ replay tool exists (re-feed = CANDIDATE, OPEN DECISION OD-2 (owner)). OPEN DECISION OD-1 (owner) for prod use of cache mode; hardening OPEN DECISION OD-20 (owner)
+fix: fix DATABASE_URL and restart (snapshot only runs at startup); production runs cache mode (DECIDED OD-1): runbook run-and-operate reference/memory-cache-ops.md section 1. DLQ'd events stay there: no DLQ replay tool exists today (ADR-001, DECIDED OD-2, plans an operator-gated one; a manual re-feed is CANDIDATE and needs owner sign-off). Hardening: event-accounting-campaign W6 (DEFAULT APPLIED OD-20)
 see: SKILL.md section 5; reference/traps.md T4
 evidence: VERIFIED 2026-10-01 (real binary in cache mode against the empty lago DB: 6 SQLSTATE 42P01, 8/9 events DLQ'd, committed 9/9)
 example: {"time":"2026-10-01T21:19:27.350607409Z","level":"ERROR","msg":"ERROR: relation \"billable_metrics\" does not exist (SQLSTATE 42P01)","service":"post_process","component":"db","error":"ERROR: relation \"billable_metrics\" does not exist (SQLSTATE 42P01)","query":"SELECT id,organization_id,code,aggregation_type,recurring,field_name,expression,created_at,updated_at FROM \"billable_metrics\" WHERE deleted_at IS NULL"}
@@ -424,7 +426,7 @@ match: "msg":"Fetch error".*"pkg":"cache"
 title: a memory-cache CDC consumer cannot fetch; it loops forever with continue (cache/consumer.go:66-74), the cache goes stale
 cause: CDC clients have NO SASL/TLS (cache/consumer.go:30-35) on a secured cluster; Debezium topic missing (<LAGO_DEBEZIUM_TOPIC_PREFIX>.public.<table>)
 confirm: model attr names the table; compare with LAGO_KAFKA_SCRAM_ALGORITHM / LAGO_KAFKA_TLS of the main client
-fix: OPEN DECISION OD-1 (owner) on production use; hardening is unowned: OPEN DECISION OD-20 (owner), as-is defects architecture-contract WP6-WP10
+fix: production runs cache mode (DECIDED OD-1): check CDC freshness (run-and-operate reference/memory-cache-ops.md section 2); production Kafka auth is OPEN DECISION OD-1b (owner); hardening: event-accounting-campaign W6 (DEFAULT APPLIED OD-20), as-is defects architecture-contract WP6-WP10
 see: SKILL.md section 5
 evidence: CODE cache/consumer.go:71 (synthetic example built from it)
 example: {"level":"ERROR","msg":"Fetch error","service":"post_process","pkg":"cache","model":"charges","error":"unable to dial: dial tcp 10.0.0.1:9092: i/o timeout"}
@@ -438,7 +440,7 @@ match: Failed to delete from cache
 title: a CDC or snapshot row could not be decoded or written to badger; that row is skipped (stale cache entry)
 cause: Debezium payload shape differs from the Go model (unwrap transform, column list); badger write error
 confirm: model/topic attrs; compare extra/debezium_config.json transforms with cache/consumer.go processRecord
-fix: OPEN DECISION OD-1 (owner) on production use; hardening is unowned: OPEN DECISION OD-20 (owner), as-is defects architecture-contract WP6-WP10
+fix: production runs cache mode (DECIDED OD-1); compare the production connector config with extra/debezium_config.json (OPEN DECISION OD-1b (owner)); hardening: event-accounting-campaign W6 (DEFAULT APPLIED OD-20), as-is defects architecture-contract WP6-WP10
 see: SKILL.md section 5
 evidence: CODE cache/consumer.go:96,132,161; cache/cache.go:254 (synthetic example built from it)
 example: {"level":"ERROR","msg":"Failed to unmarshal","service":"post_process","pkg":"cache","model":"charges","error":"invalid character 'x' looking for beginning of value","topic":"lago_proc_cdc.public.charges"}
@@ -463,7 +465,7 @@ match: ^[[:space:]]*"?-?[0-9]+(\.[0-9]+)?e[+-][0-9]+"?[[:space:]]*$
 title: enriched value in exponent form ("1e+06", "1e-07"): fmt %v of a float64; parses fine in ClickHouse below 1e12, but |x| >= 1e12 becomes 0 (values-decimal-overflow) and unique_count treats "1e+06" and "1000000" as different
 cause: numeric property >= 1e6 or < 1e-4 (JSON numbers decode to float64)
 confirm: E5 string query (reference/events-processor.md); .claude/skills/diagnostics-and-tooling/scripts/ch-local.sh "SELECT toDecimal128OrZero('1e+06', 26)" </dev/null  -> 1000000
-fix: OPEN DECISION OD-3 (owner) for any ClickHouse schema change; value fidelity is event-accounting-campaign W2
+fix: value fidelity is event-accounting-campaign W2; a ClickHouse schema change is allowed (DECIDED OD-3) and ships as a paired lago-api PR (the DDL lives there)
 see: SKILL.md section 4; reference/traps.md T8
 evidence: VERIFIED 2026-10-01 (binary smoke tx_A value "1e-07"; clickhouse local 26.2.19.43)
 example: {"organization_id":"o","code":"c","transaction_id":"t","value":"1e+06","timestamp":1759320000}
@@ -480,7 +482,7 @@ match: (^|[^0-9A-Za-z.])-?[0-9]+(\.[0-9]+)?e\+(1[2-9]|[2-9][0-9]|[0-9]{3,})([^0-
 title: decimal_value is 0 for a non-zero value: decimal_value Decimal(38,26) DEFAULT toDecimal128OrZero(value, 26) holds 12 integer digits, so |x| >= 1e12 (negatives too), "<nil>" and any non-numeric %v string (true, map[x:1]) become 0; sums/max/latest come out 0 or too low
 cause: quantities >= 1e12 (often a unit mistake: ms, micro-units); a missing property ("<nil>", values-nil); a bool/object property used as field_name
 confirm: E5 query (countIf(decimal_value = 0 AND value NOT IN ('0', '0.0')) per code); .claude/skills/diagnostics-and-tooling/scripts/ch-local.sh "SELECT toDecimal128OrZero('2e+12', 26)" </dev/null  -> 0
-fix: ClickHouse schema change = OPEN DECISION OD-3 (owner); a Go-only %v fix does NOT cure |x| >= 1e12 (the column cannot hold it); value fidelity is event-accounting-campaign W2; contract rows rails-go-parity
+fix: a ClickHouse schema change is allowed (DECIDED OD-3; DDL in lago-api, so a paired lago-api PR); a Go-only %v fix does NOT cure |x| >= 1e12 (the column cannot hold it); value fidelity is event-accounting-campaign W2; contract rows rails-go-parity
 see: SKILL.md section 4; reference/events-processor.md E5; reference/traps.md T8
 evidence: VERIFIED 2026-10-01 (clickhouse local 26.2.19.43: '1000000000000', '-1000000000000', '2e+12', 'true', 'map[x:1]' -> 0; '999999999999' -> 999999999999; '1e+06' -> 1000000)
 example: toDecimal128OrZero('2e+12', 26) = 0
@@ -693,7 +695,7 @@ match: TOPIC_ALREADY_EXISTS
 title: re-running topic creation with plain rpk topic create (not idempotent, redpanda issue 6651)
 cause: a custom command bypassing scripts/create-topics.sh (5477e39, #581)
 confirm: docker-compose.dev.yml:397-407 (entrypoint create-topics + topic list)
-fix: re-run through scripts/create-topics.sh (idempotent); never call rpk topic create directly. ADDING a topic to that list is change class C4 + C6: it also needs a lago-api ClickHouse _queue migration and a paired PR (OPEN DECISION OD-4 (owner)); config-and-flags section 7
+fix: re-run through scripts/create-topics.sh (idempotent); never call rpk topic create directly. ADDING a topic to that list is change class C4 + C6; a topic ClickHouse reads also needs a lago-api _queue migration in a paired lago-api PR, while a topic no other repo reads (e.g. ADR-001's internal retry topic) needs none (DECIDED OD-4: paired PRs by dependency); config-and-flags section 7
 see: SKILL.md section 7
 evidence: UNVERIFIED exact rpk text; HISTORICAL 5477e39
 example: TOPIC_ALREADY_EXISTS: The topic has already been created.

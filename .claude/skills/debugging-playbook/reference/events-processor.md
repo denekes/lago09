@@ -94,6 +94,9 @@ table is the debugging view of each.
 
 ### E4.1 Measured ledger (real binary, DB mode, 2026-10-01)
 
+The commit and DLQ logic is the same in memory-cache mode, which production runs (DECIDED OD-1); there the
+retryable failures come from badger and Redis instead of Postgres (`architecture-contract` section 9).
+
 Raw topic offsets and the committed offset of each consumer group, read with a kadm client. That
 one-off probe is not shipped here; to re-measure L1 today, run the `event-accounting-campaign`
 accounting probe (its fault matrix includes "transient DB error, then more traffic" -> LOST).
@@ -129,7 +132,8 @@ ORDER BY timestamp LIMIT 100;
 `events_raw` is fed from the raw topic by its own ClickHouse Kafka engine
 (`$API/db/clickhouse_migrate/20231026124912_create_events_raw_queue.rb:9-10`). Results are candidates,
 not proof: events still in flight or consumer lag also show up. Do not change commit logic to "fix"
-what you find (change-control N7, OPEN DECISION OD-2 (owner)); feed it to `event-accounting-campaign`.
+what you find (change-control N7; the target is ADR-001, DECIDED OD-2 (owner, 2026-10-02), built as a C4
+change); feed it to `event-accounting-campaign`.
 
 ## E5. Wrong values
 
@@ -137,7 +141,7 @@ what you find (change-control N7, OPEN DECISION OD-2 (owner)); feed it to `event
 |---|---|---|---|
 | `value` `"1e+06"`, `"1.2345678e+07"`, `"1e-07"` | `fmt.Sprintf("%v", properties[field_name])` on float64 (`enrichment_service.go:114`) | probe: `%v` of 1000000 = `"1e+06"`; smoke tx_A `"1e-07"` | `rails-go-parity` (contract), `event-accounting-campaign` W2 |
 | `value` `"<nil>"` | property missing or null | `%v` of a missing key = `"<nil>"`. On the Kafka wire Go's `json.Marshal` escapes it as `"\u003cnil\u003e"` (`event_producer_service.go:77`), so grep the topic for `u003cnil`; ClickHouse stores `<nil>` | same |
-| sum/max/latest = 0 in ClickHouse | `decimal_value Decimal(38,26) DEFAULT toDecimal128OrZero(value, 26)` (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`): `'<nil>'` -> 0, `'1000000000000'` and `'-1000000000000'` -> 0, `'true'` / `'map[x:1]'` -> 0, `'999999999999'` ok, `'1e+06'` -> 1000000 | `clickhouse local` 26.2.19.43 (`diagnostics-and-tooling` `ch-local.sh`), verified 2026-10-01 | OPEN DECISION OD-3 (owner) for schema changes; a Go-only `%v` fix does not cure values >= 1e12 in magnitude |
+| sum/max/latest = 0 in ClickHouse | `decimal_value Decimal(38,26) DEFAULT toDecimal128OrZero(value, 26)` (`$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:32`): `'<nil>'` -> 0, `'1000000000000'` and `'-1000000000000'` -> 0, `'true'` / `'map[x:1]'` -> 0, `'999999999999'` ok, `'1e+06'` -> 1000000 | `clickhouse local` 26.2.19.43 (`diagnostics-and-tooling` `ch-local.sh`), verified 2026-10-01 | a schema change is allowed (DECIDED OD-3), shipped as a paired lago-api PR; a Go-only `%v` fix does not cure values >= 1e12 in magnitude |
 | unique_count too high | raw string compare: `"1e+06"` != `"1000000"`; `"<nil>"` counts once | `rails-go-parity` (its contract rows P10-P12) | `rails-go-parity` |
 | integer above 2^53 off by one | JSON -> float64 | `9007199254740993` -> `9007199254740992` | `event-accounting-campaign` |
 | event at a subscription boundary not matched | `ToTime` float math 1 ms early; RFC3339 offset not normalized (`utils/time.go:20-29`) | `rails-go-parity` time probe | `rails-go-parity` |
@@ -154,18 +158,22 @@ WHERE timestamp > now() - INTERVAL 1 DAY
 GROUP BY code ORDER BY zeroed DESC;
 ```
 
-## E6. Memory-cache mode (OPEN DECISION OD-1 (owner): production use UNKNOWN)
+## E6. Memory-cache mode (production: DECIDED OD-1; production CDC config: OPEN DECISION OD-1b (owner))
+
+Production runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)), so every row here is a production
+symptom. Operator checks (snapshot completeness, CDC lag, orphan groups, sizing): `run-and-operate`
+`reference/memory-cache-ops.md`.
 
 | Symptom | Cause | Confirm | Evidence |
 |---|---|---|---|
-| EVERY event DLQs as `fetch_billable_metric` `Key not found` | snapshot failed and was swallowed (`cache/cache.go:78-106`, `LoadSnapshot` returns the error unlogged at `:240-243`) | `triage-ep-log.sh`: `snapshot loads: started 6, completed 0`; `component=db` 42P01 lines at startup | VERIFIED: empty DB -> 8 of 9 events DLQ'd, committed 9/9, process kept running |
+| EVERY event DLQs as `fetch_billable_metric` `Key not found` (right after a start, many codes) | snapshot failed and was swallowed (`cache/cache.go:78-106`, `LoadSnapshot` returns the error unlogged at `:240-243`), or it read a database with no rows | `triage-ep-log.sh` on the log from start: `snapshot loads: started 6, completed 0`, or `snapshot rows:` with `billable_metrics=0` + WARNING; `component=db` 42P01 lines at startup | VERIFIED: empty DB -> 8 of 9 events DLQ'd, committed 9/9, process kept running; healthy run (2026-10-02): `started 6, completed 6`, rows `billable_metrics=3 charges=2 subscriptions=1` |
 | edits (new metric, new charge) never reach the cache, nothing logged | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS`: CDC clients pass the raw string as ONE seed (`cache/consumer.go:28-31`) and have no logger | `printenv LAGO_KAFKA_BOOTSTRAP_SERVERS` contains a comma; DEBUG `Cache updated from stream` never appears | VERIFIED: comma list -> CDC consumers start, 0 WARN/ERROR lines; `diagnostics-and-tooling` `cdc-brokers` measures visible=false |
 | CDC never connects on a SASL/TLS cluster | CDC clients have no SASL/TLS options (`cache/consumer.go:30-35`) | `cache-cdc-fetch` lines if the error surfaces | CODE |
-| pay-in-advance stops for a plan after any charge edit; recurring fallback stops after a metric edit | `extra/debezium_config.json:2` `column.include.list` lacks `charges.pay_in_advance`, `charges.accepts_target_wallet`, `billable_metrics.recurring`; CDC upserts replace the whole cached row | `python3 -c "import json;print(json.load(open('extra/debezium_config.json'))['column.include.list'])"`; `events_charged_in_advance` volume drops while `events_enriched` continues | VERIFIED (smoke cache-cdc row A: in_advance=no) |
+| pay-in-advance stops for a plan after any charge edit; recurring fallback stops after a metric edit; both return after a restart until the next edit | `extra/debezium_config.json:2` `column.include.list` lacks `charges.pay_in_advance`, `charges.accepts_target_wallet`, `billable_metrics.recurring`; CDC upserts replace the whole cached row; a restart re-snapshots full rows | `python3 -c "import json;print(json.load(open('extra/debezium_config.json'))['column.include.list'])"` and the production connector's list (OPEN DECISION OD-1b (owner)); `events_charged_in_advance` volume drops while `events_enriched` continues | VERIFIED (smoke cache-cdc row A: in_advance=no, re-run 2026-10-02); restart recovery INFERRED (`cache/consumer.go:143-156`) |
 | event at the exact ms a subscription starts: DB mode matches, cache mode does not | cache compares at full precision (`cache/subscriptions.go:56-66`), DB truncates to ms (`models/subscriptions.go:32-33`) | smoke row H | VERIFIED |
-| brand-new subscription's first events enriched with `subscription_id:""` | CDC lag; not-found is not an error | timing of the subscription insert vs event | UNVERIFIED in prod |
+| brand-new subscription's first events enriched with `subscription_id:""`; a new metric DLQs `Key not found` for that code only | CDC lag or CDC not delivering (stale cache); not-found subscription is not an error | timing of the insert vs the event; CDC checks in `run-and-operate` `reference/memory-cache-ops.md` §2 | UNVERIFIED in prod |
 | `LAGO_USE_MEMORY_CACHE=TRUE` (or `1`) runs DB mode | only the literal `true` enables it (`main.go:67`) | no `Starting snapshot load` lines | CODE |
-| broker accumulates `lago_evp_<model>_<uuid>` groups | fresh UUID group per start (`cache/consumer.go:27`), full re-read of the CDC topics each start | `rpk group list` | VERIFIED (6 groups per start) |
+| broker accumulates `lago_evp_<model>_<uuid>` groups | fresh UUID group per start (`cache/consumer.go:27`), full re-read of the CDC topics each start | `rpk group list`; gated cleanup in `run-and-operate` `reference/memory-cache-ops.md` §3 | VERIFIED (6 groups per start, re-run 2026-10-02) |
 
 ## E7. Shutdown and `context canceled`
 

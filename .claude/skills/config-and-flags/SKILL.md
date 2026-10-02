@@ -7,7 +7,7 @@ description: "Registry of every configuration axis in the Lago umbrella repo: co
 Which variable is read by whom, with what default, parsed how, in which plane, and how to add one
 without creating drift. Code facts as of 5308258 (events-processor tree 83e012866f29); the working branch
 may carry skills-only commits on top. lago-api facts are at the pin `591ae90` (2026-09-08). Verified
-2026-10-01 unless marked.
+2026-10-01 unless marked; owner decisions OD-1..OD-5 of 2026-10-02 folded in (register: `change-control` §9).
 
 ## When to use / when NOT to use
 
@@ -117,8 +117,8 @@ Classes: **PROD** = supported self-host/production knob · **PIPE** = needed whe
 
 | Flag | Defaults | Class | Evidence and notes |
 |---|---|---|---|
-| `LAGO_USE_MEMORY_CACHE` | unset in every plane (dev = DB mode) | EXP — **OPEN DECISION OD-1 (owner)** | EP `main.go:67` exact `== "true"`; CDC consumers ignore SASL/TLS and do not split broker lists (`cache/consumer.go:28-35`). Hardening is unowned: OPEN DECISION OD-20 (candidate future campaign; as-is defects `architecture-contract` WP6-WP10) |
-| `LAGO_DEBEZIUM_TOPIC_PREFIX` | unset | EXP (OD-1) | must equal Debezium `topic.prefix` (`extra/debezium_config.json:47` = `lago_proc_cdc`, a file no script applies; README example `lago_dbz`); `""` gives `.public.<table>` silently |
+| `LAGO_USE_MEMORY_CACHE` | unset in every plane of this repo (dev = DB mode); production sets `true` in a deploy config outside this repo | **PROD (`true`)**: DECIDED OD-1 (owner, 2026-10-02), production runs memory-cache mode | EP `main.go:67` exact `== "true"` (`1`/`TRUE` silently = DB mode); CDC consumers ignore SASL/TLS and do not split broker lists (`cache/consumer.go:28-35`); the production CDC config (Debezium column list, Kafka auth, brokers) is OPEN DECISION OD-1b (owner). Hardening: `event-accounting-campaign` W6 (DEFAULT APPLIED OD-20; as-is defects `architecture-contract` WP6-WP10) |
+| `LAGO_DEBEZIUM_TOPIC_PREFIX` | unset (dev) | PROD (required whenever `LAGO_USE_MEMORY_CACHE=true`, not enforced) | must equal Debezium `topic.prefix` (`extra/debezium_config.json:47` = `lago_proc_cdc`, a file no script applies; README example `lago_dbz`); `""` gives `.public.<table>` silently; the production value is OPEN DECISION OD-1b (owner) |
 | `KAFKA_TRACING_ENABLED` | unset (off) | optional OBS | no-op unless a tracer provider is active (`config/kafka/kafka.go:40-46`, empty provider has no hooks); never applies to CDC consumers; prod use UNVERIFIED |
 | `TRACING_PROVIDER`, `DD_*`, `OTEL_*` | unset | optional OBS | `config/tracing/tracer.go:47-139`; none in DEF; README documents only the three `OTEL_*` (`events-processor/README.md:64-66`) |
 | `LAGO_CLICKHOUSE_ENABLED` | DEV `true` | PIPE | **MIXED** (`bool-semantics.sh`; this skill owns the ruling): with `=false` the 12 `.present?`/`.blank?` sites stay ON (e.g. `$API/app/services/events/stores/store_factory.rb:10`); org creation (`Boolean.cast`, `$API/app/services/organizations/create_service.rb:17`) and 2 seed `== "true"` sites turn OFF. `docs/dev_environment.md:154` is wrong |
@@ -145,7 +145,11 @@ Not env vars: `pre_filter_events`, `lazy_charge_usage_cache`, `enriched_events_a
 flags in the lago-api database (`organization.feature_flag_enabled?`, e.g. `$API/app/services/events/stores/store_factory.rb:41`);
 their production state is OPEN DECISION OD-8 (owner). See `rails-go-parity`.
 
-OD-1, OD-4, OD-8, OD-9, OD-16 and OD-20 (register OD-1..OD-20 in `change-control`) are the owner's call. Do not present them as settled. Route any change that touches them through the `change-control` gate.
+Owner decisions touching this registry (register OD-1..OD-20 in `change-control`): DECIDED OD-1 (owner, 2026-10-02):
+production runs memory-cache mode; DECIDED OD-4 (owner, 2026-10-02): a cross-repo change needs a paired PR in each
+repo that reads or writes the changed part (no blanket rule). Still the owner's call, never present as settled:
+OPEN DECISION OD-1b (owner) (production CDC config), OD-8, OD-9, OD-16; OD-20 is DEFAULT APPLIED (campaign W6).
+Route any change that touches them through the `change-control` gate.
 
 ## 5. Parsing traps
 
@@ -173,7 +177,7 @@ Traps (all VERIFIED unless marked):
 4. **Go ints panic.** `GetEnvAsInt` (`events-processor/utils/env.go:9-20`) errors on `abc`, `" 5"`, `5.0`; callers panic (`LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` at `events-processor/processors/main_processor.go:134-137`, `LAGO_REDIS_STORE_DB`). `0` max connections -> pgxpool `MaxSize must be >= 1`.
 5. **Ruby ints never fail.** `.to_i` keeps leading digits and drops the rest: `"5m".to_i == 5` (5 SECONDS, not 5 minutes), `"abc".to_i == 0` (verified with Ruby 3.3). Interval knobs (`$API/clock.rb:33,46,57`) take integer seconds. What clockwork does with a 0-second interval is UNVERIFIED.
 6. **`rediss://` does not mean TLS in Go.** EP strips `^rediss?://` (`config/redis/redis.go:25-28`) and uses TLS only if `LAGO_REDIS_STORE_TLS` (or `ENV=production`). Credentials or `/db` in the URL break EP: `redis://:pw@redis:6379/2` becomes address `:pw@redis:6379/2` (probe). Put password and DB in `_PASSWORD`/`_DB`. lago-api prepends `redis://` when no scheme (`$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb:48-52`). Empty `LAGO_REDIS_STORE_URL` in Go = `localhost:6379` (go-redis default).
-7. **Comma broker lists.** EP main path splits and trims (`utils/env.go:22-33`); EP CDC consumers pass the raw string (`cache/consumer.go:28-31`): probe with `localhost:19092,localhost:29092` -> `lookup localhost:19092,localhost:29092: no such host`. Use a single broker for cache mode (OD-1). `" "` passes the EP empty check (`[""]`).
+7. **Comma broker lists.** EP main path splits and trims (`utils/env.go:22-33`); EP CDC consumers pass the raw string as ONE seed (`cache/consumer.go:28-31`): a client probe with `localhost:19092,localhost:29092` -> `lookup localhost:19092,localhost:29092: no such host`, while the running CDC loop logs nothing (`debugging-playbook` T5). Production runs cache mode (DECIDED OD-1): give it a single seed broker address (franz-go discovers the rest of the cluster from one seed) until W6 fixes the split; whether production passes a list is OPEN DECISION OD-1b (owner). `" "` passes the EP empty check (`[""]`).
 8. **Startup crash on SCRAM typo.** `LAGO_KAFKA_SCRAM_ALGORITHM` other than `SCRAM-SHA-256`/`SCRAM-SHA-512` -> SIGSEGV in `kgo.validateCfg` (binary probe; `config/kafka/kafka.go:56-63`).
 9. **Unvalidated EP strings.** `LAGO_KAFKA_RAW_EVENTS_TOPIC`/`LAGO_KAFKA_CONSUMER_GROUP` empty are accepted (`events-processor/processors/main_processor.go:168-172`); `LAGO_DEBEZIUM_TOPIC_PREFIX` empty is accepted (`events-processor/main.go:70`). Startup is only partially fail-fast (`architecture-contract` I14).
 10. **Single image** parses `/data/.env` with `for LINE in $(cat …)`: values with spaces break (`docker/runner.sh:24`).
@@ -195,7 +199,7 @@ Kafka auth and TLS (one broker, several vocabularies):
 | ClickHouse Kafka engine | not in DDL (server config; UNVERIFIED) | not in DDL | not in DDL | `$API/db/clickhouse_migrate/*_queue.rb:8-10` |
 | connectors | hard-coded `SCRAM-SHA-512` | `KAFKA_TLS` (sqs.yml hard-codes `true`) | `KAFKA_USER`/`KAFKA_PASSWORD`, brokers `KAFKA_BROKERS` | `connectors/http.yml:41-49`, `sqs.yml:43-51` |
 
-For a SASL_SSL SCRAM-512 cluster set BOTH vocabularies: `LAGO_KAFKA_SCRAM_ALGORITHM=SCRAM-SHA-512 LAGO_KAFKA_TLS=true` (EP) and `LAGO_KAFKA_SASL_MECHANISMS=SCRAM-SHA-512 LAGO_KAFKA_SECURITY_PROTOCOL=SASL_SSL` (lago-api; librdkafka value names, runtime UNVERIFIED here). Cache mode cannot authenticate at all.
+For a SASL_SSL SCRAM-512 cluster set BOTH vocabularies: `LAGO_KAFKA_SCRAM_ALGORITHM=SCRAM-SHA-512 LAGO_KAFKA_TLS=true` (EP) and `LAGO_KAFKA_SASL_MECHANISMS=SCRAM-SHA-512 LAGO_KAFKA_SECURITY_PROTOCOL=SASL_SSL` (lago-api; librdkafka value names, runtime UNVERIFIED here). The cache-mode CDC consumers cannot authenticate at all (`cache/consumer.go:30-35`): on a SASL/TLS cluster production's cache would never see an edit after its startup snapshot. Which auth production's CDC consumers face is OPEN DECISION OD-1b (owner).
 
 Redis TLS for the shared flag store (`subscription_refreshed_v2`, a cross-repo contract, change-control N6):
 
@@ -205,7 +209,7 @@ Redis TLS for the shared flag store (`subscription_refreshed_v2`, a cross-repo c
 | lago-api (reader) | `LAGO_REDIS_STORE_SSL` (`.present?`: `false` turns SSL ON) | enables SSL | on, unless `LAGO_REDIS_STORE_DISABLE_SSL_VERIFY` is present (`$API/app/services/subscriptions/consume_subscription_refreshed_queue_service.rb:63-67`) |
 | lago-api Sidekiq/cache | scheme of `REDIS_URL`/`LAGO_REDIS_CACHE_URL` | enables SSL | always `VERIFY_NONE` (`$API/lib/lago/redis_config_builder.rb:55-57,75-77`) |
 
-Both sides must also agree on `LAGO_REDIS_STORE_DB` (dev: `1`; incident `3cd78f1` was a DB mismatch on the old cache). Unifying the names is a cross-repo change (C4/C7; OD-4 paired lago-api PR) — CANDIDATE, not decided.
+Both sides must also agree on `LAGO_REDIS_STORE_DB` (dev: `1`; incident `3cd78f1` was a DB mismatch on the old cache). Unifying the names is CANDIDATE, not decided; it is a cross-repo change (C4/C7) and lago-api reads `LAGO_REDIS_STORE_SSL`, so it needs a paired lago-api PR (DECIDED OD-4: dependency-driven).
 
 ## 7. Topic names are baked into ClickHouse DDL
 
@@ -221,7 +225,7 @@ Consequences:
 - Dev topic creation uses LITERAL names, not the env (`docker-compose.dev.yml:398-405`): renaming a topic in `.env.development` does not create it (Redpanda auto-create UNVERIFIED).
 - Renaming `LAGO_KAFKA_CONSUMER_GROUP` or the raw topic creates a new EP group `<group>_<topic>` that starts at the earliest offset (replay; see `architecture-contract`).
 
-To change a topic name: treat it as C4 (change-control N6, OD-4 paired lago-api PR): new ClickHouse migration that recreates the `_queue` table (lago-api), DEF + `redpandacreatetopics` list, EP/API env together, planned deploy order. Inspect what a live table baked (not runnable here): `SHOW CREATE TABLE events_enriched_queue`.
+To change a topic name: treat it as C4 (change-control N6; the ClickHouse `_queue` tables in lago-api depend on it, so a paired lago-api PR: DECIDED OD-4; a topic no other repo reads, such as ADR-001's internal retry topic, needs none): new ClickHouse migration that recreates the `_queue` table (lago-api), DEF + `redpandacreatetopics` list, EP/API env together, planned deploy order. Inspect what a live table baked (not runnable here): `SHOW CREATE TABLE events_enriched_queue`.
 
 ## 8. Add / rename / remove a variable — checklist
 
@@ -274,7 +278,7 @@ Rename: keep reading the old name as a fallback for at least one release and log
 | jobs never processed after `SIDEKIQ_X=true` | no worker for that queue | `docker compose -f docker-compose.dev.yml config --services \| grep worker` | start the worker (`run-and-operate`) |
 | uncommented root `SIDEKIQ_*` hint breaks compose | list syntax inside a mapping | `docker compose -f docker-compose.yml config --quiet` | `"SIDEKIQ_EVENTS": "true"` |
 | new topic not ingested by ClickHouse | DDL baked (`$API/db/clickhouse_migrate/20231026124912_create_events_raw_queue.rb:8-10`) | section 7 | new CH migration (lago-api, C4) |
-| cache mode connects nowhere with 2 brokers | CDC consumers do not split | section 5 trap 7 | single broker; OD-1 |
+| cache mode (production, DECIDED OD-1) gets no CDC updates with 2 brokers or on SASL/TLS | CDC consumers do not split and have no auth | section 5 trap 7, section 6 | single seed broker; auth: `event-accounting-campaign` W6; production config OPEN DECISION OD-1b (owner) |
 
 ## Scripts
 
@@ -302,4 +306,4 @@ MIXED today (exit 1): `LAGO_CLICKHOUSE_ENABLED`, `LAGO_CLICKHOUSE_MIGRATIONS_ENA
   - SCRAM crash: `sed -n 56,63p events-processor/config/kafka/kafka.go` -> switch with no default case
   - cable fallback: `grep -n LAGO_REDIS_CABLE_URL "$API/config/cable.yml"` -> 3 `ENV.fetch` lines
   - franz-go producer linger default (section 8 step 3): `grep -n 'linger:  ' "$(go env GOMODCACHE)/github.com/twmb/franz-go@v1.20.5/pkg/kgo/config.go"` -> `565:` … `10 * time.Millisecond`
-- Update triggers: any change to DEF, any compose/deploy file, `docker/runner.sh`, `events-processor/**/*.go` adding `Getenv`; an `api`/`front` gitlink bump (re-run both scripts against the new `$API`); a deploy image bump; a franz-go bump in `events-processor/go.mod`; owner answers to OD-1, OD-4, OD-8, OD-9, OD-16, OD-20.
+- Update triggers: any change to DEF, any compose/deploy file, `docker/runner.sh`, `events-processor/**/*.go` adding `Getenv`; an `api`/`front` gitlink bump (re-run both scripts against the new `$API`); a deploy image bump; a franz-go bump in `events-processor/go.mod`; owner answers to OD-1b, OD-8, OD-9, OD-16, a reassignment of OD-20 (W6), or an amendment of DECIDED OD-1/OD-4.

@@ -91,7 +91,7 @@ echo "   dev: ${CG:-<unset>}_${RAW:-<unset>}   (a NEW group id starts at the EAR
 PREFIX="$(sed -n 's/.*"topic.prefix": *"\([^"]*\)".*/\1/p' extra/debezium_config.json)"
 TABLES="$(sed -n 's/.*"table.include.list": *"\([^"]*\)".*/\1/p' extra/debezium_config.json | tr ',' ' ')"
 DEVPFX="$(devval LAGO_DEBEZIUM_TOPIC_PREFIX)"
-echo "memory-cache CDC topics = \$LAGO_DEBEZIUM_TOPIC_PREFIX + \".public.<table>\"  (only when LAGO_USE_MEMORY_CACHE=true; OD-1)"
+echo "memory-cache CDC topics = \$LAGO_DEBEZIUM_TOPIC_PREFIX + \".public.<table>\"  (only when LAGO_USE_MEMORY_CACHE=true: production, DECIDED OD-1; prod connector config OD-1b)"
 echo "   dev LAGO_DEBEZIUM_TOPIC_PREFIX: ${DEVPFX:-<unset> (dev runs DB mode)} ; extra/debezium_config.json topic.prefix: ${PREFIX:-<unset>}"
 for t in $(grep -ho 'Topic *= *"\.public\.[a-z_]*"' "$EP"/cache/*.go | sed 's/.*"\.public\.\([a-z_]*\)"/\1/' | sort); do
   f="$(grep -l "\"\.public\.$t\"" "$EP"/cache/*.go | head -n1)"; l="$(grep -n "\"\.public\.$t\"" "$f" | cut -d: -f1)"

@@ -120,12 +120,15 @@ C<n> (+C7 if security-relevant). Gates applied: see change-control's class table
 
 ## Decisions and open questions
 
+- <DECIDED OD-n (owner, <date>): the decision this PR implements>
 - <OPEN DECISION OD-n (owner): what this PR assumes until decided>
 - <Anything UNVERIFIED, labelled as such>
 
 ## Cross-repo (C4 only)
 
-Paired lago-api PR: <link> (OD-4). Deploy order: <reader first, then writer>. Rollback: <steps>.
+Contract: K<n>. Paired PRs (DECIDED OD-4: one in each repo whose external dependent of K<n> the change
+touches, per change-control `reference/cross-repo-protocol.md` §1): <links>, or "no external dependent of
+K<n> is touched". Deploy order: <reader first, then writer>. Rollback: <steps>.
 ADR: <link or the section below>.
 
 Closes #<issue>   <!-- only if an issue exists -->
@@ -170,7 +173,9 @@ change-control's cross-repo protocol and change-control N7 require.
 ## ADR: <decision title>
 
 - **Status:** Proposed | Accepted (<owner>, <date>, <link>) | Superseded by <link>
-- **Open decisions touched:** OPEN DECISION OD-<n> (owner). <The default assumed until decided.>
+- **Owner decisions touched:** DECIDED OD-<n> (owner, <date>) it implements, or OPEN DECISION OD-<n> (owner)
+  with the default assumed until decided. A delivery change states which ADR-001 points it implements
+  (DECIDED OD-2; a deviation needs an owner decision first).
 - **Change class:** C4 (<delivery semantics | cross-repo contract>)
 
 ### Context
@@ -209,8 +214,8 @@ Rollback: <writer first; irreversible steps only in cleanup>
 
 ### Sign-off
 - events-processor maintainer: <name/date>
-- lago-api owner of the other side: <name/date>   (OD-4)
-- Owner (delivery semantics, OD-2): <name/date>
+- owner of each dependent repo's paired PR: <name/date>   (DECIDED OD-4; omit when no dependent is touched)
+- Owner (delivery change conforms to ADR-001, DECIDED OD-2): <name/date>
 ```
 
 ## 5. Runbook section (for docs/ and skills)

@@ -8,8 +8,8 @@
 // (utils.ParseBrokersEnv); the CDC consumers pass the raw string to
 // kgo.SeedBrokers.
 //
-// Relevant only when LAGO_USE_MEMORY_CACHE=true, whose production use is
-// OPEN DECISION OD-1 (owner).
+// Relevant when LAGO_USE_MEMORY_CACHE=true, which production runs (DECIDED OD-1
+// (owner, 2026-10-02)); production's broker list is OPEN DECISION OD-1b (owner).
 //
 // Usage (no CGO needed):  cdc-brokers [-wait 4s] [-v]
 // Exit codes: 0 ran to completion (read the printed lines), 2 setup error.

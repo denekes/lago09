@@ -97,7 +97,7 @@ ddl_cols() {               # count column lines of `CREATE TABLE public.enriched
 E=()
 def() { ID="$1"; KIND="$2"; LOC="$3"; MSG="$4"; NEED=""; }
 
-E+=(sc01); sc01() { def SC-01 doc events-processor/CLAUDE.md:10 "says direct go build/go test \"won't work locally\"; always lago exec"
+E+=(sc01); sc01() { def SC-01 doc events-processor/CLAUDE.md:10 "says direct go build/go test \"won't work locally\"; always lago exec (correction APPROVED, DECIDED OD-5 2026-10-02; not yet applied)"
   claim() { at_f events-processor/CLAUDE.md "won't work locally"; }
   truth() { has_f .github/workflows/events-processor-tests.yml 'run: go test -v ./...' && has_e events-processor/Dockerfile 'git checkout v[0-9]'; }; }
 E+=(sc02); sc02() { def SC-02 doc events-processor/README.md:6 "says the service needs ClickHouse"
@@ -123,7 +123,7 @@ E+=(sc08); sc08() { def SC-08 doc events-processor/README.md:56 "LAGO_REDIS_STOR
   claim() { at_e events-processor/README.md 'LAGO_REDIS_STORE_TLS.*default: false'; }
   truth() { has_f events-processor/processors/main_processor.go 'legacyTLS := os.Getenv(envEnv) == "production"' &&
             has_f events-processor/processors/main_processor.go 'GetEnvAsBool(envLagoRedisStoreTLS, legacyTLS)'; }; }
-E+=(sc09); sc09() { def SC-09 doc events-processor/README.md:40 "multi-broker example breaks the memory-cache consumers (OD-1)"
+E+=(sc09); sc09() { def SC-09 doc events-processor/README.md:40 "multi-broker example breaks the memory-cache consumers (production path: DECIDED OD-1)"
   claim() { at_f events-processor/README.md 'redpanda:9092,kafka:9092'; }
   truth() { has_f events-processor/cache/consumer.go 'os.Getenv("LAGO_KAFKA_BOOTSTRAP_SERVERS")' && has_f events-processor/cache/consumer.go 'kgo.SeedBrokers(brokers)'; }; }
 E+=(sc10); sc10() { def SC-10 doc events-processor/README.md:50 "env tables omit variables the code reads"

@@ -4,7 +4,7 @@
 # Lines are compared in order; '#' lines and blank lines are ignored.
 # What the lines mean and which are defects: architecture-contract (dispositions, DLQ codes),
 # rails-go-parity (value/time semantics), event-accounting-campaign (silent loss).
-# cache-cdc: the pre-produced CDC row is hand-shaped from extra/debezium_config.json (no real connector here); OPEN DECISION OD-1 (owner) governs whether memory-cache mode matters in production.
+# cache-cdc: the pre-produced CDC row is hand-shaped from extra/debezium_config.json (no real connector here); production runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)); whether production's connector uses this column list is OPEN DECISION OD-1b (owner).
 tx_A enriched=yes value="1e-07" subscription_id="bbbbbbbb-0000-0000-0000-000000000001" in_advance=no
 tx_B enriched=no in_advance=no dlq=fetch_billable_metric(Key not found)
 tx_C enriched=no in_advance=no dlq=build_enriched_event(strconv.ParseFloat: parsing "2025-03-06 12:00:00": invalid syntax)

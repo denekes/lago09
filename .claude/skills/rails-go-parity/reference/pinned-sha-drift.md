@@ -54,8 +54,9 @@ Full grep: `grep -rn "events_enriched_expanded\|ENRICHED_EVENTS_EXPANDED\|reproc
 ## 4. Rules that follow
 
 1. Before you rely on a Rails behaviour, read it at `$API` (the pin), not at lago-api `main`. If you need a
-   newer lago-api to make a Go change safe, that is a cross-repo change: change-control N6, paired lago-api
-   PR (OPEN DECISION OD-4 (owner), default YES), planned deploy order.
+   newer lago-api to make a Go change safe, that is a cross-repo change: change-control N6, a paired lago-api
+   PR because lago-api is the dependent (DECIDED OD-4 (owner, 2026-10-02): paired PRs follow dependencies),
+   planned deploy order.
 2. Do not "fix" the drift from this repo: no Go code may start producing `events_enriched_expanded` or computing
    Rails cache keys again (change-control N8). The decision belongs to the owner (OD-8) and to lago-api.
 3. When the `api` gitlink moves (release bump), re-run `parity-constants.sh` and re-read section 3. Expect

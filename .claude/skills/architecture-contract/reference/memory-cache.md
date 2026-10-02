@@ -5,14 +5,21 @@ top. Verified 2026-10-01 by reading `events-processor/{main.go,cache/*.go,models
 `extra/debezium_config.json`, plus scratch probes against the real `cache` package and the binary
 (`startup-contract.sh` S5-S7). Paths relative to `events-processor/` unless they start with `extra/`.
 
-**OPEN DECISION OD-1 (owner): does production run `LAGO_USE_MEMORY_CACHE=true`, with which Debezium column list,
-SASL/TLS and broker list?** Until answered: DB mode is the default path (dev runs it: neither
-`LAGO_USE_MEMORY_CACHE` nor `LAGO_DEBEZIUM_TOPIC_PREFIX` is in `.env.development.default`). Every memory-cache finding
-below is a real code-level defect whose **production impact is UNVERIFIED**.
+**DECIDED OD-1 (owner, 2026-10-02): production runs `LAGO_USE_MEMORY_CACHE=true`.** Dev runs DB mode (neither
+`LAGO_USE_MEMORY_CACHE` nor `LAGO_DEBEZIUM_TOPIC_PREFIX` is in `.env.development.default` or any compose file
+here). Every memory-cache finding below is therefore a **production-relevant** defect (`weak-points.md` WP6-WP10,
+WP27). Hardening owner: `event-accounting-campaign` W6 (DEFAULT APPLIED OD-20; the owner may reassign it).
+
+**Verify first: OPEN DECISION OD-1b (owner).** The production Debezium connector config (is its
+`column.include.list` the one in `extra/debezium_config.json:2`?), the Kafka auth (SASL/TLS) and the bootstrap
+broker list the CDC consumers get are not visible from any repo here. If production uses the repo's column list,
+in-advance charges and the recurring fallback are silently broken for every edited charge or metric (§4:
+code-level and binary-smoke VERIFIED, production impact UNVERIFIED). Operator checks: `run-and-operate`
+`reference/memory-cache-ops.md`.
 
 ## 1. Side by side
 
-| Aspect | DB mode (default) | Memory-cache mode |
+| Aspect | DB mode (dev) | Memory-cache mode (production, DECIDED OD-1) |
 |---|---|---|
 | Switch | `LAGO_USE_MEMORY_CACHE` anything but the exact string `true` (`main.go:67`) | `LAGO_USE_MEMORY_CACHE=true` |
 | Postgres | pgx pool `MaxConns = LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS` (default 200), gorm (`processors/main_processor.go:133-150`, `config/database/database.go:24-48`) | snapshot-only pool, `MaxConns 10`, closed after warm-up (`cache/cache.go:63-73`); **no** per-event DB access (`main_processor.go:133` skips the pool) |
@@ -53,6 +60,15 @@ lingers (UNVERIFIED whether Rails allows it).
    string>)` with **no comma split, no SASL, no TLS, no logger** (`cache/consumer.go:26-35`; the main path splits the
    list with `utils.ParseBrokersEnv`, `utils/env.go:22-33`). Fetch errors are logged + captured and the loop
    `continue`s forever (`:66-74`); offsets are committed after every poll (`:83-85`).
+   Two properties of this design are load-bearing (INFERRED from the code; a hardening change must keep them):
+   - the group is per PROCESS so that every replica receives every CDC record (each pod has its own cache).
+     A fixed group shared by replicas would split the partitions: with the reference config's single
+     partition per CDC topic (`extra/debezium_config.json:44`), all but one replica would get no updates;
+   - consuming from the earliest retained offset closes the gap between the snapshot read and the consumer
+     start (`main.go:77-78`: snapshot first, then `ConsumeChanges`); starting at the latest offset would lose
+     the changes made in between. Replayed rows older than the snapshot are skipped by the `updated_at` rule
+     (step 3), but a row deleted before the snapshot can reappear until its delete message is replayed
+     (the snapshot skips deleted rows, so the older non-deleted message re-creates the key; transient).
 3. Apply (`cache/consumer.go:92-175`): `UnmarshalNestedJSON` into a **fresh zero-valued struct** (only fields present
    in the message are set; supports `"properties.pricing_group_keys"`-style tags, `utils/json.go:12-57`) →
    if deleted: delete only when the cached id equals the message id (guards re-created codes) → else skip unless the
@@ -77,10 +93,17 @@ lingers (UNVERIFIED whether Rails allows it).
 
 Because step 3 overwrites the whole entry from a zero-valued struct, **any CDC update of a charge sets
 `PayInAdvance=false`** (in-advance events stop for that charge) and any CDC update of a BM sets `Recurring=false`
-(recurring fallback stops). Code-level VERIFIED by reading; production impact depends on the real connector config
-(OD-1). Re-check: `grep -o 'public.charges.([^)]*)' extra/debezium_config.json` → no `pay_in_advance`.
+(recurring fallback stops). Code-level VERIFIED by reading; binary-level VERIFIED 2026-10-02 with
+`.claude/skills/diagnostics-and-tooling/scripts/smoke-binary.sh cache-cdc` (one hand-shaped CDC `charges` row
+without `pay_in_advance` → `tx_A … in_advance=no`, while `cache` mode without the CDC row emits the in-advance
+event). Production runs cache mode (DECIDED OD-1), so the impact depends only on whether the production connector
+uses this column list: OPEN DECISION OD-1b (owner), the first thing to verify. A restart masks the defect until
+the next edit: the snapshot selects `pay_in_advance` and `recurring` (`models/charges.go:29`,
+`models/billable_metrics.go:93`) and the replayed CDC rows are not newer, so they are skipped
+(`cache/consumer.go:143-156`; INFERRED). Tell-tale: in-advance volume for a plan drops after a charge edit and
+returns after a deploy. Re-check: `grep -o 'public.charges.([^)]*)' extra/debezium_config.json` → no `pay_in_advance`.
 
-## 5. Failure behaviour summary (memory-cache mode)
+## 5. Failure behaviour summary (memory-cache mode = production)
 
 | Situation | Behaviour | Evidence |
 |---|---|---|
@@ -92,7 +115,17 @@ Because step 3 overwrites the whole entry from a zero-valued struct, **any CDC u
 | `external_id` containing `:` | prefix scan leaks: lookup `acme` matches `acme:eu` (verified probe: `prefix leak: lookup external_id=acme matched id=sub-eu external_id=acme:eu`) | `cache/subscriptions.go:46` |
 | event exactly on the start millisecond (`started_at …00.000500`, event `…00.000`) | cache: no match; DB mode `date_trunc(ms)` matches (verified probe: `cache matched=false`) | `cache/subscriptions.go:60-65` vs `models/subscriptions.go:32-33` |
 | shutdown | `Cache.Wait()` never called; badger may close under a CDC goroutine (UNVERIFIED impact) | `main.go:75`, `cache/cache.go:59-61` |
-| memory | whole tables held in Go slices during warm-up; badger in-memory unbounded; terminated subscriptions kept 1 month (snapshot) / 30 days (CDC); 3 dead filter tables still loaded | `models/query_streaming.go:96`, `cache/subscriptions.go:126` |
+| restart | 6 NEW `lago_evp_<model>_<uuid>` groups per process start ⇒ full re-read of every retained CDC topic and 6 orphan groups left per restart per replica | `cache/consumer.go:27`; smoke `consumer_groups: … + 6 lago_evp_<model>_<uuid>` (re-run 2026-10-02) |
+| memory | whole tables held in Go slices during warm-up; badger in-memory unbounded; terminated subscriptions kept 1 month (snapshot) / 30 days (CDC); 3 dead filter tables still loaded. Measured (synthetic, see caveat): 1M subscriptions ⇒ RSS ~801-823 MB, Go heap in use 426 MB, 13.4-20.8 s to insert | `models/query_streaming.go:96`, `cache/subscriptions.go:126`; scratch benchmark (below) |
 
-Memory-cache CDC hardening (WP6-WP10) is unowned: owner question OPEN DECISION OD-20 (owner), next to OD-1; candidate
-future campaign. `event-accounting-campaign` excludes it. DB/cache/Rails parity cases are in `rails-go-parity`.
+Memory measurement caveat: a scratch program called the real `cache.SetSubscription` 1,000,000 times with
+synthetic rows (short ids, one org, one plan, no `terminated_at`) on 4 vCPU, then forced a GC: RSS 823 MB
+(2026-10-01) and 801 MB (`VmRSS 800900 kB`, 2026-10-02), heap in use 426 MB both times, lookup OK. It does NOT
+include the snapshot path (the whole table is first held as a Go slice, `models/query_streaming.go:96`, so the
+warm-up peak is higher), the other 5 tables, real row sizes or production `GOGC`/limits. Treat ~0.8 GB per 1M
+subscriptions as a lower bound and measure on a production-sized snapshot before sizing; the documented pod
+size is 2 Gi (`docs/architecture.md:262`).
+
+Memory-cache hardening (WP6-WP10, WP27) is owned by `event-accounting-campaign` W6 "memory-cache correctness"
+(DEFAULT APPLIED OD-20, 2026-10-02; the owner may reassign it). DB/cache/Rails parity cases are in `rails-go-parity`;
+production operations (snapshot check, CDC lag, orphan groups, sizing) are in `run-and-operate`.

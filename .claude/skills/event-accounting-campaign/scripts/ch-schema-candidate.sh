@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# ch-schema-candidate.sh — prove the Phase-2 ClickHouse schema CANDIDATE (DECIDED OD-3 (owner,
-# 2026-10-02): a ClickHouse schema change is acceptable) on the value corpus with `clickhouse
-# local` (no server, no Docker), against Postgres numeric(40,15) as the reference.
+# ch-schema-candidate.sh — prove the Phase-2 ClickHouse schema CANDIDATE on the value corpus with
+# `clickhouse local` (no server, no Docker), against Postgres numeric(40,15) as the reference
+# (DECIDED OD-3 (owner, 2026-10-02): a ClickHouse schema change is acceptable).
 #
 # Compares, per value:
 #   today     events_enriched.decimal_value as created today: Decimal(38,26)

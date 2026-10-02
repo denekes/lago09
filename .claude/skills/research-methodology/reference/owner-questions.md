@@ -28,8 +28,8 @@ Cloud UNVERIFIED)", never "production runs 1 replica".
 One namespace, OD-1..OD-20 plus sub-ids (OD-1b), owned by `change-control` §9. This index only helps
 you find the right number and its status. Read the decision text, the default, who decides and the
 closing evidence in change-control §9 before you rely on one; they are not copied here, so they
-cannot drift. Status as of 2026-10-02: OD-1..OD-5 DECIDED, OD-1b OPEN (urgent), OD-20 DEFAULT
-APPLIED, all others OPEN.
+cannot drift. Status as of 2026-10-02: OD-1..OD-5 DECIDED, OD-1b OPEN (urgent),
+OD-20 DEFAULT APPLIED, all others OPEN.
 
 | ID | Topic (one line) | Status |
 |---|---|---|
@@ -84,8 +84,8 @@ Phrase it so a yes or no settles it. Put the evidence in the question, so the ow
 rediscover it. One decision per question.
 
 Bad: "Is the memory cache used?"
-Good (the open half of OD-1, now OD-1b): "OD-1b: Production runs `LAGO_USE_MEMORY_CACHE=true` (DECIDED
-OD-1). Does its Debezium `column.include.list` include `charges.pay_in_advance`,
+Good (the open half of OD-1, now OD-1b): "OD-1b: Production runs `LAGO_USE_MEMORY_CACHE=true`
+(DECIDED OD-1). Does its Debezium `column.include.list` include `charges.pay_in_advance`,
 `charges.accepts_target_wallet` and `billable_metrics.recurring`? They are absent from
 `extra/debezium_config.json:2`. Without them, in-advance events silently stop after the first CDC
 update. Which SASL/TLS settings and broker list do the CDC consumers get? They pass

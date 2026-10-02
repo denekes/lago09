@@ -17,7 +17,7 @@ Checked 2026-10-01.
 | lago-api outbound HTTP session client | `$API/lib/lago_http_client/lago_http_client/session_client.rb:52-55` | https URLs | Yes in production; `VERIFY_NONE` only in development/test | positive control |
 | lago-api S3 | `$API/config/storage.yml:9-24` (`amazon`, and `amazon_compatible_endpoint` when `LAGO_AWS_S3_ENDPOINT` is set) | https endpoints | Yes by default: AWS SDK default for `amazon`; `ssl_verify_peer` from `LAGO_AWS_S3_SSL_VERIFY` (default true, `:24`) for the custom endpoint | `LAGO_AWS_S3_SSL_VERIFY` is not passed by any compose anchor |
 | events-processor -> Kafka (main consumer + producers) | `events-processor/config/kafka/kafka.go:66-69` | `LAGO_KAFKA_TLS=true` | Yes: `kgo.DialTLS()` with the default `tls.Config` | positive control |
-| events-processor memory-cache consumers (Debezium CDC) | `events-processor/cache/consumer.go:27-35` | never | n/a: no TLS, no SASL, `SeedBrokers` with the raw unsplit string | only with `LAGO_USE_MEMORY_CACHE=true`; production use is OPEN DECISION OD-1 (owner), hardening is unowned (OPEN DECISION OD-20; this is `architecture-contract` WP10). Forces a plaintext, unauthenticated broker path for CDC rows |
+| events-processor memory-cache consumers (Debezium CDC) | `events-processor/cache/consumer.go:27-35` | never | n/a: no TLS, no SASL, `SeedBrokers` with the raw unsplit string | Production-relevant: production runs `LAGO_USE_MEMORY_CACHE=true` (DECIDED OD-1 (owner, 2026-10-02)). Same `LAGO_KAFKA_BOOTSTRAP_SERVERS` as the main clients, which add SCRAM/TLS when set (`config/kafka/kafka.go:48-68`): either the broker accepts plaintext, unauthenticated clients or the CDC consumers fail and the cache freezes at its snapshot (`architecture-contract` WP10). Production auth and broker list: OPEN DECISION OD-1b (owner). Hardening: `event-accounting-campaign` W6-2 (DEFAULT APPLIED OD-20) |
 | events-processor OTEL exporter | `events-processor/config/tracing/otel_tracer.go:219-223,238-242`; `tracer.go:128-129` | unless `OTEL_INSECURE=true` | Yes (system roots) by default | positive control |
 | Gotenberg (PDF) Chromium | `deploy/docker-compose.local.yml:243`, `light.yml:304`, `production.yml:452` | always | **No**: `--chromium-ignore-certificate-errors=true` | affects assets fetched while rendering invoices |
 | Traefik -> Let's Encrypt | `deploy/docker-compose.light.yml:87`, `production.yml:87` | always | n/a: issues certificates from the **staging** CA, which browsers reject | see selfhost-defaults.md section 5 |
@@ -29,7 +29,11 @@ Hardening (CANDIDATE, C7 + C3/C4 per change-control):
   plus an opt-out variable mirroring lago-api (`LAGO_REDIS_STORE_DISABLE_SSL_VERIFY`) for
   self-signed managed Redis. Adding a variable is a config-and-flags checklist item. Test with
   miniredis over TLS (see the `diagnostics-and-tooling` skill). Not done here.
-- lago-api `VERIFY_NONE` is lago-api code: a paired lago-api PR (change-control N6 / OD-4).
+- lago-api `VERIFY_NONE` is lago-api code: a lago-api PR (change-control N6; DECIDED OD-4 (owner,
+  2026-10-02): PRs go where the dependent code lives).
+- CDC consumers: build them through `kafka.NewKafkaClient` (broker split, SCRAM, TLS, logger) instead of
+  a bare `kgo.NewClient` (`cache/consumer.go:30-35`); C4, `event-accounting-campaign` W6-2. Until then,
+  ask the owner first which listener production's CDC consumers use (OPEN DECISION OD-1b (owner)).
 - Gotenberg: drop the flag unless invoices embed self-signed assets (CANDIDATE; not in the OD
   register: raise a new owner decision as a GitHub issue titled "OD-n: Gotenberg ignores TLS errors",
   per change-control Terms "owner").

@@ -23,7 +23,8 @@ lifecycle: starts=0 shutdown_signals=0 stopped=0
   main consumer fetch error -> process panic                         0
   offset commit errors (redelivery = duplicates)                     0
 == memory-cache mode
-  not active in this log (no snapshot / CDC lines)
+  not active in this log (no snapshot / CDC lines): DB mode (dev), or the process start is not in this log.
+  Production runs memory-cache mode: capture the log from pod start (kubectl logs --previous for a restarted pod).
 == other ERROR/WARN messages
       1  [app] ERROR Error connecting to the flag store | EOF
       1  [app] ERROR Error converting max connections into integer | strconv.Atoi: parsing "200x": invalid syntax

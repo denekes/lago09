@@ -38,9 +38,9 @@ H10 log triage · H11 scratch copy
   (`GetBillableMetric`, `SearchSubscriptions`, `HasPayInAdvanceCharge`).
 - **Cost:** ~4-6 s. No CGO needed: `go list -deps ./cmd/cdc-brokers | grep -c lago-expression` -> `0`
   (run in `scripts/kfake-harness`; same for `./cmd/smoke`, `./kfx`, `./fixture`; `./pipeline` and `./cmd/happy-path` -> `1`).
-- **Owner:** meaning `architecture-contract` WP10 (as-is), variable `config-and-flags`; production
-  relevance = OPEN DECISION OD-1 (owner). Fixing it is unowned: OPEN DECISION OD-20 (owner), candidate
-  future campaign.
+- **Owner:** meaning `architecture-contract` WP10 (as-is), variable `config-and-flags`; production-relevant
+  (DECIDED OD-1 (owner, 2026-10-02)); production's broker list is OPEN DECISION OD-1b (owner). Fix:
+  `event-accounting-campaign` W6-2 (DEFAULT APPLIED OD-20).
 
 ## H3. Binary smoke (`smoke-binary.sh`)
 
@@ -91,9 +91,10 @@ H10 log triage · H11 scratch copy
 - **Cost:** ~7-8 s for `all` warm (binary build ~6 s); `go build` of the binary with an empty Go build
   cache: allow 1-2 min (135 s measured on a shared sandbox, 2026-10-01).
 - **Owner:** `architecture-contract` (dispositions, DLQ codes), `rails-go-parity` (`1e-07`, tx_H),
-  `event-accounting-campaign` (tx_D silent drop), `debugging-playbook` (log triage). Memory-cache rows:
-  OPEN DECISION OD-1 (owner). The cache-cdc row is hand-shaped from `extra/debezium_config.json:2`
-  `column.include.list` (no real Debezium connector was run).
+  `event-accounting-campaign` (tx_D silent drop; W6 for the cache rows), `debugging-playbook` (log
+  triage). Memory-cache rows are the production path (DECIDED OD-1 (owner, 2026-10-02)). The cache-cdc
+  row is hand-shaped from `extra/debezium_config.json:2` `column.include.list` (no real Debezium
+  connector was run); whether production uses that list is OPEN DECISION OD-1b (owner).
 
 ## H4. `go test -overlay` (`overlay-run.sh`)
 
@@ -189,7 +190,8 @@ H10 log triage · H11 scratch copy
   on disk under `$LAGO_SKILLS_CACHE/clickhouse/`; then ~0.2 s per query. `packages.clickhouse.com` was
   blocked by the sandbox egress proxy (403); if GitHub is blocked too, the script exits 2: report
   "ClickHouse semantics UNVERIFIED", do not guess.
-- **Owner:** `rails-go-parity` (value/decimal semantics), OPEN DECISION OD-3 (owner) for any schema change.
+- **Owner:** `rails-go-parity` (value/decimal semantics); a schema change is allowed (DECIDED OD-3 (owner,
+  2026-10-02)) and ships in a paired lago-api PR (`event-accounting-campaign` W2).
 
 ## H7. docker compose without a daemon
 

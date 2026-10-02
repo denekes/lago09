@@ -56,7 +56,8 @@ prints exactly `4100da0 cec0eb2 600e195 b604769 b6d3616 9acd83e`.
 What held: the `ok` guard (`events-processor/config/kafka/consumer.go:94-100`) and the table test
 `TestFindMaxCommitableRecord` (`config/kafka/consumer_test.go:18`).
 
-Residual (open, delivery semantics, OPEN DECISION OD-2 (owner)):
+Residual (open, delivery semantics; the fix follows ADR-001, DECIDED OD-2 (owner, 2026-10-02),
+`event-accounting-campaign` W1, not merged as of 2026-10-02):
 - A skipped commit relies on "records will be re-polled after the next rebalance"
   (`consumer.go:97`). franz-go keeps fetching forward, so a later fully processed batch on the same
   partition commits past the failed offset. The failed record is then never retried and never sent
@@ -174,8 +175,9 @@ stringification, tie-breaks) and owner sign-off.
 Settled. Rule: "the plan has at least one non-deleted pay-in-advance charge for this billable metric",
 as in Rails `PostProcessService#charges`. It is not per filter. In memory-cache mode the same check
 reads cached charges whose Debezium column list lacks `pay_in_advance`
-(`extra/debezium_config.json`; production use is OPEN DECISION OD-1 (owner); the hardening is unowned,
-OD-20, `architecture-contract` WP6).
+(`extra/debezium_config.json`). Production runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02));
+whether production's connector uses that list is OPEN DECISION OD-1b (owner). Hardening:
+`event-accounting-campaign` W6 (DEFAULT APPLIED OD-20); as-is defect `architecture-contract` WP6.
 
 ## F. Go-side expiry of Rails charge-usage cache keys (15.2 months, removed)
 
@@ -220,7 +222,8 @@ Do not re-fight: Go never computes Rails cache keys or re-implements Rails resol
 7. `02a4bc8` (2026-08-27). Context per call.
 
 Settled. Do not re-fight: ZSET name, bucket and member format change only together with lago-api,
-under a new versioned name (`_v3`) and a planned deploy order (change-control N6, OD-4).
+under a new versioned name (`_v3`) and a planned deploy order (change-control N6; a paired lago-api PR
+because the Rails clock reads the ZSET, DECIDED OD-4 (owner, 2026-10-02)).
 
 ## H. Redis TLS configuration
 
@@ -308,7 +311,8 @@ contract with every deployment; renames need a migration note and a fallback (se
 Today `events-processor/processors/events_processor/enrichment_service.go:114` still formats with `%v`:
 a scratch `go run` of the same expression gives `1000000 → "1e+06"`, `12345678 → "1.2345678e+07"`,
 `null`/missing `→ "<nil>"` (VERIFIED 2026-10-01). Status open; owned by `event-accounting-campaign`
-W2 and `rails-go-parity`; any ClickHouse schema answer is OPEN DECISION OD-3 (owner).
+W2 and `rails-go-parity`; a ClickHouse schema change is allowed (DECIDED OD-3 (owner, 2026-10-02)) and
+ships in a paired lago-api PR.
 Rule: the `2fec4db` lesson is that the nil case was seen and patched in one call site only. Fix the
 class, with a corpus test, not one call site.
 
@@ -397,8 +401,8 @@ the other services and `rpk topic create` used `events-raw` (verified in
 `git show 0ca6cdf:docker-compose.dev.yml`) → `16c8b68` (2025-01-23) moved every service to one env
 file with `events-raw` → `84b6eef` renamed it `.env.development.default`. That same file carried a
 real `LAGO_LICENSE` value from `16c8b68` until `6dd7e56` (2025-03-07): 37 days on `main` after merge
-`0a67ac0` (2025-01-29), up to 43 days if the feature branch was public from 2025-01-23 (UNVERIFIED); rotation is OPEN
-DECISION OD-9 (owner); never print the value (change-control N11). Separately `3cd78f1` aligned
+`0a67ac0` (2025-01-29), up to 43 days if the feature branch was public from 2025-01-23 (UNVERIFIED); rotation is
+OPEN DECISION OD-9 (owner); never print the value (change-control N11). Separately `3cd78f1` aligned
 `LAGO_REDIS_CACHE_DB` (chain F step 3). Settled. Residual: `events-processor/README.md:41` still shows
 `events_raw` as the example. Rule: change-control N12.
 

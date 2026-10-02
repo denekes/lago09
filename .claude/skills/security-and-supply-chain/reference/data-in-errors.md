@@ -39,14 +39,17 @@ it. Treat every `properties` value as potential personal data.
    Prefer identifiers: `organization_id`, `transaction_id`, `code`, `error_code`.
 2. CANDIDATE fix for the existing extras: send `transaction_id`, `organization_id`, `code` and
    `error_code` instead of `event` at `processor.go:71` and `event_producer_service.go:72`. The DLQ
-   is the one place where the full event belongs: no DLQ replay tool exists, and any manual re-feed
-   (CANDIDATE, OPEN DECISION OD-2) needs the payload.
+   is the one place where the full event belongs: no DLQ replay tool exists yet, and the
+   operator-gated replay tool that ADR-001 specifies (DECIDED OD-2 (owner, 2026-10-02); CANDIDATE
+   until built, `event-accounting-campaign` `reference/delivery-options.md` step 4e) needs the payload.
    This is a C2/C3 change plus C7; it changes what operators see in Sentry, so tell them in the PR.
-3. CANDIDATE for lago-api (paired PR, change-control N6 / OD-4): a TTL on
+3. CANDIDATE for lago-api (a lago-api PR, since lago-api owns the table; change-control N6,
+   DECIDED OD-4): a TTL on
    `events_dead_letter` once a retention period is agreed (OD-19). No DLQ replay tool exists in this
    repo or lago-api `591ae90` (`rake events:reprocess`, `$API/lib/tasks/events.rake:89-90`, is
-   re-enrichment, not DLQ replay); a manual re-feed is CANDIDATE and needs OPEN DECISION OD-2
-   (owner).
+   re-enrichment, not DLQ replay); ADR-001 (DECIDED OD-2) specifies an operator-gated DLQ -> raw-topic
+   replay tool that logs counts only, CANDIDATE until built. A TTL must leave room for that replay
+   window.
 4. A DLQ payload schema change is a cross-repo contract change (C4): ClickHouse MVs parse
    `organization_id`, `timestamp`, `ingested_at` out of `event` (`..._mv.rb`).
 

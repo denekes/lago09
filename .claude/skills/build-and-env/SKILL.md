@@ -166,8 +166,9 @@ Any FAIL, or a different result: follow section 2a for the failing item, then se
 identical: CI builds the whole lago-expression v0.2.0 workspace with the runner's unpinned Rust
 (`:40-49`), installs the `.so` with `ldconfig` (`:51-56`), uses Go `1.25.0` (`:61`), a Postgres 14
 service (`:25`) and `go test -v ./...` (`:64`); `ep-env.sh` builds only `expression-go/` with local
-cargo and tests against the local Postgres (16 here). Whether this recipe is an accepted pre-PR gate
-is OPEN DECISION OD-5 (owner); default: accepted (see section 4).
+cargo and tests against the local Postgres (16 here). DECIDED OD-5 (owner, 2026-10-02): this recipe is
+an accepted pre-PR gate (the full gate is change-control's "Pre-PR gate for events-processor code", N9);
+`lago exec` stays valid for dev-stack users (section 4).
 
 ### Postgres for tests
 
@@ -274,13 +275,11 @@ In an interactive shell an alias wins over a same-named binary; in scripts the b
 allocation in non-interactive shells.
 
 `events-processor/CLAUDE.md:10` says "Direct `go build` / `go test` won't work locally due to CGO
-dependencies. Always use `lago exec`". That is stale for daemon-less sandboxes: they work with
-`ep-env.sh` (section 2a). OPEN DECISION OD-5 (owner): is `ep-test.sh` an accepted pre-PR gate, or is
-`lago exec` mandatory? Default until decided: the Docker-free recipe is accepted (same shape as CI, not identical);
-`lago exec`/`dc.sh exec` stays valid for dev-stack users. CANDIDATE replacement text for that file
-(a C0 docs change; the stale-claim register is `docs-and-writing`): "Tests without Docker:
-`.claude/skills/build-and-env/scripts/ep-test.sh` (builds libexpression_go.so once; same shape as CI). With
-the dev stack: `docker compose -f docker-compose.dev.yml exec -T events-processor go test ./...`."
+dependencies. Always use `lago exec`". That is stale: hosts and daemon-less sandboxes work with
+`ep-env.sh` (section 2a). DECIDED OD-5 (owner, 2026-10-02): `ep-test.sh` is an accepted pre-PR gate
+(same shape as CI, not identical); `lago exec`/`dc.sh exec` stays valid for dev-stack users. The
+replacement text for that file is the APPROVED correction `docs-and-writing` SC-01 (not yet applied
+as of 2026-10-02: the file is outside `.claude/skills`, so the owner applies it in a C0 PR).
 
 ## 5. Trap table
 
@@ -369,6 +368,7 @@ prompts), and with a lago-cli binary on PATH. `dc.sh` was exercised with `config
 - Update triggers: a lago-expression ref, Rust image or Go version bump (any of the four places);
   a dependabot PR touching the `go` line; a new Dockerfile or workflow; changes to volumes, profiles or
   `Host()` rules in `docker-compose.dev.yml`; edits to `docs/dev_environment.md` or
-  `events-processor/CLAUDE.md` (OD-5 decided); a new test package that needs Postgres or the `.so`;
+  `events-processor/CLAUDE.md` (the owner applying SC-01, approved under DECIDED OD-5); an amendment
+  of OD-5; a new test package that needs Postgres or the `.so`;
   a Go release that ships `covdata` in the toolchain module; a new sandbox image (Postgres or local Go
   version change); lago-cli adding `exec`.

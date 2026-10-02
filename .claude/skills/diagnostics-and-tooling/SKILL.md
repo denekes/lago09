@@ -8,6 +8,8 @@ This skill ships the probe harnesses for this repo and tells you how to run, rea
 Every harness here was run; its expected output is recorded. Conclusions drawn from the outputs live
 in the owning skills. Facts verified 2026-10-01 unless marked. Code facts as of 5308258
 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on top.
+Owner decisions OD-1..OD-5 of 2026-10-02 folded in (register: `change-control` §9): production runs
+memory-cache mode, so the cache-mode harness rows measure the production path.
 
 ## When to use / when NOT to use
 
@@ -17,7 +19,8 @@ Use this skill when:
 - you need Kafka, Redis, Postgres or ClickHouse in a sandbox with no Docker daemon;
 - you want to change a test or add a probe without writing into the repo;
 - you must write the kfake test that change-control N7 requires before a delivery-semantics change
-  (the delivery contract itself is OPEN DECISION OD-2 (owner); this skill only measures);
+  (the delivery contract is ADR-001, DECIDED OD-2 (owner, 2026-10-02), owned by
+  `event-accounting-campaign`; this skill only measures);
 - a harness here fails or drifts (version trap, expected-today diff).
 
 Do NOT use it for:
@@ -43,7 +46,7 @@ Do NOT use it for:
 | scratch DB | A Postgres database created and tagged by `scratch-pg.sh`, dropped after the probe. |
 | expected-today | The output recorded on 2026-10-01, defects included. A diff is a measurement, not automatically a regression. |
 | CGO env | `source .claude/skills/build-and-env/scripts/ep-env.sh`: needed to build anything importing `processors/events_processor` (links `libexpression_go`). |
-| DB mode / memory-cache mode | events-processor reads Postgres per event (default) vs an in-memory badger cache fed by a snapshot + Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`, checked `== "true"` at `events-processor/main.go:67`). Production use of the latter is OPEN DECISION OD-1 (owner). |
+| DB mode / memory-cache mode | events-processor reads Postgres per event (when the variable is not `true`) vs an in-memory badger cache fed by a snapshot + Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`, checked `== "true"` at `events-processor/main.go:67`). Dev runs DB mode; PRODUCTION runs memory-cache mode (DECIDED OD-1 (owner, 2026-10-02)), so a runtime claim needs the cache-mode measurement. |
 
 ## 1. The measurement rule
 
@@ -130,7 +133,7 @@ Packages (details and API: `reference/kfake-technique.md` s.3):
 Demo scenarios (expected outputs: `reference/kfake-technique.md` s.4):
 
 ```bash
-$S/kfake-run.sh happy-path -n 5000 -partitions 3     # committed 5000, enriched 5000, in-advance 5000, DLQ 0, PASS
+$S/kfake-run.sh happy-path -n 5000 -partitions 3     # committed 5000, enriched 5000, in-advance 5000, DLQ 0, PASS (default -store cache = the production path)
 $S/kfake-run.sh happy-path -store db -db-url "$($S/scratch-pg.sh create hp_db $S/fixtures/smoke-schema.sql)"; $S/scratch-pg.sh drop hp_db
 $S/kfake-run.sh cdc-brokers                          # brokers=1 -> visible=true ; brokers=2 comma_joined=true -> visible=false
 ```
@@ -188,7 +191,9 @@ Observed 2026-10-01 (identical on 3 runs; re-run by `smoke-binary.sh all`, rows 
 <!-- evidence-check: on -->
 
 What these mean (defects, contracts) is owned by `architecture-contract`, `rails-go-parity` and
-`event-accounting-campaign`; memory-cache rows depend on OPEN DECISION OD-1 (owner). If your PR
+`event-accounting-campaign`. The `cache` and `cache-cdc` rows are the production path (DECIDED OD-1
+(owner, 2026-10-02)); whether production's Debezium list matches the hand-shaped `cache-cdc` row is
+OPEN DECISION OD-1b (owner). If your PR
 changes a row on purpose, update the expected file in the same PR (and its change class gates:
 change-control C3/C4).
 
@@ -235,7 +240,8 @@ script runs `clickhouse local --query` with stdin from `/dev/null` (an inherited
 known hang risk); for many statements use `ch-local.sh -` (SQL on stdin). Version = `CH_VERSION`, else the
 newest cached patch of the minor in `docker-compose.dev.yml:460` (`26.2-alpine`), else (or with
 `--refresh`) the newest `v26.2.*-stable` tag on GitHub (26.2.19.43 on 2026-10-01). Production's version is
-unknown; any schema change is OPEN DECISION OD-3 (owner). `packages.clickhouse.com` was blocked by the
+unknown. A schema change is allowed (DECIDED OD-3 (owner, 2026-10-02)); measure it here before the
+paired lago-api PR (`rails-go-parity` `ch-decimal-probe.sh`). `packages.clickhouse.com` was blocked by the
 sandbox proxy; if GitHub is blocked too the script exits 2: then ClickHouse semantics stay UNVERIFIED.
 
 ## 9. Compose without a daemon
@@ -270,7 +276,7 @@ All compose files and bring-up: `run-and-operate`.
 | Probe sleeps then reads: flaky counts | race between your read and the commit | `kfx.WaitCommitted` / `ReadAll` to high watermark |
 | `go test` result `(cached)` | cache hit, nothing re-ran | `-count=1` |
 | overlay change not visible to a test reading a file | overlays are compile-time only | scratch copy (`reference/harness-catalogue.md` H11) |
-| CDC consumer silently receives nothing | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS` (`events-processor/cache/consumer.go:28-31`) | measure with `cdc-brokers`; meaning: `architecture-contract` WP10; fix owner: none (OPEN DECISION OD-20) |
+| CDC consumer silently receives nothing | comma-separated `LAGO_KAFKA_BOOTSTRAP_SERVERS` (`events-processor/cache/consumer.go:28-31`) | measure with `cdc-brokers`; meaning: `architecture-contract` WP10; fix owner: `event-accounting-campaign` W6-2 (DEFAULT APPLIED OD-20) |
 | scratch DB left behind after a crash | the trap did not run | `scratch-pg.sh list`, then `drop` each |
 <!-- evidence-check: on -->
 

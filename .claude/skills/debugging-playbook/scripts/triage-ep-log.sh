@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # triage-ep-log.sh - bucket an events-processor log (slog JSON lines mixed with plain panic,
 # stack-trace and go-redis lines) by error_code, msg and panic; count the silent-loss signals;
-# check memory-cache snapshot completeness; map every distinct ERROR/WARN/panic line to a
+# check memory-cache snapshot completeness and row counts (production runs memory-cache mode);
+# map every distinct ERROR/WARN/panic line to a
 # debugging-playbook entry id through explain-error.sh.
 #
 # Usage:
@@ -133,7 +134,7 @@ BEGIN { SEP = "\034" }
     if (msg == "Event processor stopped") stops++
     if (index(json, "\"kafka-topic-consumer\":\"\"") > 0 || index(json, "\"group\":\"_\"") > 0) emptytopic++
     if (msg == "Starting snapshot load") { snap_s[model]++; snap_any = 1 }
-    if (msg == "Completed snapshot load") { snap_c[model]++; snap_any = 1 }
+    if (msg == "Completed snapshot load") { snap_c[model]++; snap_any = 1; snap_n[model] = jstr(json, "count") }
     if (msg == "Starting consumer" && pkg == "cache") { cdc_start++; snap_any = 1 }
     if (lvl != "ERROR" && lvl != "WARN") next
     if (lvl == "ERROR") findings++
@@ -230,12 +231,24 @@ END {
   printf "  %-62s %5d\n", "offset commit errors (redelivery = duplicates)", commit_err
 
   print "== memory-cache mode"
-  if (!snap_any && cdc_fetch == 0 && cdc_write == 0) print "  not active in this log (no snapshot / CDC lines)"
-  else {
+  if (!snap_any && cdc_fetch == 0 && cdc_write == 0) {
+    print "  not active in this log (no snapshot / CDC lines): DB mode (dev), or the process start is not in this log."
+    print "  Production runs memory-cache mode: capture the log from pod start (kubectl logs --previous for a restarted pod)."
+  } else {
     ss = 0; sc = 0
     for (k in snap_s) ss += snap_s[k]
     for (k in snap_c) sc += snap_c[k]
     printf "  snapshot loads: started %d, completed %d\n", ss, sc
+    if (sc > 0) {
+      rows = ""; lst = sorted_keys(snap_n); nk = split(lst, ks, " ")
+      for (i = 1; i <= nk; i++) if (ks[i] != "") rows = rows " " ks[i] "=" snap_n[ks[i]]
+      printf "  snapshot rows:%s\n", rows
+      if (("billable_metrics" in snap_n) && snap_n["billable_metrics"] == "0") {
+        print "  WARNING: snapshot loaded 0 billable_metrics - unless this is an empty install, DATABASE_URL points at the wrong database;"
+        print "           every event then DLQs as fetch_billable_metric \"Key not found\" (cache-snapshot-failed)"
+        findings++; nzero++
+      }
+    }
     for (k in snap_s) if (snap_c[k] < snap_s[k]) { inc[k] = 1; ninc++ }
     if (ninc > 0) {
       lst = sorted_keys(inc)
@@ -250,7 +263,7 @@ END {
   no = 0; for (k in other) no++
   if (no == 0) print "  none"; else top_print(other, "", TOP + 2, "  ")
 
-  sig = loss_unmarshal + loss_nocommit + loss_produce + loss_dlq + fetch_panic + tretry + ninc + emptytopic
+  sig = loss_unmarshal + loss_nocommit + loss_produce + loss_dlq + fetch_panic + tretry + ninc + nzero + emptytopic
   printf "FINDINGS %d\n", findings + sig > FLAGS
   printf "EPLINES %d\n", ep + ep_plain > FLAGS
 }

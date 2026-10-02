@@ -74,7 +74,7 @@ Facts that shape the protocol:
   `charts/lago/values.yaml:111-118`) and sets the Kafka env of its Kafka pods
   (`charts/lago/templates/_helpers.tpl:25-58`, included by the events-processor, api,
   events-consumer and migrate templates). A new topic, such as the ADR-001 retry topic, or a new
-  Kafka env var needs: the dev topic list (`docker-compose.dev.yml:397-404`, C4 + C6), a paired
+  Kafka env var needs: the dev topic list (`docker-compose.dev.yml:398-405`, C4 + C6), a paired
   lago-helm-charts PR, and production provisioning (owner/ops). The retry topic itself has no
   reader outside the events-processor, so it needs no paired lago-api PR.
 - **The root compose does not run the events-processor.** `docker-compose.yml` services are
@@ -116,7 +116,7 @@ Facts that shape the protocol:
    | Rails writes, Go reads (K2, K3) | events-processor: accepts old **and** new | lago-api: emits the new format | events-processor: drops the old parse path |
    | Rails schema, Go reads columns (K8) | events-processor: stops selecting the column (release N) | lago-api: `ignored_columns`, then the drop migration (release N+1, per `$API/docs/dropping_columns_and_tables.md`) | n/a |
    | Topic or group rename (K2, K4, K6, K7) | lago-api ClickHouse migration for the new queue table (K2, K4, K6; the name is baked in at `$API/db/clickhouse_migrate/20231026124912_create_events_raw_queue.rb:9`), and the topic created (dev list, lago-helm-charts PR, production ops) | events-processor env switch (new group = replay from earliest; plan for duplicates) | delete the old topic and queue table after retention |
-   | New internal topic (e.g. the ADR-001 retry topic; no reader outside the events-processor) | the topic created in every environment: dev topic list (`docker-compose.dev.yml:397-404`, C6), lago-helm-charts PR (`charts/lago/templates/create-topic-job.yaml:30`), production provisioning (owner/ops) | events-processor starts producing to it | n/a (deleting it later is irreversible: cleanup rules apply) |
+   | New internal topic (e.g. the ADR-001 retry topic; no reader outside the events-processor) | the topic created in every environment: dev topic list (`docker-compose.dev.yml:398-405`, C6), lago-helm-charts PR (`charts/lago/templates/create-topic-job.yaml:30`), production provisioning (owner/ops) | events-processor starts producing to it | n/a (deleting it later is irreversible: cleanup rules apply) |
 
 7. **Verify after each step.** For example: `ZCARD subscription_refreshed_v2` drains to near zero
    every 10 s, consumer lag is flat, and the DLQ rate is flat. These need a running stack and
@@ -157,5 +157,5 @@ Facts that shape the protocol:
   (DECIDED OD-4); a ClickHouse schema change is allowed and rides in that PR (DECIDED OD-3);
   campaign work in `event-accounting-campaign`.
 - Rails-side flags that change which side does the work: `pre_filter_events`,
-  `lazy_charge_usage_cache`, `enriched_events_aggregation`. Their production state is OPEN
-  DECISION OD-8 (owner). State "impact depends on OD-8".
+  `lazy_charge_usage_cache`, `enriched_events_aggregation`. Their production state is
+  OPEN DECISION OD-8 (owner). State "impact depends on OD-8".

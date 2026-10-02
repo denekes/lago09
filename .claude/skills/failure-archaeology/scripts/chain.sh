@@ -34,7 +34,7 @@ usage() { awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; }
 
 # ---- curated chains: "ID|sha|what this step did" ; "#ID|title|status" opens a chain ----------
 chains() { cat <<'EOF'
-#A|Kafka commit path (ING-15 segfault)|settled; residual skip-past semantics (OD-2)
+#A|Kafka commit path (ING-15 segfault)|settled; residual skip-past semantics (fix: ADR-001, DECIDED OD-2)
 A|4100da0|origin: consume() commits the last record of every batch; every processing failure is DLQ'd (go produceToDeadLetterQueue), no retry
 A|cec0eb2|Retryable/12 h window + findMaxCommitableRecord; stray `return` exits consume() -> partition goroutine dies, poll() blocks on its unbuffered channel (inferred)
 A|656c829|unparseable records counted as processed (committed, Sentry only, no DLQ)
@@ -129,7 +129,7 @@ M|3dae52f|LAGO_KAFKA_ENRICHED_EVENTS_EXPANDED_TOPIC made mandatory for everyone
 M|27169be|LAGO_KAFKA_TLS=1 was ignored (== "true") -> GetEnvAsBool
 M|f6852c0|3.7 months later: dev compose finally creates that topic
 M|d9c32b6|topic and env removed
-#N|Property values stringified with %v|OPEN (event-accounting-campaign W2; OD-3)
+#N|Property values stringified with %v|OPEN (event-accounting-campaign W2; CH schema change allowed: DECIDED OD-3)
 N|4100da0|origin: value = fmt.Sprintf("%v", properties[field]): nil -> "<nil>", 1000000 -> "1e+06"
 N|26e7c7c|grouped_by built with the same %v
 N|3dae52f|count aggregation value becomes "1"; every other type still %v

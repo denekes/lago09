@@ -17,7 +17,7 @@ Verified 2026-10-01; code facts as of 5308258 (events-processor tree 83e012866f2
 | `events_dead_letter` | events-processor (non-retryable failure, retryable failure older than 12 h of `ingested_at`, failed enriched/in-advance produce) | ClickHouse `events_dead_letter_queue` → MV → `events_dead_letter` only. Nothing in lago-api reads it back (only the model `$API/app/models/clickhouse/events_dead_letter.rb`) | `models.FailedEvent` `{event, initial_error_message, error_message, error_code, failed_at}`; no key |
 | `unprocessed_events` | Karafka DLQ for the in-advance consumer (`max_retries: 1`, karafka.rb:55) | nobody | NOT in the create-topics list; auto-creation by Redpanda UNVERIFIED |
 | `activity_logs`, `api_logs`, `security_logs` | lago-api `Utils::ActivityLog`, `ApiLog`, `SecurityLog`, `EmailActivityLog` (need ClickHouse enabled) | ClickHouse `*_queue` tables, group `clickhouse` | JSON |
-| `<prefix>.public.<table>` (memory-cache mode only, OPEN DECISION OD-1 (owner)) | Debezium connector (config `extra/debezium_config.json`, prefix `lago_proc_cdc`, slot `lago_dbz_evt_proc`; registration is manual and undocumented) | events-processor cache consumers, group `lago_evp_<model>_<uuid>` NEW on every start (cache/consumer.go:27) | Debezium unwrapped rows |
+| `<prefix>.public.<table>` (memory-cache mode only, which production runs: DECIDED OD-1; production connector config OPEN DECISION OD-1b (owner)) | Debezium connector (config `extra/debezium_config.json`, prefix `lago_proc_cdc`, slot `lago_dbz_evt_proc`; registration is manual and undocumented) | events-processor cache consumers, group `lago_evp_<model>_<uuid>` NEW on every start (cache/consumer.go:27) | Debezium unwrapped rows |
 | `events_enriched_expanded` | nobody since `d9c32b6` (topic + env removed from dev) | lago-api CH migration `20250814124830` still builds a Kafka table from `LAGO_KAFKA_ENRICHED_EVENTS_EXPANDED_TOPIC` | effect on a fresh dev ClickHouse: UNVERIFIED (see `rails-go-parity`) |
 
 Kafka Connect itself (`redpanda-kafka-connect`) stores state in `_connectors_offsets`,
@@ -40,9 +40,9 @@ Kafka Connect itself (`redpanda-kafka-connect`) stores state in `_connectors_off
 | root / deploy | `lago` (`POSTGRES_DB`), schema `public` (`search_path` in DATABASE_URL) | lago-api | |
 | all-in-one | `lago` in the container's local Postgres 17 | lago-api | data location UNVERIFIED (variants.md §5) |
 
-The events-processor NEVER writes Postgres. DB mode reads `billable_metrics`, `subscriptions`, `charges`
+The events-processor NEVER writes Postgres. DB mode (dev) reads `billable_metrics`, `subscriptions`, `charges`
 per event (pgx pool, `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS`, default 200); memory-cache mode
-snapshots those plus `billable_metric_filters`, `charge_filters`, `charge_filter_values` at start (pool 10).
+(production, DECIDED OD-1) snapshots those plus `billable_metric_filters`, `charge_filters`, `charge_filter_values` at start (pool 10).
 `public.enriched_events` (Postgres, partitioned when pg_partman is available) is written by lago-api
 `Events::PostProcessService#create_enriched_events` only for orgs with feature flag
 `postgres_enriched_events` (`$API/app/services/events/post_process_service.rb:94-99`; flags live in

@@ -6,7 +6,8 @@ description: "Runbooks and output map for running the Lago umbrella repo: pick a
 
 How to start each runtime variant of this repo, what each one runs, where its output lands, and how to
 operate the Go events-processor, Postgres partitioning and monitoring. Commands assume the repo root
-(`cd "$(git rev-parse --show-toplevel)"`). Facts verified 2026-10-01 unless marked. Code facts as of
+(`cd "$(git rev-parse --show-toplevel)"`). Facts verified 2026-10-01 unless marked; owner decisions OD-1..OD-5
+of 2026-10-02 folded in (register: `change-control` §9). Code facts as of
 5308258 (events-processor tree 83e012866f29); the working branch may carry skills-only commits on top.
 `docker compose up/exec/logs` cannot run in a daemon-less sandbox: those lines are verified by reading
 the cited files; `docker compose config` works without a daemon and was run.
@@ -17,6 +18,7 @@ Use this skill to:
 - choose a variant, bring it up, tear it down, or upgrade it;
 - find where a topic, key, table, log line, volume or hostname comes from;
 - restart, scale, drain, reset or replay the events-processor, or inspect its DLQ;
+- operate production's memory-cache mode: snapshot check, CDC lag, orphan `lago_evp_*` groups, sizing;
 - check or repair `enriched_events` partition maintenance; find out what can be monitored.
 
 Do NOT use it for:
@@ -40,8 +42,9 @@ Do NOT use it for:
 - **Raw topic**: `events-raw` (`LAGO_KAFKA_RAW_EVENTS_TOPIC`), input of the events-processor.
 - **Group id**: the events-processor consumer group, `<LAGO_KAFKA_CONSUMER_GROUP>_<raw topic>`.
 - **DLQ**: dead-letter topic `events_dead_letter` and its ClickHouse copy table of the same name.
-- **DB mode / memory-cache mode**: events-processor lookups via Postgres per event (default) or via an
-  in-memory badger cache fed by Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`).
+- **DB mode / memory-cache mode**: events-processor lookups via Postgres per event (dev) or via an
+  in-memory badger cache fed by a Postgres snapshot plus Debezium CDC (`LAGO_USE_MEMORY_CACHE=true`), which
+  is what PRODUCTION runs (DECIDED OD-1 (owner, 2026-10-02)).
 - **bgw**: `pg_partman_bgw`, pg_partman's background worker that runs partition maintenance.
 - **premake**: number of future monthly partitions created ahead (3 here).
 - **`$API`**: read-only lago-api checkout at the pinned gitlink (591ae90):
@@ -169,36 +172,54 @@ A group without committed offsets starts at the EARLIEST offset (franz-go defaul
 `"At":-2`). So renaming `LAGO_KAFKA_CONSUMER_GROUP` or the raw topic replays the whole retained raw topic
 through enrichment, in-advance, DLQ and refresh flags (consequence table in the reference). Group naming
 is cross-repo contract K7 (change-control; renaming the group or topic is class C4); the delivery
-contract is OPEN DECISION OD-2 (owner). Inspect
+contract is ADR-001 (DECIDED OD-2 (owner, 2026-10-02), `event-accounting-campaign`
+`reference/delivery-options.md`). Inspect
 lag with `rpk group describe` inside the redpanda container. Seeking or deleting a group changes
 delivery (`--to end` skips every unconsumed record): dev only; on a shared or production cluster it
-needs owner sign-off (OD-1/OD-2). Commands and warnings: `reference/events-processor-ops.md` §3 (not
-run here).
+needs the owner's sign-off for that operation. Commands and warnings: `reference/events-processor-ops.md` §3
+(not run here). The memory-cache CDC groups `lago_evp_*` are different (new per start, orphans pile up):
+`reference/memory-cache-ops.md` §3.
 
 ### 5.4 DLQ and replay
 Inspect: `docker compose -f docker-compose.dev.yml exec clickhouse clickhouse-client --password default --query "SELECT error_code, count() FROM events_dead_letter GROUP BY error_code"`
 or `rpk topic consume events_dead_letter`. Unparseable records never reach the DLQ (Sentry + log only).
 **No DLQ replay tool exists** in this repo or lago-api @591ae90. lago-api's `events:reprocess` rake task
-re-feeds ClickHouse `events_raw` for flagged subscriptions: it is re-enrichment, NOT a DLQ replay. A
-manual re-feed is CANDIDATE and needs OPEN DECISION OD-2 (owner); design lives in `event-accounting-campaign`.
+re-feeds ClickHouse `events_raw` for flagged subscriptions: it is re-enrichment, NOT a DLQ replay.
+ADR-001 (DECIDED OD-2) plans an operator-gated DLQ to raw-topic replay tool with a replay header (design:
+`event-accounting-campaign`). Until it ships, a manual re-feed is CANDIDATE and needs owner sign-off: it
+re-runs in-advance and refresh side effects.
 
 ### 5.5 Scaling
 Parallelism = raw-topic partitions per group; dev topics are created without `-p` (broker default, 1 on
 a default Redpanda: UNVERIFIED). docs/architecture.md:262 sizes it at 1 replica, 2 cores / 2 Gi; the
 public Helm chart hard-codes `replicas: 1`. DB mode opens up to `LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS`
 Postgres connections per replica (code default 200; the Helm chart sets 10 via `eventsProcessor.databasePool`).
+Memory-cache mode (production, DECIDED OD-1) opens only a 10-connection pool for the start-up snapshot
+(`events-processor/cache/cache.go:63-73`), but every replica holds a full cache and creates its own 6 CDC
+groups per start: memory and orphan groups scale with replicas × restarts (`reference/memory-cache-ops.md` §3-§4).
 A non-context fetch error panics the process (`events-processor/config/kafka/consumer.go:175-183`):
 rely on the restart policy.
 
-### 5.6 Memory-cache mode (OPEN DECISION OD-1 (owner): production use UNKNOWN)
-Needs `LAGO_USE_MEMORY_CACHE=true` (exact string), `LAGO_DEBEZIUM_TOPIC_PREFIX` matching the Debezium
-connector (`extra/debezium_config.json`: `lago_proc_cdc`), `wal_level=logical`, and a manually
-registered connector (no script/doc). Startup blocks on a full table snapshot; snapshot errors are not
-fatal (empty cache → every event DLQ'd `fetch_billable_metric`). CDC consumers take a new
-`lago_evp_<model>_<uuid>` group each start (full CDC replay, stale groups) and ignore SASL/TLS and comma
-broker lists. Dev runs DB mode; treat these as code-level defects with UNVERIFIED production impact.
-Hardening them is unowned: owner question OPEN DECISION OD-20 (owner), next to OD-1; candidate future
-campaign; as-is defects `architecture-contract` WP6-WP10.
+### 5.6 Memory-cache mode in production (DECIDED OD-1; runbook: `reference/memory-cache-ops.md`)
+Production runs `LAGO_USE_MEMORY_CACHE=true` (exact string; `1` or `TRUE` silently means DB mode,
+`events-processor/main.go:67`); dev runs DB mode. It also needs `LAGO_DEBEZIUM_TOPIC_PREFIX` equal to the
+connector's `topic.prefix` (reference `extra/debezium_config.json:47`: `lago_proc_cdc`), Postgres
+`wal_level=logical` and a registered Debezium connector (no script or doc in this repo registers it).
+The production connector config, Kafka auth and broker list are OPEN DECISION OD-1b (owner): verify them
+FIRST (runbook §0). With the repo's column list, in-advance charges and the recurring fallback silently
+stop for every edited charge or metric (`architecture-contract` WP6).
+
+<!-- evidence-check: off runbook summary; each line is evidenced in reference/memory-cache-ops.md -->
+| Operation | What to know | Runbook |
+|---|---|---|
+| start / restart | blocking snapshot of 6 tables; table errors are swallowed ⇒ empty cache ⇒ every event DLQs as `fetch_billable_metric` `Key not found`; check `snapshot loads: started 6, completed 6` with `triage-ep-log.sh` on the log from start | §1 |
+| freshness | no lag metric in the process; check the connector, the replication slot `lago_dbz_evt_proc`, and the lag of the pod's 6 `lago_evp_*` groups | §2 |
+| every restart | 6 new `lago_evp_<model>_<uuid>` groups, full CDC replay, 6 orphan groups left; cleanup only with the KEEP-list and empty-state gates, owner sign-off on production | §3 |
+| sizing | ~0.8 GB RSS per 1M subscriptions (synthetic lower bound) vs a 2 Gi pod; consumption waits for the snapshot | §4 |
+<!-- evidence-check: on -->
+
+Fix owner for the defects: `event-accounting-campaign` W6 (DEFAULT APPLIED OD-20; the owner may reassign
+it); as-is defects `architecture-contract` WP6-WP10, WP27; symptom triage `debugging-playbook` §5.
 
 ## 6. Partition maintenance (`enriched_events`; detail: `reference/partitioning.md`)
 
@@ -222,7 +243,9 @@ Check any database: `psql "<url>" -X -q -f .claude/skills/run-and-operate/script
 - docs/monitoring.md describes a private `lago-sidekiqs` service at `:3000/prometheus/metrics`, omits
   `/metrics`, and has a stale queue table. README.md:190 oversells ("events, billing, dependencies").
 - events-processor: no metrics, no health, no lag counter; traces only (OTel/Datadog), kotel Kafka meters
-  only with OTel + `KAFKA_TRACING_ENABLED=true`. Lag comes from the broker (`rpk group describe`).
+  only with OTel + `KAFKA_TRACING_ENABLED=true`. Lag comes from the broker (`rpk group describe`). In
+  production's memory-cache mode also watch the CDC side (connector state, replication slot, `lago_evp_*`
+  group lag): `reference/memory-cache-ops.md` §2.
 - In light/production, Traefik's `PathPrefix(/api/)` exposes `/api/metrics` and `/api/sidekiq` on the
   public domain (inferred from labels). Hardening: `security-and-supply-chain`.
 
@@ -248,6 +271,9 @@ Check any database: `psql "<url>" -X -q -f .claude/skills/run-and-operate/script
 | events "disappear" | unmarshal error (no DLQ), skipped retryable, DLQ produce failure | `debugging-playbook`, `architecture-contract` |
 | `enriched_events_default` keeps growing | no partman scheduler (root/all-in-one) | `partman-check.sql`, reference/partitioning.md §4 |
 | need EP metrics/health | none exist | broker lag + DLQ query + restart count (monitoring.md §3) |
+| production: everything DLQs as `fetch_billable_metric` `Key not found` after a restart | swallowed snapshot failure (empty cache) | `reference/memory-cache-ops.md` §1 |
+| production: in-advance events stop after a charge edit, return after a deploy | Debezium column list without `pay_in_advance` (OD-1b) | `reference/memory-cache-ops.md` §0 |
+| `lago_evp_*` consumer groups pile up | new CDC groups on every start | `reference/memory-cache-ops.md` §3 (gated cleanup) |
 <!-- evidence-check: on -->
 
 ## Scripts
@@ -296,6 +322,6 @@ into the repo or the skill directory.
 - Update triggers: a release bump (image tags, `docker/Dockerfile` ARGs); any edit to a compose file,
   `deploy/`, `docker/`, `scripts/`, `traefik/`, `.env.development.default`; a lago-api pin move (scripts,
   routes, migrations, `structure.sql`, Karafka routing); changes to events-processor startup, consumer or
-  cache code; owner decisions on OPEN DECISION OD-1 (memory cache), OD-2 (delivery contract) or OD-20 (memory-cache
-  hardening); edits to
+  cache code; the owner's answer to OPEN DECISION OD-1b (production CDC config), an ADR-001 amendment or a
+  reassignment of OD-20 (W6); edits to
   `docs/database_partitioning.md` or `docs/monitoring.md`.
