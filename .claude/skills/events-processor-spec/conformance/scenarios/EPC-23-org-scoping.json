@@ -1,0 +1,18 @@
+{
+  "name": "EPC-23-org-scoping",
+  "id": "EPC-23",
+  "description": "Same code and external_subscription_id in two organizations.",
+  "rules": ["EP-I1", "EP-I5", "EP-A7"],
+  "rbd": [],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "org1_tx", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}}},
+      {"json": {"transaction_id": "org2_tx", "code": "api_calls", "timestamp": "1759320000", "organization_id": "99999999-9999-9999-9999-999999999999", "properties": {"amount": 1}}},
+      {"json": {"transaction_id": "same_tx", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 2}}},
+      {"json": {"transaction_id": "same_tx", "code": "api_calls", "timestamp": "1759320000", "organization_id": "99999999-9999-9999-9999-999999999999", "properties": {"amount": 2}}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

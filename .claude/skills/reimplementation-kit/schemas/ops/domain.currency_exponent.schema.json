@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.currency_exponent.schema.json",
+  "title": "domain.currency_exponent",
+  "description": "Minor-unit data of a currency (BE-DM-21, BE-DM-22): `exponent` = number of decimal digits kept in amounts, `subunit_to_unit` = minor units per major unit (10^exponent for every currency except MRO, where it is 5), `accepted` = whether the code is in the engine's list of 142 accepted currencies (appendix-currencies.md). For a code outside that list `accepted` is false and `exponent`/`subunit_to_unit` are not graded (the engine never uses them). A string that is not an ISO 4217 code at all is the domain error value_is_invalid on field currency in the reference (no vector grades it).",
+  "x-kit": {
+    "area": "domain",
+    "op": "currency_exponent",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "description": "ISO 4217 alphabetic code."
+        }
+      },
+      "required": [
+        "currency"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "exponent": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "subunit_to_unit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/ep.parse_timestamp.schema.json",
+  "title": "ep.parse_timestamp",
+  "description": "Emitted timestamp and matching instant of a raw `timestamp` value (EP-D1..D4). Accepted: a JSON number of seconds; a string holding a decimal number of seconds (sign, fraction and exponent allowed); an RFC 3339 date-time string with seconds and Z or an offset. Anything else (other strings, booleans, null or absent, objects, arrays) is the domain error `invalid_timestamp` field `timestamp`. `emitted_text` is the text of the JSON number written into the enriched record: decimal strings and RFC 3339 input truncated toward zero to whole milliseconds, JSON numbers passed through in the reference (corrected RBD-18: truncated too), shortest round-trip spelling without trailing zeros (EP-D2). `match_instant` is the instant used to choose the subscription, in UTC (reference: binary64 arithmetic for numeric input, so about half of all millisecond values land 1 ms early, RFC 3339 sub-millisecond digits kept; corrected RBD-15: the exact value truncated to whole milliseconds, EP-D3). `match_time` is the reference's matching time with its zone kept (DB mode compares its wall clock, EP-D4); it has no corrected counterpart.",
+  "x-kit": {
+    "area": "ep",
+    "op": "parse_timestamp",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "events-processor-spec reference/processing-rules.md (EP)",
+    "stateful": false
+  },
+  "x-kit-errors": [
+    {
+      "code": "invalid_timestamp",
+      "field": "timestamp",
+      "when": "the timestamp is not an accepted shape (EP-D1)"
+    }
+  ],
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "timestamp_json": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "description": "Exact JSON text of the event's `timestamp` field; the text `null` stands for null or absent."
+        }
+      },
+      "required": [
+        "timestamp_json"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "emitted_text": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?$",
+          "description": "Text of the emitted JSON number of seconds (compared as text)."
+        },
+        "match_instant": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Matching instant in UTC; omitted when beyond year 9999."
+        },
+        "match_time": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Reference only: the matching time in the zone of the input (wall clock used by DB mode)."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

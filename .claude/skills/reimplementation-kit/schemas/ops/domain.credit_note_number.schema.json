@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.credit_note_number.schema.json",
+  "title": "domain.credit_note_number",
+  "description": "Credit-note number after a save (BE-DM-45): recomputed as `<invoice number>-CN<sequential id %03d>` when the stored number is blank or the save moves the credit note from draft to finalized; otherwise the stored number is kept.",
+  "x-kit": {
+    "area": "domain",
+    "op": "credit_note_number",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "invoice_number": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequential_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Credit-note sequence value within the invoice."
+        },
+        "previous_status": {
+          "enum": [
+            "draft",
+            "finalized",
+            "deleted"
+          ],
+          "x-kit-absent": "equal to status (no status change)"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "finalized",
+            "deleted"
+          ],
+          "default": "finalized"
+        },
+        "number": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Number already stored; null or absent = blank."
+        }
+      },
+      "required": [
+        "invoice_number",
+        "sequential_id"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

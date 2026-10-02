@@ -1,0 +1,39 @@
+{
+  "kit_schema": 1,
+  "id": "scn.usage.prorated_graduated.001",
+  "area": "scn",
+  "title": "prorated graduated unique count with adds and removes",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-PR-35","BE-AG-14"],
+  "rbd": [],
+  "tags": [],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/current_usage/by_charge_model/prorated_graduated_spec.rb:1312","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2025-05-21T04:31:39Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": false,
+    "store": "pg",
+    "taxes": [{"name":"VAT","code":"tax_1","rate":0.0}],
+    "billable_metrics": [{"name":"metric_1","code":"metric_1","aggregation_type":"unique_count_agg","field_name":"user_id","recurring":true}],
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":0,"amount_currency":"EUR","pay_in_advance":false,"charges":[{"code":"charge_1","billable_metric_id":"{{bm:metric_1}}","charge_model":"graduated","prorated":true,"properties":{"graduated_ranges":[{"to_value":3,"from_value":0,"flat_amount":"0","per_unit_amount":"0"},{"to_value":null,"from_value":4,"flat_amount":"0","per_unit_amount":"10"}]}}]}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1","billing_time":"anniversary"}}},
+    {"at":"2025-05-21T00:00:00Z","op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_1","external_subscription_id":"cust_1","properties":{"user_id":"49303","operation_type":"add"}}}},
+    {"at":"2025-05-31T00:00:00Z","op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_2","external_subscription_id":"cust_1","properties":{"user_id":"49067","operation_type":"add"}}}},
+    {"at":"2025-07-23T00:00:00Z","op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_3","external_subscription_id":"cust_1","properties":{"user_id":"62741","operation_type":"add"}}}},
+    {"at":"2025-07-24T00:00:00Z","op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_4","external_subscription_id":"cust_1","properties":{"user_id":"49067","operation_type":"remove"}}}},
+    {"op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"code":"metric_1","transaction_id":"tx_5","external_subscription_id":"cust_1","properties":{"user_id":"63011","operation_type":"add"}}}},
+    {"at":"2025-08-19T18:00:00Z","op":"api","method":"GET","path":"/api/v1/customers/cust_1/current_usage","query":{"external_subscription_id":"cust_1"},"expect":{"status":200,"body":{"customer_usage":{"from_datetime":"2025-07-21T00:00:00Z","to_datetime":"2025-08-20T23:59:59Z","issuing_date":"2025-08-20","currency":"EUR","amount_cents":0,"total_amount_cents":0,"taxes_amount_cents":0,"charges_usage":[{"units":"3.0","total_aggregated_units":"3.0","events_count":2,"amount_cents":0,"amount_currency":"EUR","charge":{"code":"charge_1","charge_model":"graduated"},"billable_metric":{"code":"metric_1","aggregation_type":"unique_count_agg"},"filters":[]}]}}}}
+  ],
+  "expect": {
+    "invoices": [],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": []
+  }
+}

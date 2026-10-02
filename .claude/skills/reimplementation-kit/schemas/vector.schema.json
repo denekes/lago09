@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vector.schema.json",
+  "title": "kit unit vector envelope (kit_schema 1)",
+  "description": "One line of a <area>[.<topic>].jsonl vector file. input/expected are checked against schemas/ops/<area>.<op>.schema.json ($defs.input / $defs.output; output properties are all optional in expected). Normative prose: reference/vector-format.md.",
+  "type": "object",
+  "required": ["kit_schema", "id", "area", "op", "title", "profile", "ruling", "pair", "rules", "rbd", "tags", "input", "expected", "evidence"],
+  "properties": {
+    "kit_schema": {"const": 1},
+    "id": {"$ref": "common.schema.json#/$defs/vector_id"},
+    "area": {"$ref": "common.schema.json#/$defs/area"},
+    "op": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+    "title": {"type": "string", "minLength": 3, "maxLength": 120},
+    "profile": {"$ref": "common.schema.json#/$defs/profile"},
+    "ruling": {"enum": ["decided", "proposed"]},
+    "pair": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/vector_id"}]},
+    "rules": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/rule_id"}},
+    "rbd": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/rbd_id"}},
+    "tags": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/tag"}},
+    "input": {"type": "object"},
+    "expected": {"type": "object"},
+    "compare": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["mode"],
+        "properties": {
+          "mode": {"enum": ["exact", "text", "numeric", "float64", "abs_tol", "range", "instant", "set", "ignore", "subset", "strict"]},
+          "scale": {"type": "integer", "minimum": 0, "maximum": 40},
+          "tol": {"$ref": "common.schema.json#/$defs/decimal"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "strict": {"type": "boolean"},
+    "timeout_s": {"type": "integer", "minimum": 1, "maximum": 300},
+    "evidence": {"$ref": "common.schema.json#/$defs/evidence"},
+    "notes": {"type": "string"}
+  },
+  "additionalProperties": false
+}

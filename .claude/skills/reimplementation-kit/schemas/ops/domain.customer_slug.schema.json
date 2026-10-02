@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.customer_slug.schema.json",
+  "title": "domain.customer_slug",
+  "description": "Customer slug (BE-DM-35, BE-DM-36): organization prefix, a dash, and the customer sequential id written in decimal and left-padded with zeros to at least three digits (never truncated).",
+  "x-kit": {
+    "area": "domain",
+    "op": "customer_slug",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "organization_prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequential_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "organization_prefix",
+        "sequential_id"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

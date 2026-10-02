@@ -1,0 +1,21 @@
+{
+  "name": "EPC-19-produce-reject-dlq",
+  "id": "EPC-19",
+  "description": "Unknown code (dead-letter bound) while the broker rejects produce to the dead-letter topic.",
+  "rules": ["EP-L4", "EP-A7", "EP-R1", "EP-R3"],
+  "rbd": ["RBD-5"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"kafka_reject_produce": ["events_dead_letter"]},
+    {"produce": [
+      {"json": {"transaction_id": "f_dlq", "code": "nope", "timestamp": "1759320000"}}
+    ]},
+    {"wait": "quiescent"},
+    {"kafka_reject_produce": []},
+    {"produce": [
+      {"json": {"transaction_id": "n1", "code": "count_calls", "timestamp": "1759320000"}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

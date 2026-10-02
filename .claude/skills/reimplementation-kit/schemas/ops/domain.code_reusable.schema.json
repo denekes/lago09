@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.code_reusable.schema.json",
+  "title": "domain.code_reusable",
+  "description": "Whether a new record may take a code (BE-DM-50..54). Scope per kind: organization for tax, billable_metric, coupon, add_on, plan (parent plans), billing_entity, customer (the code is the external id); the plan for charge and fixed_charge; the customer for wallet. Rows that do not block: soft-deleted rows (every kind except tax), archived billing entities, terminated wallets. Codes compare case-sensitively. Blocked: valid false, error value_already_exist.",
+  "x-kit": {
+    "area": "domain",
+    "op": "code_reusable",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "tax",
+            "billable_metric",
+            "coupon",
+            "add_on",
+            "plan",
+            "charge",
+            "fixed_charge",
+            "billing_entity",
+            "customer",
+            "wallet"
+          ]
+        },
+        "existing": {
+          "type": "array",
+          "description": "Rows of the same kind already in the scope.",
+          "items": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "deleted": {
+                "type": "boolean",
+                "default": false
+              },
+              "archived": {
+                "type": "boolean",
+                "default": false,
+                "description": "billing_entity only."
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "terminated"
+                ],
+                "default": "active",
+                "description": "wallet only."
+              }
+            }
+          }
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "existing",
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "First error code on the code attribute (value_already_exist), or null/absent when valid."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

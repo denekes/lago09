@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.validate_properties.schema.json",
+  "title": "pricing.validate_properties",
+  "description": "Validate charge-model properties (BE-PR-73..78): errors = field -> codes as the model validator reports them; property_messages = the codes the charge record reports under `properties` (what the API returns).",
+  "x-kit": {
+    "area": "pricing",
+    "op": "validate_properties",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model",
+        "properties"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "enum": [
+            "standard",
+            "graduated",
+            "graduated_percentage",
+            "package",
+            "percentage",
+            "volume",
+            "dynamic",
+            "custom"
+          ],
+          "description": "Charge model."
+        },
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Properties to validate (as received, JSON types significant)."
+        },
+        "kind": {
+          "enum": [
+            "charge",
+            "fixed_charge"
+          ],
+          "description": "charge or fixed_charge.",
+          "default": "charge"
+        },
+        "metric_aggregation_type": {
+          "enum": [
+            "count_agg",
+            "sum_agg",
+            "max_agg",
+            "unique_count_agg",
+            "weighted_sum_agg",
+            "latest_agg",
+            "custom_agg"
+          ],
+          "description": "Aggregation type of the charge's metric.",
+          "default": "sum_agg"
+        },
+        "premium": {
+          "type": "boolean",
+          "description": "Premium licence active (enables graduated_percentage, per-transaction min/max, pricing units, minimum amounts).",
+          "default": false
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "errors": {
+          "type": "object",
+          "description": "Field -> list of error codes.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "property_messages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

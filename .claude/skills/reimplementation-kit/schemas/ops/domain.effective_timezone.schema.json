@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.effective_timezone.schema.json",
+  "title": "domain.effective_timezone",
+  "description": "Effective time zone of a customer (BE-DM-10): the customer's zone when it is present and not blank, else the billing entity's zone, else UTC.",
+  "x-kit": {
+    "area": "domain",
+    "op": "effective_timezone",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "customer_timezone": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/timezone"
+            },
+            {
+              "const": ""
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "IANA zone set on the customer; null, absent or the empty string mean not set."
+        },
+        "billing_entity_timezone": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/timezone"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "IANA zone of the customer's billing entity; null or absent mean not set.",
+          "default": null
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone",
+          "description": "The effective IANA zone."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

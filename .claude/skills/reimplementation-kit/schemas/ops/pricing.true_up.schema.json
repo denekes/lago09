@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.true_up.schema.json",
+  "title": "pricing.true_up",
+  "description": "Charge-minimum true-up fee (BE-PR-59..62); fee is null when the used amount reaches the prorated minimum.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "true_up",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "min_amount_cents",
+        "used_amount_cents",
+        "used_precise_amount_cents",
+        "charges_from",
+        "charges_to",
+        "charges_duration_days"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "min_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents",
+          "description": "Charge min_amount_cents (pricing-unit cents when a pricing unit applies)."
+        },
+        "used_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents",
+          "description": "Sum of amount_cents of all fees of the charge in the period."
+        },
+        "used_precise_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Sum of their precise_amount_cents."
+        },
+        "charges_from": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Charges period start."
+        },
+        "charges_to": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Charges period end."
+        },
+        "charges_duration_days": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Full length of the charges period in days."
+        },
+        "timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone",
+          "description": "Customer time zone used for the day count.",
+          "default": "UTC"
+        },
+        "terminated_upgraded": {
+          "type": "boolean",
+          "description": "Subscription was terminated by an upgrade (day count minus one).",
+          "default": false
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "default": "EUR",
+          "description": "Plan currency (ISO 4217)."
+        },
+        "pricing_unit_conversion_rate": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Charge has an applied pricing unit with this rate.",
+          "x-kit-absent": "no pricing unit"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "fee": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "amount_cents": {
+              "$ref": "../common.schema.json#/$defs/cents"
+            },
+            "precise_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "unit_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/cents"
+            },
+            "precise_unit_amount": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "units": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "total_aggregated_units": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "events_count": {
+              "type": "integer"
+            },
+            "pricing_unit_usage": {
+              "type": "object",
+              "properties": {
+                "amount_cents": {
+                  "$ref": "../common.schema.json#/$defs/cents"
+                },
+                "precise_amount_cents": {
+                  "$ref": "../common.schema.json#/$defs/decimal"
+                },
+                "unit_amount_cents": {
+                  "$ref": "../common.schema.json#/$defs/cents"
+                },
+                "precise_unit_amount": {
+                  "$ref": "../common.schema.json#/$defs/decimal"
+                },
+                "conversion_rate": {
+                  "$ref": "../common.schema.json#/$defs/decimal"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

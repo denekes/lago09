@@ -1,0 +1,4 @@
+[
+ {"kind": "in_advance", "tx": "f_charge", "why": "the charge is pay-in-advance; a transient fault must not drop the in-advance record", "rbd": ["RBD-8"], "ruling": "decided"},
+ {"kind": "zset_has", "want": "11111111-1111-1111-1111-111111111111:bbbbbbbb-0000-0000-0000-000000000001", "why": "the refresh flag of f_charge must not be dropped", "rbd": ["RBD-8"], "ruling": "decided"}
+]

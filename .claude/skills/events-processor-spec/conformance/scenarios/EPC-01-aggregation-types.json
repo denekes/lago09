@@ -1,0 +1,27 @@
+{
+  "name": "EPC-01-aggregation-types",
+  "id": "EPC-01",
+  "description": "One event per aggregation type; value string and aggregation_type label.",
+  "rules": ["EP-F1", "EP-F2", "EP-F4", "EP-J2", "EP-W2"],
+  "rbd": ["RBD-13", "RBD-22"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "agg_count", "code": "count_calls", "timestamp": "1759320000", "properties": {"amount": 3}}},
+      {"json": {"transaction_id": "agg_count_field", "code": "count_field", "timestamp": "1759320000", "properties": {"amount": 7}}},
+      {"json": {"transaction_id": "agg_sum_int", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 12}}},
+      {"json": {"transaction_id": "agg_sum_float", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 12.5}}},
+      {"json": {"transaction_id": "agg_sum_string", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": "12"}}},
+      {"json": {"transaction_id": "agg_sum_missing", "code": "api_calls", "timestamp": "1759320000", "properties": {"other": 1}}},
+      {"json": {"transaction_id": "agg_max", "code": "max_amount", "timestamp": "1759320000", "properties": {"amount": 99}}},
+      {"json": {"transaction_id": "agg_unique", "code": "unique_users", "timestamp": "1759320000", "properties": {"user_id": "u-1"}}},
+      {"json": {"transaction_id": "agg_unique_num", "code": "unique_users", "timestamp": "1759320000", "properties": {"user_id": 1000000}}},
+      {"json": {"transaction_id": "agg_wsum", "code": "storage_gb", "timestamp": "1759320000", "properties": {"gb": 2.5}}},
+      {"json": {"transaction_id": "agg_latest", "code": "latest_level", "timestamp": "1759320000", "properties": {"level": "gold"}}},
+      {"json": {"transaction_id": "agg_custom", "code": "custom_metric", "timestamp": "1759320000", "properties": {"x": 1}}},
+      {"json": {"transaction_id": "agg_type4", "code": "legacy_type4", "timestamp": "1759320000", "properties": {"amount": 5}}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

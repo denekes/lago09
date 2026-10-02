@@ -1,0 +1,35 @@
+{
+  "kit_schema": 1,
+  "id": "scn.invoice.one_off.001",
+  "area": "scn",
+  "title": "one-off invoice of add-ons: explicit tax codes replace the derived taxes",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-IV-7","BE-IV-10","BE-IV-51"],
+  "rbd": [],
+  "tags": [],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/invoices/one_off_spec.rb:21","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2026-09-15T10:00:01Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": false,
+    "store": "pg",
+    "taxes": [{"name":"Default","code":"default_tax","rate":25.0,"applied_to_organization":true},{"name":"VAT 10%","code":"vat_10","rate":10.0},{"name":"VAT 20%","code":"vat_20","rate":20.0}],
+    "add_ons": [{"name":"add_on_1","code":"add_on_1","amount_cents":10000,"amount_currency":"EUR"}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/invoices","body":{"invoice":{"external_customer_id":"cust_1","currency":"EUR","fees":[{"add_on_id":"{{add_on:add_on_1}}","add_on_code":"add_on_1","name":"add_on_1","units":1,"unit_amount_cents":10000,"tax_codes":["vat_20","vat_10"]}],"timestamp":1789466400}}}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"one_off","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2026-09-15","payment_due_date":"2026-09-15","currency":"EUR","fees_amount_cents":10000,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":3000,"sub_total_excluding_taxes_amount_cents":10000,"sub_total_including_taxes_amount_cents":13000,"total_amount_cents":13000,"total_due_amount_cents":13000,"fees":[{"item":{"type":"add_on","code":"add_on_1"},"amount_cents":10000,"units":"1.0","taxes_amount_cents":3000,"taxes_rate":30.0,"from_date":"2026-09-15T10:00:01+00:00","to_date":"2026-09-15T10:00:01+00:00"}],"applied_taxes":[{"tax_code":"vat_10","tax_rate":10.0,"amount_cents":1000,"fees_amount_cents":10000},{"tax_code":"vat_20","tax_rate":20.0,"amount_cents":2000,"fees_amount_cents":10000}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": []
+  },
+  "compare": {"invoices[*].applied_taxes":{"mode":"set"}}
+}

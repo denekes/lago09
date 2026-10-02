@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/api.auth_token.schema.json",
+  "title": "api.auth_token",
+  "description": "API key extracted from the Authorization header (BE-API-3): the header value split on runs of whitespace (leading whitespace ignored); the key is the SECOND token; the first token (the scheme word) is not checked. Absent header or fewer than two tokens -> null (the request is then answered 401).",
+  "x-kit": {
+    "area": "api",
+    "op": "auth_token",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/11-rest-api.md (BE-API)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authorization"
+      ],
+      "properties": {
+        "authorization": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Raw Authorization header value; null = header absent."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "token": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

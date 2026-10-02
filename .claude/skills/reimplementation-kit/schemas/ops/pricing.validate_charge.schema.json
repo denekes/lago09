@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.validate_charge.schema.json",
+  "title": "pricing.validate_charge",
+  "description": "Charge-level constraints (BE-PR-79/80): pay-in-advance, prorated, invoiceable, regroup_paid_fees, minimum amount, model/metric compatibility, premium gates; fixed charges with kind=fixed_charge. errors = attribute -> codes.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "validate_charge",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Charge model."
+        },
+        "kind": {
+          "enum": [
+            "charge",
+            "fixed_charge"
+          ],
+          "description": "charge or fixed_charge.",
+          "default": "charge"
+        },
+        "metric": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "aggregation_type": {
+              "enum": [
+                "count_agg",
+                "sum_agg",
+                "max_agg",
+                "unique_count_agg",
+                "weighted_sum_agg",
+                "latest_agg",
+                "custom_agg"
+              ]
+            },
+            "recurring": {
+              "type": "boolean"
+            }
+          },
+          "description": "The charge's metric.",
+          "default": {
+            "aggregation_type": "sum_agg",
+            "recurring": false
+          }
+        },
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Properties (default: the model's default properties).",
+          "x-kit-absent": "default properties of the model"
+        },
+        "pay_in_advance": {
+          "type": "boolean",
+          "description": "pay_in_advance flag.",
+          "default": false
+        },
+        "prorated": {
+          "type": "boolean",
+          "description": "Charge is prorated.",
+          "default": false
+        },
+        "invoiceable": {
+          "type": "boolean",
+          "description": "invoiceable flag (charges).",
+          "default": true
+        },
+        "regroup_paid_fees": {
+          "enum": [
+            null,
+            "invoice"
+          ],
+          "description": "regroup_paid_fees (charges): null or invoice.",
+          "default": null
+        },
+        "min_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents",
+          "description": "Charge minimum.",
+          "default": 0
+        },
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Fixed charge units.",
+          "default": "1"
+        },
+        "premium": {
+          "type": "boolean",
+          "description": "Premium licence active (enables graduated_percentage, per-transaction min/max, pricing units, minimum amounts).",
+          "default": false
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "errors": {
+          "type": "object",
+          "description": "Field -> list of error codes.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

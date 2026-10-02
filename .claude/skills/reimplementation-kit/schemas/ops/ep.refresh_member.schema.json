@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/ep.refresh_member.schema.json",
+  "title": "ep.refresh_member",
+  "description": "Refresh-flag sorted-set member and score written for an enriched event attached to a subscription (EP-K1, EP-K2, EP-W5). Member `<organization_id>:<subscription_id>|<bucket>` with bucket = floor(now_unix / 10) * 10; score = now_unix (Unix seconds). One member per (organization, subscription, 10-second bucket).",
+  "x-kit": {
+    "area": "ep",
+    "op": "refresh_member",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "events-processor-spec reference/processing-rules.md (EP)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "organization_id": {
+          "type": "string",
+          "description": "Organization of the event."
+        },
+        "subscription_id": {
+          "type": "string",
+          "description": "Id of the matched subscription."
+        },
+        "now_unix": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Write time in Unix seconds (the reference uses its wall clock)."
+        }
+      },
+      "required": [
+        "organization_id",
+        "subscription_id",
+        "now_unix"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "member": {
+          "type": "string",
+          "description": "Sorted-set member text."
+        },
+        "score": {
+          "type": "integer",
+          "description": "Score in Unix seconds."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

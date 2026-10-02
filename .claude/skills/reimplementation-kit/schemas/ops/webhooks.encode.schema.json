@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/webhooks.encode.schema.json",
+  "title": "webhooks.encode",
+  "description": "Exact bytes of a webhook POST body for a payload (BE-WH-12, BE-WH-13). The payload is the JSON value stored at emission; the body is its compact JSON re-encoding: keys in stored order, no whitespace, strings escaped with \\\" \\\\ \\b \\f \\n \\r \\t, other characters below U+0020 as \\u00XX (lowercase hex), '<' '>' '&' as \\u003c \\u003e \\u0026, U+2028/U+2029 as \\u2028/\\u2029, every other character (incl. U+007F and non-ASCII) raw UTF-8, '/' unescaped; integers exact; binary64 floats per the float rule of BE-WH-12. Content-Type is application/json.",
+  "x-kit": {
+    "area": "webhooks",
+    "op": "encode",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/12-webhooks.md (BE-WH)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "payload_json"
+      ],
+      "properties": {
+        "payload_json": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "description": "JSON text of the payload object (number spelling is irrelevant: numbers are read as binary64 floats when they have a fraction or exponent, as integers otherwise)."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

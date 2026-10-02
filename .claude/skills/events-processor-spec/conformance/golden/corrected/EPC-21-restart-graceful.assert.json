@@ -1,0 +1,4 @@
+[
+ {"kind": "all_done", "why": "a graceful restart loses nothing", "rbd": ["RBD-12"], "ruling": "decided"},
+ {"kind": "no_dup", "why": "a graceful restart duplicates nothing", "rbd": ["RBD-12"], "ruling": "decided"}
+]

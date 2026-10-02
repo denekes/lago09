@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.fee_money.schema.json",
+  "title": "pricing.fee_money",
+  "description": "Fee money fields from one charge-model result (BE-PR-52..57): negative clamp, amount_cents half away from zero, precise unrounded, unit_amount_cents truncated toward zero, stored units by context, persistence rule.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "fee_money",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "amount",
+        "unit_amount",
+        "units"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Charge-model amount (major units, unrounded)."
+        },
+        "unit_amount": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Charge-model unit amount."
+        },
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Charge-model units U."
+        },
+        "full_units_number": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "FU.",
+          "x-kit-absent": "null"
+        },
+        "current_usage_units": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Current-usage units.",
+          "x-kit-absent": "null"
+        },
+        "total_aggregated_units": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Weighted-sum total aggregated units.",
+          "x-kit-absent": "null (stored units are used)"
+        },
+        "events_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Events in the bucket.",
+          "default": 0
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "default": "EUR",
+          "description": "Plan currency (ISO 4217)."
+        },
+        "context": {
+          "enum": [
+            "invoice",
+            "current_usage",
+            "recurring"
+          ],
+          "description": "invoice (period billing), current_usage, recurring (non-invoiceable recurring in-advance billing).",
+          "default": "invoice"
+        },
+        "pay_in_advance": {
+          "type": "boolean",
+          "description": "Charge pay_in_advance.",
+          "default": false
+        },
+        "prorated": {
+          "type": "boolean",
+          "description": "Charge is prorated.",
+          "default": false
+        },
+        "invoiceable": {
+          "type": "boolean",
+          "description": "Charge invoiceable.",
+          "default": true
+        },
+        "pricing_unit_conversion_rate": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Charge has an applied pricing unit with this rate; amount/unit_amount are then in pricing units.",
+          "x-kit-absent": "no pricing unit"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "precise_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "unit_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "precise_unit_amount": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "total_aggregated_units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "events_count": {
+          "type": "integer"
+        },
+        "persisted": {
+          "type": "boolean",
+          "description": "The fee is kept by the persistence rule."
+        },
+        "pay_in_advance": {
+          "type": "boolean"
+        },
+        "pricing_unit_usage": {
+          "type": "object",
+          "properties": {
+            "amount_cents": {
+              "$ref": "../common.schema.json#/$defs/cents"
+            },
+            "precise_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "unit_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/cents"
+            },
+            "precise_unit_amount": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "conversion_rate": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            }
+          }
+        }
+      }
+    }
+  }
+}

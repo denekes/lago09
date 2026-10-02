@@ -1,0 +1,4 @@
+[
+ {"kind": "all_done", "why": "a transient failure inside the horizon is retried while the process runs, not parked until a restart", "rbd": ["RBD-1"], "ruling": "decided"},
+ {"kind": "enriched", "tx": "f_pending", "why": "a one-shot transient fault must not keep the event pending", "rbd": ["RBD-1"], "ruling": "decided"}
+]

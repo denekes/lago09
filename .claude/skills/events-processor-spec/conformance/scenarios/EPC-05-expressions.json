@@ -1,0 +1,25 @@
+{
+  "name": "EPC-05-expressions",
+  "id": "EPC-05",
+  "description": "Custom expression evaluation: success, skipped for API-sourced events, failures.",
+  "rules": ["EP-G1", "EP-G2", "EP-G3", "EP-F3"],
+  "rbd": ["RBD-22", "RBD-38"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "ex_ok", "code": "expr_metric", "timestamp": "1759320000", "properties": {"a": 2}}},
+      {"json": {"transaction_id": "ex_overrides_field", "code": "expr_metric", "timestamp": "1759320000", "properties": {"a": 2, "total": 100}}},
+      {"json": {"transaction_id": "ex_http_ruby_skip", "code": "expr_metric", "timestamp": "1759320000", "properties": {"a": 2, "total": 9}, "source": "http_ruby", "source_metadata": {"api_post_processed": true}}},
+      {"json": {"transaction_id": "ex_bool_prop", "code": "expr_metric", "timestamp": "1759320000", "properties": {"a": 2, "flag": true}}},
+      {"json": {"transaction_id": "ex_missing_var", "code": "expr_metric", "timestamp": "1759320000", "properties": {}}},
+      {"json": {"transaction_id": "ex_props_null", "code": "expr_metric", "timestamp": "1759320000", "properties": null}},
+      {"json": {"transaction_id": "ex_round", "code": "expr_round", "timestamp": "1759320000", "properties": {"value": "12.0", "units": 3}}},
+      {"json": {"transaction_id": "ex_ts_str", "code": "expr_ts", "timestamp": "1741007009.123"}},
+      {"json": {"transaction_id": "ex_ts_int", "code": "expr_ts", "timestamp": 1741007009}},
+      {"json": {"transaction_id": "ex_float_a", "code": "expr_metric", "timestamp": "1759320000", "properties": {"a": 0.1}}},
+      {"json": {"transaction_id": "ex_string_a", "code": "expr_metric", "timestamp": "1759320000", "properties": {"a": "3"}}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

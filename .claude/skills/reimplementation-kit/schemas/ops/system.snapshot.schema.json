@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/system.snapshot.schema.json",
+  "title": "system.snapshot",
+  "description": "The tenant's state as REST API v1 representations (scenario-tier.md section 7).",
+  "x-kit": {
+    "area": "system",
+    "op": "snapshot",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "reimplementation-kit reference/scenario-tier.md (scenario tier)",
+    "stateful": true
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "invoices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "x-kit-payload": true
+          }
+        },
+        "credit_notes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "x-kit-payload": true
+          }
+        },
+        "wallets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "x-kit-payload": true
+          }
+        },
+        "wallet_transactions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "x-kit-payload": true
+          }
+        },
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "x-kit-payload": true
+          }
+        },
+        "fees": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "x-kit-payload": true
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

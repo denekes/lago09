@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.pricing_unit.schema.json",
+  "title": "pricing.pricing_unit",
+  "description": "Pricing-unit conversion of a charge result (BE-PR-63): pricing-unit cents rounded to 2 decimals, then converted to fiat from the ROUNDED pricing-unit cents. fiat values are before the fee's integer cast.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "pricing_unit",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "amount",
+        "unit_amount",
+        "conversion_rate"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Charge-model amount in pricing units (major)."
+        },
+        "unit_amount": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Charge-model unit amount in pricing units."
+        },
+        "conversion_rate": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Fiat per pricing unit (> 0)."
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "default": "EUR",
+          "description": "Plan currency (ISO 4217)."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "pricing_unit_usage": {
+          "type": "object",
+          "properties": {
+            "amount_cents": {
+              "$ref": "../common.schema.json#/$defs/cents"
+            },
+            "precise_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "unit_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/cents"
+            },
+            "precise_unit_amount": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            }
+          }
+        },
+        "fiat": {
+          "type": "object",
+          "properties": {
+            "amount_cents": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "precise_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "unit_amount_cents": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            },
+            "precise_unit_amount": {
+              "$ref": "../common.schema.json#/$defs/decimal"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.estimate_instant.schema.json",
+  "title": "pricing.estimate_instant",
+  "description": "Instant estimate of the fee of one pay-in-advance event (BE-PR-83): standard and percentage only; free units, packages and tiers ignored. amount_cents and precise_unit_amount are decimal in the reference payload (precise_unit_amount carries the unit amount in MINOR units).",
+  "x-kit": {
+    "area": "pricing",
+    "op": "estimate_instant",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model",
+        "properties"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "enum": [
+            "standard",
+            "percentage"
+          ],
+          "description": "Charge model."
+        },
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Charge properties."
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "default": "EUR",
+          "description": "Plan currency (ISO 4217)."
+        },
+        "metric": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "aggregation_type": {
+              "enum": [
+                "count_agg",
+                "sum_agg",
+                "max_agg",
+                "unique_count_agg",
+                "weighted_sum_agg",
+                "latest_agg",
+                "custom_agg"
+              ]
+            },
+            "field_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rounding_function": {
+              "enum": [
+                "round",
+                "ceil",
+                "floor"
+              ]
+            },
+            "rounding_precision": {
+              "type": "integer"
+            }
+          },
+          "description": "The metric: aggregation_type (default sum_agg), field_name (null = each event counts 1), optional rounding.",
+          "default": {
+            "field_name": "value"
+          }
+        },
+        "event_properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "The event's properties.",
+          "default": {}
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "precise_amount": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "precise_unit_amount": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "events_count": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/events.duplicate_key.schema.json",
+  "title": "events.duplicate_key",
+  "description": "Ingestion idempotency key of a store for an event: the set of event fields that identify a repeat. An event is stored, then re-sent unchanged and with one field changed at a time; key_fields lists the fields whose change lets the repeat through. null = an unchanged repeat is accepted (no ingestion idempotency for this store or event). The organization is always part of the scope.",
+  "x-kit": {
+    "area": "events",
+    "op": "duplicate_key",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/02-events-ingestion.md (BE-EV)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store",
+        "event",
+        "received_at"
+      ],
+      "properties": {
+        "store": {
+          "enum": [
+            "pg",
+            "ch"
+          ],
+          "description": "Event store of the organization: pg (events persisted in the relational store, the normative variant) or ch (events only published to the raw topic for the events-processor / columnar store)."
+        },
+        "event": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "An event the store accepts: transaction_id, code, timestamp (decimal seconds) and optionally external_subscription_id, properties, precise_total_amount_cents."
+        },
+        "received_at": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Wall clock of the API when the request arrives (whole seconds). Used as the event time when the request carries no usable timestamp, and as the ingestion instant of the raw message."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "key_fields": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "transaction_id",
+                  "external_subscription_id",
+                  "code",
+                  "timestamp",
+                  "properties",
+                  "precise_total_amount_cents"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

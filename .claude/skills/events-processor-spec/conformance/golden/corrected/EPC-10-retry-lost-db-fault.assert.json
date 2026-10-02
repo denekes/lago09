@@ -1,0 +1,4 @@
+[
+ {"kind": "all_done", "why": "a transient failure is retried (in place or through a retry topic) or dead-lettered with a cause, never committed past", "rbd": ["RBD-1"], "ruling": "decided"},
+ {"kind": "enriched", "tx": "f_retry", "why": "a one-shot transient fault must not lose the event", "rbd": ["RBD-1"], "ruling": "decided"}
+]

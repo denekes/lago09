@@ -1,0 +1,28 @@
+{
+  "name": "EPC-10-retry-lost-db-fault",
+  "id": "EPC-10",
+  "description": "Transient database error on the subscription lookup of one record; two good records follow in a later batch.",
+  "rules": ["EP-B2", "EP-B3", "EP-B4", "EP-L1", "EP-P3", "EP-P4", "EP-R2", "EP-R4"],
+  "rbd": ["RBD-1"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "modes": ["db"],
+  "db_fault_tables": ["subscriptions"],
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "warm", "code": "count_calls", "timestamp": "1759320000"}}
+    ]},
+    {"wait": "quiescent"},
+    {"db_fault": {"table": "subscriptions", "times": 1}},
+    {"produce": [
+      {"json": {"transaction_id": "f_retry", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}}}
+    ]},
+    {"wait_db_fault_fired": "subscriptions"},
+    {"wait": "quiescent"},
+    {"produce": [
+      {"json": {"transaction_id": "n1", "code": "count_calls", "timestamp": "1759320000"}},
+      {"json": {"transaction_id": "n2", "code": "count_calls", "timestamp": "1759320000"}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

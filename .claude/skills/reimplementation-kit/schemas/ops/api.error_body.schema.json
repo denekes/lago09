@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/api.error_body.schema.json",
+  "title": "api.error_body",
+  "description": "HTTP status and exact JSON body of an API error (BE-API-2, BE-API-4, BE-API-8, BE-API-13..18). Bodies are compact JSON with keys in this order: status, error, code, then error_details (or provider). Failure types: not_found {resource} -> 404 code '<resource>_not_found'; method_not_allowed {code} -> 405; validation {messages: {field: [codes]}} -> 422 code validation_errors with error_details = messages; single_validation {code, field?} -> 422 with error_details {field (default 'base'): [code]}; forbidden {code?} -> 403 (default code feature_unavailable); unauthorized {message?} -> 401 {status, error: message} (default message 'unauthorized'); lock_acquisition {code?} -> 422 (default code lock_acquisition_failed); third_party {third_party, code, message} -> 422 code third_party_error; too_many_provider_requests {provider_name, message} -> 429; missing_root {param} -> 400 'BadRequest: param is missing or the value is empty or invalid: <param>'; unauthenticated -> 401 'Unauthorized'; route_not_found -> 404 code resource_not_found; service {code, message} -> unhandled (error server_error, HTTP 500).",
+  "x-kit": {
+    "area": "api",
+    "op": "error_body",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/11-rest-api.md (BE-API)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "failure"
+      ],
+      "properties": {
+        "failure": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "enum": [
+                "not_found",
+                "method_not_allowed",
+                "validation",
+                "single_validation",
+                "forbidden",
+                "unauthorized",
+                "lock_acquisition",
+                "third_party",
+                "too_many_provider_requests",
+                "service",
+                "missing_root",
+                "unauthenticated",
+                "route_not_found"
+              ]
+            },
+            "resource": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string"
+            },
+            "field": {
+              "type": "string"
+            },
+            "messages": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "message": {
+              "type": "string"
+            },
+            "third_party": {
+              "type": "string"
+            },
+            "provider_name": {
+              "type": "string"
+            },
+            "param": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "http_status": {
+          "type": "integer"
+        },
+        "body_json": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "description": "Exact response body (compare text)."
+        }
+      }
+    }
+  }
+}
