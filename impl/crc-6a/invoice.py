@@ -463,6 +463,26 @@ def payment_due_date(inp, ctx):
 
 
 # ---------------------------------------------------------------------------------------------- bounds
+def avail_core(version, status, fees_amount, disc, fees, ex=False):
+    """BE-IV-47. fees = [(amount_cents, credited_cents, taxes_rate Decimal)]; returns int, float or Decimal."""
+    F = sum(a - c for a, c, _ in fees)
+    if version < 2 or status == "draft" or F == 0:
+        return 0
+    if ex:
+        adj = Decimal(disc) / fees_amount * F if (version >= 3 and fees_amount) else ZERO
+        s = ZERO
+        for a, c, r in fees:
+            cr = a - c
+            s += (cr - adj * cr / F) * r / 100
+        return F - adj + rint(s)
+    adj = (disc / fees_amount * F) if (version >= 3 and fees_amount) else 0.0
+    s = 0.0
+    for a, c, r in fees:
+        cr = a - c
+        s += (cr - adj * cr / F) * float(r) / 100
+    return F - adj + frnd(s)
+
+
 def available_to_credit(inp, ctx):
     ex = exact(ctx)
     inv, fees, notes = inp["invoice"], inp["fees"], inp.get("credit_notes", [])
@@ -478,27 +498,9 @@ def available_to_credit(inp, ctx):
     fee_total = sum(int(f["amount_cents"]) for f in fees) + rint(
         sum((Decimal(int(f["amount_cents"])) * dec(f.get("taxes_rate", "0")) / 100 for f in fees), ZERO))
     out["fee_total_amount_cents"] = fee_total
-    # available to credit
-    F = sum(int(f["amount_cents"]) - int(f.get("credited_amount_cents", 0)) for f in fees)
-    if version < 2 or status == "draft" or F == 0:
-        avail = 0
-    else:
-        fees_amount = int(inv["fees_amount_cents"])
-        disc = int(inv.get("coupons_amount_cents", 0)) + int(inv.get("progressive_billing_credit_amount_cents", 0))
-        if ex:
-            adj = Decimal(disc) / fees_amount * F if (version >= 3 and fees_amount) else ZERO
-            s = ZERO
-            for f in fees:
-                cr = int(f["amount_cents"]) - int(f.get("credited_amount_cents", 0))
-                s += (cr - adj * cr / F) * dec(f.get("taxes_rate", "0")) / 100
-            avail = F - adj + rint(s)
-        else:
-            adj = (disc / fees_amount * F) if (version >= 3 and fees_amount) else 0.0
-            s = 0.0
-            for f in fees:
-                cr = int(f["amount_cents"]) - int(f.get("credited_amount_cents", 0))
-                s += (cr - adj * cr / F) * float(dec(f.get("taxes_rate", "0"))) / 100
-            avail = F - adj + frnd(s)
+    avail = avail_core(version, status, int(inv["fees_amount_cents"]),
+                       int(inv.get("coupons_amount_cents", 0)) + int(inv.get("progressive_billing_credit_amount_cents", 0)),
+                       [(int(f["amount_cents"]), int(f.get("credited_amount_cents", 0)), dec(f.get("taxes_rate", "0"))) for f in fees], ex)
     avail_n = Decimal(repr(avail)) if isinstance(avail, float) else avail
     out["available_to_credit_amount_cents"] = avail_n
     creditable = 0 if itype == "credit" else avail_n
