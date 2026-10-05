@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ops/webhooks.retry_step.schema.json",
   "title": "webhooks.retry_step",
-  "description": "One delivery attempt of a webhook row (BE-WH-18..22): success iff the endpoint answers 200, 201, 202 or 204 (status succeeded, retries unchanged, no retry). Any other status, a timeout, a refused or dropped connection is a failure: retries = retries_before + 1, http_status = the answered status (null for network failures, unless a previous attempt recorded one), status retrying when retries_before + 1 < attempts (then a new attempt is scheduled after wait = r^4 + u x 0.15 x r^4 + 2 seconds, r = retries after the increment, u uniform in [0, 1)) else failed with no further attempt. `wait_seconds` = {min: r^4 + 2, max: 1.15 r^4 + 2} (the max is a supremum).",
+  "description": "One delivery attempt of a webhook row (BE-WH-18..22): success iff the endpoint answers 200, 201, 202 or 204 (status succeeded, retries unchanged, no retry). Any other status, a timeout, a refused or dropped connection is a failure: retries = retries_before + 1, http_status = the answered status (null for network failures, unless a previous attempt recorded one), status retrying when retries_before + 1 < attempts (then a new attempt is scheduled after wait = (r^4 + ((u x r^4) x 0.15)) + 2 seconds in binary floating point, r = retries after the increment, u uniform in [0, 1)) else failed with no further attempt. `wait_seconds` = {min: r^4 + 2, max: 1.15 r^4 + 2} (the max is a supremum).",
   "x-kit": {
     "area": "webhooks",
     "op": "retry_step",
