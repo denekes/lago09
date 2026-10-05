@@ -48,3 +48,19 @@ reported (not raised) by `credit_notes.validate`, and the missing ops.
   payment-gated invoices; cross-check against the `periods` and `pricing` areas' rules.
 - Add property tests of the rounding islands (compat vs corrected) and a self-written vector set for hidden-vector
   risks listed in KIT-GAPS.md (zero-credit coupon rows, skipped-coupon output, error-field mapping).
+
+## v1.1
+
+Final kitrun SUMMARY lines (areas invoice,credit_notes):
+
+- compat: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=178 passed=178 skipped_ops=0 exit=0` — invoice 137/137 (100 %), credit_notes 41/41 (100 %), core 100 %.
+- corrected (informational): `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=178 passed=169 skipped_ops=0 exit=0` — invoice 132 pass + 5 unruled, credit_notes 37 pass + 4 unruled, 0 fail.
+
+Before: compat invoice 93.4 %, credit_notes 92.7 %.
+
+What changed:
+- Coupon creation/application re-done per BE-IV-17/18: check order (expiration, plans, metrics, both kinds, then amount, currency, rate, duration), `base` fields, currency validation against the 142-code table (`common.CURRENCIES`), no rate range check, amount > 0 on create / ≥ 0 on apply, overlap checked before reusability, `applied_before` entries without `coupon` treated as the same coupon.
+- Void with credit note (BE-IV-42): item values stored by `round5` (binary64) in compat, half-up at 5 places in corrected.
+- Termination (BE-CN-18): voided invoice via `status: voided` exits with no note; upgrade with refund/offset raises `server_error`.
+
+Time spent: about 15 minutes.

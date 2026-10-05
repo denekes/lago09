@@ -38,3 +38,10 @@ Each entry: question; where I looked; assumption made.
     for counted fees is assumed to mean the fee window starts inside the period; the earliest line is chosen by its
     fee-window start. A run with reason `subscription_starting` bills only the subscription fee and never a commitment.
 14. **Estimate (BE-CN-14).** "Items are taken as whole cents (fractions dropped)" is read as truncation.
+
+## v1.1
+
+1. **Where does the upgrade + refund/offset `server_error` (BE-CN-18) sit relative to the "no note" exits for zero days remaining / zero unused amount?** Looked: BE-CN-18, `credit_notes.termination.010..012`. Only the zero-fee and voided exits are stated to come first. Assumption: it is raised after the remaining-days, unused-amount and earlier-notes exits, immediately before the amounts are split.
+2. **`invoice.coupon_create`: is the `expiration_at` check conditional on `expiration: time_limit`?** Looked: BE-IV-17 ("when given"). Assumption: checked whenever `expiration_at` is given, whatever `expiration` says.
+3. **`coupon_apply` `applied_before` entries without a `coupon` key**: schema does not say these are applied coupons of the same catalogue coupon. Assumption (from `coupon_apply.013`): they inherit the applied coupon's own limitations and count for reusability.
+4. **Percentage coupon given an `amount_cents`/currency** is value-checked like a fixed one (BE-IV-17 "whatever the coupon type"); assumed also for apply overrides.

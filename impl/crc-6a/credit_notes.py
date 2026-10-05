@@ -363,7 +363,7 @@ def termination(inp, ctx):
     tz = inp.get("timezone", "UTC")
     plan, sub, invd = inp["plan"], inp["subscription"], inp["invoice"]
     fee_amount = int(invd["subscription_fee_amount_cents"])
-    if fee_amount == 0 or invd.get("voided"):
+    if fee_amount == 0 or invd.get("voided") or invd.get("status") == "voided":
         return {"credit_note": None}
     term = pr.parse_instant(inp["terminated_at"])
     started = pr.parse_instant(sub["started_at"])
@@ -416,6 +416,8 @@ def termination(inp, ctx):
     # amount of the note (T)
     t_total = chain_total(inv, fee, item)
     mode = inp.get("on_termination", "credit")
+    if inp.get("upgrade") and mode in ("refund", "offset"):
+        raise KitError("server_error")
     credit = refund = offset = 0
     if mode == "credit":
         credit = t_total
