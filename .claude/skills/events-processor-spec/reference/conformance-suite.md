@@ -1,6 +1,6 @@
 # The black-box conformance suite (`run-suite.sh`, runner `epconf`)
 
-Part of `events-processor-spec` (re-implementation kit v1.3.0). Read when you run the suite against an
+Part of `events-processor-spec` (re-implementation kit v1.4.0). Read when you run the suite against an
 implementation under test (IUT), read a DIFF or FAIL, add a scenario, or re-mint goldens. The suite drives ANY
 implementation through its real interfaces only: Kafka, Redis, Postgres, process signals and exit status. It is
 independent of the reference's language and client libraries (proved with a Python IUT on librdkafka).
