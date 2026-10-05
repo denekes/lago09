@@ -3,7 +3,7 @@
   "id": "EPC-03",
   "description": "Unknown, soft-deleted, wrong-organization, empty and case-mismatched codes; organization ids that are not canonical UUID text (a later batch follows).",
   "rules": ["EP-E1", "EP-E2", "EP-E4", "EP-N1", "EP-I3", "EP-W4", "EP-B4", "EP-L1"],
-  "rbd": [],
+  "rbd": ["RBD-1"],
   "catalog": ["../fixtures/catalog-base.sql"],
   "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
   "steps": [

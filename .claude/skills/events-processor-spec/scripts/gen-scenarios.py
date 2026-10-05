@@ -185,7 +185,7 @@ def build():
     scenario("EPC-03-billable-metric-resolution",
              "Unknown, soft-deleted, wrong-organization, empty and case-mismatched codes; organization ids that are not "
              "canonical UUID text (a later batch follows).",
-             ["EP-E1", "EP-E2", "EP-E4", "EP-N1", "EP-I3", "EP-W4", "EP-B4", "EP-L1"], [], [
+             ["EP-E1", "EP-E2", "EP-E4", "EP-N1", "EP-I3", "EP-W4", "EP-B4", "EP-L1"], ["RBD-1"], [
                  {"produce": [
                      ev("bm_unknown", "nope"),
                      ev("bm_deleted", "deleted_metric", properties={"amount": 1}),

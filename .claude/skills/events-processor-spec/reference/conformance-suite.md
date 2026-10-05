@@ -196,6 +196,10 @@ Comparison is a multiset of lines (order-free; blank lines and lines starting wi
 | `zset_has` / `zset_lacks` | a masked refresh member starting with `want|` exists / does not exist |
 | `startup_exit` | the IUT exited with a non-zero status before readiness |
 
+When the IUT never becomes ready in a scenario that expects readiness (every scenario without `expect_no_ready`),
+every assertion of that scenario fails ("IUT never became ready"), so ledger-wide kinds such as `all_done` cannot
+pass on an empty ledger.
+
 <!-- evidence-check: on -->
 
 ## 8. Reference results (2026-10-02, runner and goldens of this kit version)
@@ -293,3 +297,15 @@ reproduced §8 exactly (`run-suite: scenarios=31 failing=12 unruled=1 skipped=4 
 corrected FAIL and UNRULED sets); the self-test IUT row of §8 was re-measured the same day. Gotchas 11 and 12 and the
 EP-P3 note: probes recorded in the Provenance of `contract.md` (idempotent producer) and `delivery-and-failures.md`
 (retry delays).
+
+Runner change of 2026-10-05 (independent verification of kit v1.1): a corrected scenario whose IUT never became
+ready now fails every assertion (§7). Before, a self-test IUT variant that could not start (an invalid producer
+setting) was reported `corrected=PASS` on EPC-19, because `all_done` held on an empty ledger. Re-verified with the
+rebuilt runner: one full pass per mode of the Go reference with `run-suite.sh --profile both` (`scenarios=31
+failing=12 unruled=1 skipped=4 mode=db`, DB 30/30 compat MATCH; `scenarios=27 failing=7 unruled=2 skipped=8
+mode=cache`, cache 27/27 compat MATCH; the same corrected FAIL and UNRULED sets as §8) and the self-test IUT row of
+§8 (`scenarios=31 failing=21 unruled=0 skipped=4`, 9/30 MATCH, only EPC-18 failing in corrected). The same day the
+idempotent-producer stall (gotcha 11) and the retry-delay cap (gotcha 12) were reproduced: a self-test IUT variant
+with `enable.idempotence=true` (and default producer retries) left both EPC-19 records PENDING_UNCOMMITTED after
+UNKNOWN_LEADER_EPOCH errors; a variant with a 1 s → 60 s schedule failed EPC-17 while the stock 0.1 s → 2 s
+schedule passed EPC-17 and EPC-19.

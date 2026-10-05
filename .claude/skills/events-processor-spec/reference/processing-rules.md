@@ -364,4 +364,9 @@ fractional digits around 2025 and 2100 all matched exact truncation to milliseco
 `events-processor/models/billable_metrics.go:59` (a non-UUID parameter fails with SQLSTATE 22P02, initial error
 `ERROR: invalid input syntax for type uuid: "org-not-a-uuid" (SQLSTATE 22P02)`), cache lookup
 `events-processor/cache/billable_metrics.go:27`; EPC-03 compat goldens of both modes re-minted with
-`scripts/maintainer/regen-goldens.sh --only EPC-03 --passes 3` (three agreeing passes per mode).
+`scripts/maintainer/regen-goldens.sh --only EPC-03 --passes 3` (three agreeing passes per mode); five more MATCH passes per
+mode in the independent verification of the same day. Ad-hoc runner probe of that verification (Go reference, both
+modes): DB mode enriched `{11111111-1111-1111-1111-111111111111}` and `1111-1111-1111-1111-1111-1111-1111-1111` under
+the raw text (record key, `organization_id`, refresh member), lost a fresh `" 11111111-…-111111111111 "` (surrounding
+spaces) like other non-UUID text, and dead-lettered a 13 h old `null` organization id with `organization_id` `""`;
+cache mode dead-lettered all four. Upper-case hex was not probed (the fixture ids are digits only).
