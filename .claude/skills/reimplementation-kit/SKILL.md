@@ -12,8 +12,8 @@ This skill is the entry point of a self-contained kit for rebuilding — in any 
 that behaves like the Lago billing engine (lago-api) and the Lago events-processor, and for proving it with
 golden vectors. The behaviour itself lives in `billing-engine-spec` and `events-processor-spec`; this skill holds
 the method, the vector format, the adapter protocol, the runners and the grading rules. Behaviour facts as of
-lago-api `591ae90` (v1.53.0, 2026-09-08) and events-processor tree `83e012866f29`; kit v1.5.0 (fix rounds of
-2026-10-05 after the clean-room acceptance run and the implementers' re-runs; changes in section 13).
+lago-api `591ae90` (v1.53.0, 2026-09-08) and events-processor tree `83e012866f29`; kit v1.5.0, accepted on
+2026-10-05 by twelve clean-room implementations after five fix rounds (changes in section 13).
 
 ## 1. When to use / when NOT to use
 
@@ -72,6 +72,7 @@ Do NOT use it for:
 | Runner fixtures | `selftest/domain.selftest.jsonl` (23 EXECUTED vectors) | examples | yes |
 | Oracle, selftest adapter, provenance check, pack builder | `scripts/maintainer/` | maintainer tooling | **no** |
 | Holdout vectors | `maintainer-data/holdout/` | grading data | **no** |
+| Clean-room acceptance record (runs 1 to 6, verdict on 1.5.0) | `maintainer-data/acceptance-2026-10.md` | owner report | **no** |
 
 <!-- evidence-check: on -->
 
@@ -180,7 +181,7 @@ EXECUTED, ≤ 5 % RECOMPUTED, 0 EXTRACTED; scenarios 100 % EXECUTED; `ep` `both`
 RECOMPUTED with a note, corrected twins not counted). Size budget (`kit_budget`, whole-kit runs): billing unit vectors
 1,450,000 bytes (1,400,000 until 1.2.0), scenarios 600,000, events-processor conformance 650,000, events-processor unit vectors 130,000,
 schemas and metadata 420,000, total 3,000,000 (`SIZES` line of the validator; measured 2026-10-05 on 1.5.0: 1,408,197 /
-387,658 / 509,473 / 103,944 / 375,882, total 2,852,436).
+387,658 / 509,473 / 103,944 / 375,882, total 2,852,594).
 
 ## 7. Running conformance
 
