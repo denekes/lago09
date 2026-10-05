@@ -37,6 +37,16 @@ def fdiv(a, b):
     return Decimal(repr(float(a) / float(b)))
 
 
+def cdiv(a, b, e):
+    """BE-WL-2/4: credit division; binary64 for zero-exponent currencies, decimal (32 digits) otherwise."""
+    if e == 0:
+        return fdiv(a, b)
+    from decimal import localcontext
+    with localcontext() as c:
+        c.prec = 32
+        return dec(Decimal(repr(float(a))) if isinstance(a, float) else a) / dec(b)
+
+
 def fmul(a, b):
     return Decimal(repr(float(a) * float(b)))
 
@@ -44,7 +54,7 @@ def fmul(a, b):
 def cents_to_credits(cents, rate, e):
     """BE-WL-4: round to whole minor units, to major, divide by rate (binary float)."""
     amount = rhu(cents, 0) / (Decimal(10) ** e)
-    return fdiv(amount, rate)
+    return cdiv(amount, rate, e)
 
 
 def instant(s):
@@ -62,13 +72,13 @@ def wallets_credits(inp, ctx):
         amount = rhu(credits * rate, e)
         cents = int(amount * (Decimal(10) ** e))
         invoiceable = inp.get("invoiceable", True)
-        out_credits = fdiv(amount, rate) if invoiceable else credits
+        out_credits = cdiv(amount, rate, e) if invoiceable else credits
         floored = floor_places(credits, 5)
         return {"credits": out_credits, "amount": amount, "amount_cents": cents,
                 "rounds_to_zero": bool(floored > 0 and cents == 0)}
     cents_in = rhu(inp["cents"], 0)
     amount = cents_in / (Decimal(10) ** e)
-    return {"credits": fdiv(amount, rate), "amount": amount, "amount_cents": int(cents_in)}
+    return {"credits": cdiv(amount, rate, e), "amount": amount, "amount_cents": int(cents_in)}
 
 
 # ---------------------------------------------------------------- wallets.top_up
@@ -89,7 +99,7 @@ def wallet_state(w):
     if w.get("credits_balance") is not None:
         cb = dec(w["credits_balance"])
     else:
-        cb = fdiv(Decimal(bal) / (Decimal(10) ** e), rate)
+        cb = cdiv(Decimal(bal) / (Decimal(10) ** e), rate, e)
     return e, rate, bal, cb
 
 
@@ -140,11 +150,11 @@ def wallets_top_up(inp, ctx):
     if p > 0:
         amount, c = money(p)
         txs.append({"transaction_status": "purchased", "status": "pending", "transaction_type": "inbound",
-                    "credit_amount": fdiv(amount, rate), "amount": amount, "amount_cents": c})
+                    "credit_amount": cdiv(amount, rate, e), "amount": amount, "amount_cents": c})
     g = amounts.get("granted_credits", ZERO)
     if g > 0:
         amount, c = money(g)
-        credits = fdiv(amount, rate)
+        credits = cdiv(amount, rate, e)
         txs.append({"transaction_status": "granted", "status": "settled", "transaction_type": "inbound",
                     "credit_amount": credits, "amount": amount, "amount_cents": c})
         bal += c
@@ -474,8 +484,8 @@ def wallets_ongoing_balance(inp, ctx):
         ongoing = w["balance"] - a
         scale = Decimal(10) ** w["e"]
         out.append({"id": w["id"], "ongoing_usage_balance_cents": int(a), "ongoing_balance_cents": int(ongoing),
-                    "credits_ongoing_usage_balance": fdiv(a / scale, w["rate"]),
-                    "credits_ongoing_balance": fdiv(ongoing / scale, w["rate"]),
+                    "credits_ongoing_usage_balance": cdiv(a / scale, w["rate"], w["e"]),
+                    "credits_ongoing_balance": cdiv(ongoing / scale, w["rate"], w["e"]),
                     "depleted_ongoing_balance": ongoing <= 0})
     return {"wallets": out}
 
