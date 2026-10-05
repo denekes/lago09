@@ -15,6 +15,10 @@ Related chapters: current usage and its amounts (04, 05), the invoice totals pip
 credit step (07, BE-IV-32), automatic credit notes (08, BE-CN-21), wallets and wallet alerts' measured values (09),
 the clock jobs (13), the `subscription.usage_threshold_reached` and `alert.triggered` webhooks (12).
 
+This chapter has no binary64 island: lifetime-usage and threshold amounts are integers and alert values and steps
+are exact decimals (the only float of this area, the lifetime-usage `completion_ratio` shown by the API, is a display
+value typed in chapter 11).
+
 Reading guide: rules are numbered `BE-PB-n` and `BE-AL-n`; every rule line ends with `[vec: …]` naming the vectors
 that pin it, or a prose-only marker with the reason. Vector files: `progressive.jsonl` (ops
 `progressive.lifetime_usage`, `progressive.check_thresholds`, `progressive.passed_amount`, `progressive.to_credit`)
@@ -40,7 +44,7 @@ A threshold has `amount_cents` (> 0), `recurring` (at most one recurring thresho
 name; its owner is a plan or a subscription (exactly one). On a plan, amounts are unique per kind (a recurring and
 a one-time threshold may share an amount). Threshold currency = the plan currency.
 
-- **BE-PB-5** Applicable thresholds of a subscription: none when progressive billing is disabled on the subscription; else the subscription's own thresholds when it has any; else the plan's; else, for a child plan (plan override), the parent plan's. [vec: progressive.check_thresholds.001, progressive.check_thresholds.036, progressive.check_thresholds.037, progressive.check_thresholds.038]
+- **BE-PB-5** Applicable thresholds of a subscription: none when progressive billing is disabled on the subscription; else the subscription's own thresholds when it has any; else the plan's; else, for a child plan (plan override), the parent plan's — so a child plan with thresholds of its own ignores the parent's entirely. [vec: progressive.check_thresholds.001, progressive.check_thresholds.036, progressive.check_thresholds.037, progressive.check_thresholds.038, progressive.check_thresholds.040]
 
 ### 2.1 The threshold check
 
@@ -102,7 +106,7 @@ values, `r` = the recurring step.
 
 - **BE-AL-5** Increasing: nothing when `cur ≤ prev`; nothing when one-time thresholds exist and `cur < min(O)`. [vec: alerts.crossed.002, alerts.crossed.015]
 - **BE-AL-6** Increasing, one-time: when `prev < max(O)`, every `v ∈ O` with `prev < v ≤ cur`. [vec: alerts.crossed.001, alerts.crossed.003, alerts.crossed.016]
-- **BE-AL-7** Increasing, recurring: base `b = max(O)` (0 without one-time thresholds); first value `b + max(1, ceil((prev − b) ÷ r)) × r`, last value `b + floor((cur − b) ÷ r) × r`; every multiple step from first to last (none when first > last, e.g. `cur` still below `b`). A `prev` lying exactly on a step is therefore reported again, and the base itself is never a recurring value (from −50 up to 150 with only a step of 100 reports 100, not 0) (RBD-78). [vec: alerts.crossed.001, alerts.crossed.014, alerts.crossed.014x, alerts.crossed.016]
+- **BE-AL-7** Increasing, recurring: base `b = max(O)` (0 without one-time thresholds); first value `b + max(1, ceil((prev − b) ÷ r)) × r`, last value `b + floor((cur − b) ÷ r) × r`; every multiple step from first to last (none when first > last, e.g. `cur` still below `b`). A `prev` lying exactly on a step is therefore reported again, and the base itself is never a recurring value (from −50 up to 150 with only a step of 100 reports 100, not 0) (RBD-78). The step counts are computed in exact decimal, not binary64: from 0 to 0.3 by 0.1 is 0.3 / 0.1 = 3 steps (0.1, 0.2, 0.3). [vec: alerts.crossed.001, alerts.crossed.014, alerts.crossed.014x, alerts.crossed.016, alerts.crossed.018]
 - **BE-AL-8** Decreasing mirrors it: nothing when `cur ≥ prev` or when one-time thresholds exist and `cur > max(O)`; one-time `v` with `cur ≤ v < prev` when `prev > min(O)`; recurring base `b = min(O)` (0 without), values from `b − floor((b − cur) ÷ r) × r` up to `b − max(1, ceil((b − prev) ÷ r)) × r` in steps of `r` — the base itself is never a recurring value (from 50 down to −150 with only a step of 100 reports −100, not 0); a `prev` exactly on a step is reported again, as in BE-AL-7 (both quirks: RBD-78). [vec: alerts.crossed.006, alerts.crossed.007, alerts.crossed.008, alerts.crossed.010, alerts.crossed.011, alerts.crossed.013, alerts.crossed.013x]
 - **BE-AL-9** The crossed values are de-duplicated and sorted ascending (both directions). [vec: alerts.crossed.001, alerts.crossed.007, alerts.crossed.011, alerts.crossed.016]
 - **BE-AL-10** Reported rows: first the one-time rows — every one-time threshold whose value was crossed, as `{code, value, recurring: false}`, in the order the reference reads the alert's thresholds, which it does not define (storage order, in practice creation order, not value order: a rebuild may use any order, and vectors compare these rows as a set) — then each other crossed value, ascending, as `{code of the recurring threshold, value, recurring: true}`. [vec: alerts.crossed.001, alerts.crossed.008, alerts.crossed.017]
@@ -131,11 +135,11 @@ values, `r` = the recurring step.
 | File / op | Count | Rules |
 |---|---|---|
 | `progressive.lifetime_usage` | 6 | BE-PB-1..2 |
-| `progressive.check_thresholds` | 39 | BE-PB-5..10 |
+| `progressive.check_thresholds` | 40 | BE-PB-5..10 |
 | `progressive.passed_amount` | 4 | BE-PB-13 |
 | `progressive.to_credit` | 7 | BE-PB-11, BE-PB-20..24 |
 | `alerts.measure` | 12 (2 corrected twins) | BE-AL-2..4 |
-| `alerts.crossed` | 19 (2 corrected twins) | BE-AL-5..11 |
+| `alerts.crossed` | 20 (2 corrected twins) | BE-AL-5..11 |
 
 The check-threshold vectors reproduce the rows of the reference's own threshold tables (one vector per row, a
 representative subset of 131 rows) plus threshold-precedence cases. Corrected twins (`…x`) express proposed rebuild
@@ -173,5 +177,11 @@ Executions on the pinned toolchain (ruby-4.0.6, 2026-10-02, a dedicated oracle d
   (−50 → 150) reports `[100]` (oracle probe, verifier run 2026-10-02). RBD-77 (`alerts.measure.002`): fees 100 and 250
   of the metric → 250; the units variant (`alerts.measure.003`, units 3 and 1 → 3) is paired with `alerts.measure.003x`. RBD-76
   (`progressive.lifetime_usage.002`): a draft subscription invoice's charge fee counts.
+- Fix round of 2026-10-05 (database `lago_api_test_fr2g4`): threshold precedence `$API/app/models/subscription.rb:309-313`
+  executed with a child plan holding its own thresholds (`progressive.check_thresholds.040`: the child's 5 passes, the
+  parent's 10 is ignored) and with plan thresholds under a subscription without any (they apply). Alert steps are
+  decimal (`$API/app/models/usage_monitoring/alert.rb:161-187`): 0 → 0.3 by 0.1 reports 0.1, 0.2, 0.3 increasing and
+  −0.3, −0.2, −0.1 decreasing (`alerts.crossed.018`). No binary64 operation was found in the threshold check,
+  lifetime-usage calculation, billed-amount or progressive-credit services.
 - Update triggers: a pin bump; any change to the threshold check, lifetime-usage calculation, billed-amount or
   progressive-credit services, progressive invoice builder, alert models or alert-processing services.

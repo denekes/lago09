@@ -8,7 +8,7 @@ description: "Language-neutral behaviour spec of the Lago events-processor for a
 Behaviour specification and conformance suite for re-implementing the Lago events-processor (the Kafka
 consumer that turns raw usage events into enriched, charged-in-advance and dead-letter records plus a Redis
 refresh flag), in any language, without its source. Facts as of events-processor tree `83e012866f29` (the
-reference, "compat" profile) and the kit's corrected profile; kit v1.0.0. **Production runs memory-cache mode
+reference, "compat" profile) and the kit's corrected profile; kit v1.1.0. **Production runs memory-cache mode
 (owner decision OD-1); DB mode is the development and fallback mode; the suite grades both.**
 
 > **Licence.** The Lago events-processor and lago-api are AGPL-3.0. This skill describes behaviour in neutral words,
@@ -81,15 +81,18 @@ formats, runners and grading in general (`reimplementation-kit`); glossary (`dom
 
 <!-- evidence-check: off normative spec (summary of reference/processing-rules.md); evidence = the EP rule ids cited per step, each with its EPC scenarios and ep.* vectors -->
 
-1. **Decode** (EP-C1..C5): one JSON object with typed fields; undecodable → nothing produced (reference: committed;
-   corrected: dead letter with raw bytes, RBD-4). Unknown fields dropped; last duplicate key wins; property
-   numbers re-encoded through binary64 in the reference (corrected proposal RBD-14: literal text kept).
+1. **Decode** (EP-C1..C5): one JSON object with typed fields, field names matched ignoring case; undecodable →
+   nothing produced (reference: committed; corrected: dead letter with raw bytes, RBD-4). Unknown fields dropped;
+   last duplicate key wins; property numbers re-encoded through binary64 in the reference (corrected proposal
+   RBD-14: literal text kept).
 2. **Time** (EP-D1..D6): number, decimal string or RFC 3339 accepted; emitted timestamp = ms-truncated seconds
-   (JSON numbers untruncated in the reference); matching instant computed in binary float in the reference (1 ms
-   early for about half of all ms values; corrected RBD-15 exact); RFC 3339 offsets compared as wall clock in DB
-   mode (corrected RBD-16 UTC); `NaN`/`Inf` silently lost in the reference.
-3. **Metric** (EP-E1..E3): exact (organization, code), not deleted; not found → dead letter
-   `fetch_billable_metric`; filters never applied.
+   (JSON numbers untruncated in the reference; toward zero, so `"-1.0005"` → `-1`; no range check); matching
+   instant floored to the ms and computed in binary float in the reference (1 ms early for about half of all ms
+   values; corrected RBD-15 exact); RFC 3339 offsets compared as wall clock in DB mode (corrected RBD-16 UTC);
+   `NaN`/`Inf` silently lost in the reference.
+3. **Metric** (EP-E1..E4): exact (organization, code), not deleted; not found → dead letter
+   `fetch_billable_metric`; filters never applied. DB mode: an `organization_id` that is not UUID text is a
+   retryable database error (lost when fresh), any accepted UUID spelling matches; cache mode: exact text.
 4. **Expression** (EP-G1..G3): if the metric has one and `source ≠ http_ruby`; result stored as a STRING in
    `properties[field_name]`; failure → dead letter `evaluate_expression`.
 5. **Value** (EP-F1..F5): count → `"1"`; else the text of `properties[field_name]` (reference: binary64 `%g`-like
@@ -114,13 +117,18 @@ Corrected (ADR-001, decided): classify SYSTEMIC / TRANSIENT / PERMANENT; commit 
 disposition (acks=all); SYSTEMIC → pause the partition with backoff; TRANSIENT → bounded in-place retry of the
 failed step, then retry topic (KQ-1), dead letter after N attempts or 12 h; PERMANENT → dead letter at once
 (undecodable with raw bytes); enriched first, then in-advance and flag; downstream idempotency on
-`transaction_id` required.
+`transaction_id` required. "Pause" may be a blocked worker that keeps its group membership; under the suite every
+retry delay is capped at 2 s by an implementation setting (the suite ends a wait after 3 s without change).
+Dead-letter names for the new causes are kit defaults, `proposed` (KQ-5): `decode_event` with `raw_event` for
+undecodable bytes, `produce_enriched_event` for a rejected enriched produce, the failing step's own code after an
+exhausted retry (`reference/wire-formats.md` §4). Records without `ingested_at`: kit default = past the maximum
+age (KQ-4, RBD-3). Idempotence of the producer is not required (EP-A7).
 
 <!-- evidence-check: off normative spec; evidence = vectors and EPC ids cited per rule and reimplementation-kit reference/rebuild-decisions.md -->
 
 | RBD | Topic | Corrected | Ruling |
 |---|---|---|---|
-| RBD-1..3 | transient failures, re-delivery, horizon | retry in place / retry topic, never commit past | decided (KQ-4 open for unknown age) |
+| RBD-1..3 | transient failures, re-delivery, horizon | retry in place / retry topic, never commit past; a non-UUID `organization_id` is PERMANENT (proposed) | decided (KQ-4 open for unknown age) |
 | RBD-4 | undecodable, non-finite timestamp | dead letter with cause | decided (names KQ-5) |
 | RBD-5, 10 | dead-letter produce rejected, connection exhaustion | SYSTEMIC pause | decided |
 | RBD-6, 8, 9 | produce/charge/flag side effects | enriched first, retry only the failed side effect | decided |
@@ -137,7 +145,7 @@ failed step, then retry topic (KQ-1), dead letter after N attempts or 12 h; PERM
 
 ## 7. Modes (summary of `reference/memory-cache-mode.md`)
 
-<!-- evidence-check: off normative spec (summary of reference/memory-cache-mode.md); evidence = EPC-04, EPC-06, EPC-31..34 and the ep.match_subscription vectors -->
+<!-- evidence-check: off normative spec (summary of reference/memory-cache-mode.md); evidence = EPC-03, EPC-04, EPC-06, EPC-31..34 and the ep.match_subscription vectors -->
 
 | Aspect | DB mode | Memory-cache mode (production) |
 |---|---|---|
@@ -146,6 +154,7 @@ failed step, then retry topic (KQ-1), dead letter after N attempts or 12 h; PERM
 | RFC 3339 offset | wall clock | instant |
 | terminated subscriptions | all | ≤ 1 month before the snapshot (+ CDC) |
 | external id `acme` vs `acme:eu` | exact | prefix leak |
+| `organization_id` text | any UUID spelling the database accepts; other text = retryable error (lost when fresh) | exact canonical text, else not found |
 | freshness | per event | snapshot + CDC lag; a CDC row replaces the entry WHOLE (a missing column resets it) |
 | restart | — | six new CDC groups, full CDC replay |
 
@@ -170,7 +179,7 @@ lines; `--loose-errors` masks error texts and the exact startup exit status); co
 | 00 | smoke mix of 9 records | 18 | broker rejects enriched produce |
 | 01 | aggregation types, labels, value | 19 | broker rejects dead-letter produce |
 | 02 | filters pass through | 20 | broker rejects in-advance produce |
-| 03 | metric resolution | 21 | graceful restart, 200 records |
+| 03 | metric resolution, organization-id text | 21 | graceful restart, 200 records |
 | 04 | subscription matching (18 cases) | 22 | three partitions |
 | 05 | expressions | 23 | organization scoping |
 | 06 | pay-in-advance split | 24 | refresh-flag members |
@@ -184,23 +193,27 @@ lines; `--loose-errors` masks error texts and the exact startup exit status); co
 
 <!-- evidence-check: on -->
 
-Reference results (2026-10-02, three full passes per mode): DB 30/30 and cache 27/27 compat MATCH; corrected
+Reference results (2026-10-02, three full passes per mode; one pass per mode re-run on 2026-10-05 after the
+EPC-03 extension, identical): DB 30/30 and cache 27/27 compat MATCH; corrected
 decided FAIL DB EPC-04, 07, 08, 09, 10, 14, 15, 16, 17, 18, 19, 30 and cache EPC-04, 07, 08, 09, 17, 18, 19;
 UNRULED EPC-20 (+ EPC-31 in cache). A Python self-test IUT built from these rules passes every decided
 assertion except EPC-18 (a documented deviation the suite catches). Cards: `reference/scenario-catalogue.md`.
 
-Grading (component CRC-9 of `reimplementation-kit`): corrected decided assertions 100 % in both modes; startup
-EPC-26..29 4/4; `ep` unit vectors ≥ 95 % (core 100 %); compat with `--loose-errors` ≥ 90 % of DB goldens only
-for a migration-compat build.
+Grading (component CRC-9 of `reimplementation-kit`), on SEPARATE runs per profile (a single configuration cannot
+meet both: the compat goldens require the reference's loss modes, the corrected assertions forbid them); an
+implementation may expose a profile switch of its own (for example an environment variable passed with
+`--impl-env`), the same build serving both runs: corrected run (`--profile corrected`): decided assertions 100 %
+in both modes, startup EPC-26..29 4/4; compat run (`--profile compat --loose-errors`, migration-compat builds
+only): ≥ 90 % of DB goldens; `ep` unit vectors ≥ 95 % (core 100 %) per profile. Details: `reference/conformance-suite.md` §9.
 
 ## 9. Unit vectors (`vectors/ep.units.jsonl`)
 
-151 vectors over six ops, for fast feedback before Kafka: `ep.decode` (19 + 2 corrected twins),
-`ep.parse_timestamp` (18 + 7), `ep.value_string` (38 + 17), `ep.match_subscription` (31 + 7), `ep.commit_offset`
+155 vectors over six ops, for fast feedback before Kafka: `ep.decode` (20 + 2 corrected twins),
+`ep.parse_timestamp` (21 + 7), `ep.value_string` (38 + 17), `ep.match_subscription` (31 + 7), `ep.commit_offset`
 (7 + 2), `ep.refresh_member` (3). Ids are stable; a few numbers are retired (size budget), so gaps are expected.
 Input and output fields: `reference/processing-rules.md` §11. Run with
 `python3 .claude/skills/reimplementation-kit/scripts/kitrun.py --areas ep --impl-cmd "<your adapter>"` (adapter
-protocol: `reimplementation-kit` reference/adapter-protocol.md). Profiles: 74 `both`, 42 `compat`, 35 corrected
+protocol: `reimplementation-kit` reference/adapter-protocol.md). Profiles: 77 `both`, 43 `compat`, 35 corrected
 twins (`…x`). Every compat/both expectation was produced by the reference packages (evidence `EXECUTED` by
 `ep-oracle`) except the three `ep.refresh_member` vectors: the reference reads its own wall clock, so the
 ep-oracle checks the bucket rule on a live flag write and applies it to `now_unix` (`RECOMPUTED`, with a note);
@@ -221,6 +234,9 @@ corrected twins are `RECOMPUTED` from their RBD.
    milliseconds; compare UTC instants.
 7. CDC rows: decide what an absent column means; never let it silently reset `pay_in_advance` or `recurring`.
 8. The suite does not observe a retry topic yet (KQ-1): make in-place retries absorb one-shot faults.
+9. Cap retry delays at 2 s under the suite (the 1 s → 60 s production schedule fails EPC-17); grade compat and
+   corrected on separate runs; prefer a non-idempotent producer (an idempotent librdkafka producer stalls after
+   the suite's injected rejection). `reference/conformance-suite.md` §10 gotchas 11-13.
 
 <!-- evidence-check: on -->
 
@@ -232,7 +248,7 @@ corrected twins are `RECOMPUTED` from their RBD.
 | `bash .claude/skills/events-processor-spec/scripts/run-suite.sh --impl-cmd CMD --mode cache --profile both` | same, memory-cache mode | Go reference: `scenarios=27 failing=7 unruled=2 skipped=8 mode=cache` |
 | `python3 .claude/skills/events-processor-spec/scripts/gen-scenarios.py --check` | scenarios and assertions match their generator | `gen-scenarios --check: scenarios=35 assert_files=22 drift=0` |
 | `python3 .claude/skills/events-processor-spec/scripts/gen-scenarios.py --check-corpus .claude/skills/event-accounting-campaign/scripts/value-corpus/corpus.tsv` | corpus sync | `corpus-sync: OK rows=27` |
-| `python3 .claude/skills/reimplementation-kit/scripts/kitrun.py --areas ep --impl-cmd CMD` | unit vectors | ep-oracle: `SUMMARY kitrun: areas=1 pass=1 fail=0 vectors=116 passed=116 skipped_ops=0 exit=0` |
+| `python3 .claude/skills/reimplementation-kit/scripts/kitrun.py --areas ep --impl-cmd CMD` | unit vectors | ep-oracle (2026-10-05): `SUMMARY kitrun: areas=1 pass=1 fail=0 vectors=120 passed=120 skipped_ops=0 exit=0` |
 | `scripts/maintainer/*` | MAINTAINER-ONLY (excluded from clean-room packs): `build-go-reference.sh` (reference binary + ep-oracle from the repository), `regen-goldens.sh` (three-pass re-mint with reviewed diff), `mint-ep-units.py` (unit vectors), `selftest-iut.py` (Python self-test IUT) | see `reference/conformance-suite.md` §11 |
 
 ## 12. Provenance and maintenance
@@ -248,4 +264,5 @@ corrected twins are `RECOMPUTED` from their RBD.
 - Open questions affecting this skill (owner questions OD-22 and OD-1b; register in `reimplementation-kit` SKILL.md
   section 12): KQ-1 (retry topic names), KQ-2 (production CDC configuration), KQ-4 (age
   of records without `ingested_at`), KQ-5 (dead-letter codes for undecodable records), KQ-6 (byte-level vs
-  canonical output), KQ-14 (broker emulator fidelity for other client libraries).
+  canonical output), KQ-14 (broker emulator fidelity for other client libraries: idempotent librdkafka producers
+  stall after an injected rejection). KQ-4 and KQ-5 carry kit defaults marked `proposed` until the owner answers.
