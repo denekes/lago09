@@ -50,11 +50,11 @@
         },
         "already_billed_units": {
           "$ref": "../common.schema.json#/$defs/decimal",
-          "description": "Units already billed in this fixed-charges period."
+          "description": "Units already billed in this fixed-charges period: the sum of the units stored on the fixed charge's earlier fees of the period, used as given (not re-rounded). Every stored value derives from 10-place units, so more than 10 decimal places is not reachable (BE-PR-71)."
         },
         "new_units": {
           "$ref": "../common.schema.json#/$defs/decimal",
-          "description": "Units of the new unit event."
+          "description": "Units of the new unit event; stored with 10 decimal places, half away from zero, before use (BE-PR-87; 1.00000000005 -> 1.0000000001)."
         },
         "timestamp": {
           "$ref": "../common.schema.json#/$defs/instant",

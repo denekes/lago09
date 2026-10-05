@@ -12,11 +12,15 @@ Facts as of lago-api `591ae90` and events-processor tree `83e012866f29`. A billa
 (`properties[field_name]`) before aggregation. The language is evaluated on three **surfaces**, which share the
 grammar and the arithmetic but differ in how the event is presented to the engine and how the result is written:
 
+<!-- evidence-check: off normative summary; evidence = the rules of section 5 and their vector ids -->
+
 | Surface | Where | Vector `mode` | Result lands in |
 |---|---|---|---|
 | ingestion | billing API, while accepting an event (chapter 02, BE-EV-50) | `rails` | stored/published event, as decimal text |
 | processor | events-processor, for records not produced by the billing API (`events-processor-spec` EP-G1..G3) | `ep` | enriched record, as the engine's text |
 | preview | `POST /api/v1/billable_metrics/evaluate_expression` (test an expression) | `preview` | response body |
+
+<!-- evidence-check: on -->
 
 Reading guide: rules are numbered `BE-EX-n`; every rule line ends with `[vec: …]` naming vectors in
 `billing-engine-spec/vectors/expression.jsonl` (op `expression.evaluate`, schema
@@ -89,7 +93,7 @@ scale `s`, value = c × 10^−s, and let `n` be the number of digits of |c|.
 
 ### 5.2 Events-processor
 
-- **BE-EX-40** The processor evaluates the expression only for records whose `source` is not `http_ruby` (`events-processor-spec` EP-G1). The engine sees the enriched record as JSON: `code`, `timestamp` = the processor's emitted seconds with their millisecond fraction (`1741007009.123`, RBD-38), and `properties` as the processor holds them; other members are ignored. The engine reads every number literal of that JSON exactly, as a decimal with the literal's digits and scale (an exponent folds into the scale: `2.50` keeps scale 2, `1e21` is significand 1 with scale −21); the binary64 rounding happens earlier, in the processor: compat hands over its re-encoded text (`events-processor-spec` EP-C5: `2.0` arrives as `2`, `9007199254740993` as `9007199254740992`), corrected (RBD-14, proposed) the literal itself. Numeric strings stay strings and convert on read (BE-EX-11). The input must have `code` as a string, a non-null `timestamp` (the processor sends a number), and `properties` as an object whose every value is a number or a string: a missing or non-string `code` (a number, null, a boolean), a missing or null `timestamp`, a missing, null or non-object `properties`, or a boolean, null, object or array ANYWHERE in `properties` (even one the expression does not read) fails the evaluation. [vec: expression.ep.001, expression.ep.002, expression.ep.004, expression.ep.006, expression.ep.008, expression.ep.013, expression.ep.018, expression.ep.019, expression.ep.021]
+- **BE-EX-40** The processor evaluates the expression only for records whose `source` is not `http_ruby` (`events-processor-spec` EP-G1). The engine sees the enriched record as JSON: `code`, `timestamp` = the processor's emitted seconds with their millisecond fraction (`1741007009.123`, RBD-38), and `properties` as the processor holds them; other members are ignored. The engine reads every number literal of that JSON exactly, as a decimal with the literal's digits and scale (an exponent folds into the scale: `2.50` keeps scale 2, `1e21` is significand 1 with scale −21); the binary64 rounding happens earlier, in the processor: compat hands over its re-encoded text (`events-processor-spec` EP-C5: `2.0` arrives as `2`, `9007199254740993` as `9007199254740992`), corrected (RBD-14, proposed) the literal itself. Numeric strings stay strings and convert on read (BE-EX-11). The input must have `code` as a string, a non-null `timestamp` (the processor sends a number), and `properties` as an object whose every value is a number or a string: a missing or non-string `code` (a number, null, a boolean), a missing or null `timestamp`, a missing, null or non-object `properties`, or a boolean, null, object or array ANYWHERE in `properties` (even one the expression does not read) fails the evaluation. These checks apply to the input object whatever form it is handed over in (kit vectors give it either as exact JSON text, `event_json`, or as a JSON object, `event`). [vec: expression.ep.001, expression.ep.002, expression.ep.004, expression.ep.006, expression.ep.008, expression.ep.013, expression.ep.018, expression.ep.019, expression.ep.021, expression.ep.022]
 - **BE-EX-41** The result is stored as a JSON string holding the engine's text (BE-EX-21): numbers keep their scale and form (`"4"`, `"0.2"`, `"36"`, `"5.00"`, `"1E-7"`, `"1e+21"`, `"0.00"`, `"0E-7"`), strings as is; this string becomes the record's value (`events-processor-spec` EP-F3, EP-G2). [vec: expression.ep.002, expression.ep.009, expression.ep.011, expression.ep.012, expression.ep.015, expression.ep.020, expression.ep.021]
 - **BE-EX-42** A failed evaluation (parse, missing variable, type error, invalid property type) sends the record to the dead letter with code `evaluate_expression` (`events-processor-spec` EP-G3); a division by zero aborts the processor (BE-EX-17). [vec: expression.ep.006, expression.ep.008, expression.div_zero.002x]
 
@@ -196,5 +200,9 @@ Executions (2026-10-02):
   all three surfaces; leading, trailing, tab and line-break whitespace on all three surfaces; the processor build with
   members missing or mistyped in its input object; number literals read by the processor build (`9007199254740993`,
   `2.50`, `1e21`, `12345678901234567890.5` kept exactly).
+- Later probe of 2026-10-05 (database `lago_api_test_fr3b`): the processor surface with the input given as an object
+  (the oracle module encodes it as JSON text) applies the same member checks: a boolean property, a numeric `code`, a
+  null `timestamp`, a missing `properties` and an object-valued property each fail, a valid object evaluates; run twice
+  through `kitrun` (`expression.ep.022`).
 - Update triggers: a pin bump that moves the engine revision; a change of the decimal library; any change to the
   ingestion, processor or preview call sites.

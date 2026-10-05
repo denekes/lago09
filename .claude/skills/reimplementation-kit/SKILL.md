@@ -12,8 +12,8 @@ This skill is the entry point of a self-contained kit for rebuilding — in any 
 that behaves like the Lago billing engine (lago-api) and the Lago events-processor, and for proving it with
 golden vectors. The behaviour itself lives in `billing-engine-spec` and `events-processor-spec`; this skill holds
 the method, the vector format, the adapter protocol, the runners and the grading rules. Behaviour facts as of
-lago-api `591ae90` (v1.53.0, 2026-09-08) and events-processor tree `83e012866f29`; kit v1.1.0 (fix round of
-2026-10-05 after the clean-room acceptance run; changes in section 13).
+lago-api `591ae90` (v1.53.0, 2026-09-08) and events-processor tree `83e012866f29`; kit v1.2.0 (fix rounds of
+2026-10-05 after the clean-room acceptance run and the implementers' re-run; changes in section 13).
 
 ## 1. When to use / when NOT to use
 
@@ -76,7 +76,7 @@ Do NOT use it for:
 <!-- evidence-check: on -->
 
 Pins: lago-api `591ae9005110`; events-processor tree `83e012866f29`. Versions: adapter protocol `proto` 1, vector
-envelope `kit_schema` 1, catalogue `kit_version` 1.1.0 (from `kit.json`; kitrun prints `1.1.0-dev` until it exists).
+envelope `kit_schema` 1, catalogue `kit_version` 1.2.0 (from `kit.json`; kitrun prints `1.2.0-dev` until it exists).
 
 ## 4. Rebuild method (summary of `reference/method.md`)
 
@@ -158,29 +158,29 @@ file; counts include the vectors the maintainers keep in the holdout):
 | Files | Area(s) | Vectors | both / compat / corrected | both+compat EXECUTED |
 |---|---|---|---|---|
 | `billing-engine-spec/vectors/domain.{time,money,numbering,catalog}.jsonl` | domain | 153 | 151 / 1 / 1 | 152/152 |
-| `…/events.ingest.jsonl`, `…/expression.jsonl` | events, expression | 193 | 174 / 8 / 11 | 182/182 |
-| `…/aggregation.{core,store_ch,filters,in_advance,prorated}.jsonl` | aggregation | 284 | 211 / 39 / 34 | 250/250 |
-| `…/pricing.{models,in_advance,fees,validation,fixed_charges,misc}.jsonl` | pricing | 355 | 302 / 27 / 26 | 329/329 |
+| `…/events.ingest.jsonl`, `…/expression.jsonl` | events, expression | 194 | 175 / 8 / 11 | 183/183 |
+| `…/aggregation.{core,store_ch,filters,in_advance,prorated}.jsonl` | aggregation | 288 | 211 / 41 / 36 | 252/252 |
+| `…/pricing.{models,in_advance,fees,validation,fixed_charges,misc}.jsonl` | pricing | 357 | 304 / 27 / 26 | 331/331 |
 | `…/periods.{boundaries,billing_days,chains,subscription_fee,lifecycle}.jsonl` | periods | 264 | 230 / 17 / 17 | 247/247 |
-| `…/invoice.{totals,taxes,coupons,lifecycle,commitment}.jsonl`, `…/credit_notes.jsonl` | invoice, credit_notes | 223 | 205 / 9 / 9 | 214/214 |
+| `…/invoice.{totals,taxes,coupons,lifecycle,commitment}.jsonl`, `…/credit_notes.jsonl` | invoice, credit_notes | 233 | 213 / 10 / 10 | 223/223 |
 | `…/wallets.jsonl`, `…/progressive.jsonl`, `…/alerts.jsonl` | wallets, progressive, alerts | 188 | 177 / 5 / 6 | 182/182 |
 | `…/api.jsonl`, `…/webhooks.jsonl`, `…/clock.jsonl` | api, webhooks, clock | 129 | 121 / 4 / 4 | 125/125 |
-| billing unit total | 14 areas | 1,789 | 1,571 / 110 / 108 | 1,681/1,681 |
+| billing unit total | 14 areas | 1,806 | 1,582 / 113 / 111 | 1,695/1,695 |
 | `billing-engine-spec/scenarios/scn.*.json` | scn | 76 (5 `core`) | every scenario replayed twice on the reference | 76/76 |
 | `events-processor-spec/vectors/ep.units.jsonl` | ep | 155 | 77 / 43 / 35 | 117/120 (3 `ep.refresh_member` RECOMPUTED with a note) |
 | `reimplementation-kit/selftest/domain.selftest.jsonl` | domain (runner fixtures) | 23 | 23 / 0 / 0 | 23/23 |
 
 <!-- evidence-check: on -->
 
-Every corrected twin is RECOMPUTED by definition (its `ref` names its RBD); all 108 billing twins and 4 of the 35
+Every corrected twin is RECOMPUTED by definition (its `ref` names its RBD); all 111 billing twins and 4 of the 35
 `ep` twins are `ruling: proposed` and graded UNRULED until the owner rules.
 
 Kit gates (`validate-vectors.py --gate`, `acceptance/thresholds.json` `kit_gates`): billing `both`/`compat` ≥ 95 %
 EXECUTED, ≤ 5 % RECOMPUTED, 0 EXTRACTED; scenarios 100 % EXECUTED; `ep` `both`/`compat` ≥ 95 % EXECUTED (the rest
 RECOMPUTED with a note, corrected twins not counted). Size budget (`kit_budget`, whole-kit runs): billing unit vectors
 1,400,000 bytes, scenarios 600,000, events-processor conformance 650,000, events-processor unit vectors 130,000,
-schemas and metadata 420,000, total 3,000,000 (`SIZES` line of the validator; measured 2026-10-05: 1,381,044 /
-387,658 / 509,473 / 103,944 / 374,208, total 2,823,609).
+schemas and metadata 420,000, total 3,000,000 (`SIZES` line of the validator; measured 2026-10-05 on 1.2.0: 1,395,836 /
+387,658 / 509,473 / 103,944 / 375,882, total 2,840,075).
 
 ## 7. Running conformance
 
@@ -273,16 +273,16 @@ Read the diff path first; group failures by op and first diff path — one wrong
 | Command | Purpose | Observed (2026-10-05) |
 |---|---|---|
 | `python3 scripts/kitrun.py --impl-cmd CMD [--areas …] [--profile …] [--report F]` | run unit vectors through an adapter | vs the oracle on the self-test vectors: `SUMMARY kitrun: areas=1 pass=1 fail=0 vectors=23 passed=23 skipped_ops=0 exit=0` |
-| `python3 scripts/validate-vectors.py [FILES] [--gate] [--rule-coverage] [--inventory]` | format, evidence, budget, content and text checks | on the self-test vectors: `SUMMARY validate-vectors: files=1 vectors=23 scenarios=76 errors=0 warnings=0`; whole kit with `--gate --rule-coverage`: `files=146 vectors=1967 scenarios=76 errors=0 warnings=0` |
+| `python3 scripts/validate-vectors.py [FILES] [--gate] [--rule-coverage] [--inventory]` | format, evidence, budget, content and text checks | on the self-test vectors: `SUMMARY validate-vectors: files=1 vectors=23 scenarios=76 errors=0 warnings=0`; whole kit with `--gate --rule-coverage`: `files=146 vectors=1984 scenarios=76 errors=0 warnings=0` |
 | `python3 scripts/adapter_ref.py [--list-ops]` | reference adapter loop + `domain.round` example; op list | `--only round`: 14/14 PASS |
-| `bash scripts/kit-selftest.sh [--skip-kit-validate] [--skip-ep-build]` | syntax, 18 runner unit tests, validation, selftest adapter 100 % / mutation ≥ 99 %, EP runner build | `unit PASS Ran 18 tests`; `selftest-pass PASS compat 1507/1507 … corrected 1394/1394 (+unruled 104/104)`; `selftest-mutate PASS detected compat 1505/1507 corrected 1392/1394`; `ep-build PASS`; `SUMMARY kit-selftest: steps=7 pass=7 fail=0 skip=0` (`--skip-ep-build`: pass=6 skip=1) |
+| `bash scripts/kit-selftest.sh [--skip-kit-validate] [--skip-ep-build]` | syntax, 18 runner unit tests, validation, selftest adapter 100 % / mutation ≥ 99 %, EP runner build | `unit PASS Ran 18 tests`; `selftest-pass PASS compat 1521/1521 … corrected 1405/1405 (+unruled 107/107)`; `selftest-mutate PASS detected compat 1519/1521 corrected 1403/1405`; `ep-build PASS`; `SUMMARY kit-selftest: steps=7 pass=7 fail=0 skip=0` (`--skip-ep-build`: pass=6 skip=1) |
 | `python3 scripts/selftest/test_runner.py` | runner unit tests (compare modes, crash/timeout/garbage/wrong-id adapters, exit codes 0/2/3/4, parallel, report schema) | `Ran 18 tests … OK` |
 | `scripts/maintainer/oracle.sh setup\|db\|clickhouse\|run\|adapter\|env\|status\|stop` | MAINTAINER: the reference at the pin as rspec runner and as adapter | from an empty cache 94 s; `run spec/services/charge_models` 140/140 in 21 s |
 | `python3 scripts/maintainer/selftest-adapter.py [--mutate]` | MAINTAINER: answers from `expected` to test the runners | 100 % PASS; mutation detected 100 % |
-| `python3 scripts/maintainer/vector-provenance.py` | MAINTAINER: every `evidence.ref` resolves at its pin; non-EXECUTED residue | `SUMMARY vector-provenance: vectors=2043 refs_checked=2218 broken=0 residue_recomputed=3 residue_extracted=0` |
-| `python3 scripts/maintainer/holdout-split.py --check\|--write [--seed S] [--prune-vec-tags]` | MAINTAINER: seeded, stratified 20 % holdout into `maintainer-data/holdout/` (lead, at integration) | `--check` on 1.1.0 (report only, the holdout stays stable): `vectors=1944 eligible=443 holdout=329 (16.9 %) moves=74 prunes=0 mode=check` |
-| `python3 scripts/maintainer/make-kit-json.py --check\|--write` | MAINTAINER: `kit.json` manifest (sha256 per file, maintainer flags), written last | 1.1.0, `--write` then `--check`: `SUMMARY make-kit-json: files=468 maintainer=69 vectors=1642 … changed=0 mode=check` |
-| `bash scripts/maintainer/kit-pack.sh --cleanroom (--out F \| --out-dir D)` | MAINTAINER: clean-room pack (strip, manifest, validator, forbidden-content scan) | `SUMMARY kit-pack: mode=cleanroom files=400 … stripped=69 forbidden=0 validate_errors=0` (inside the pack: `files=112 vectors=1642 scenarios=76 errors=0 warnings=0`) |
+| `python3 scripts/maintainer/vector-provenance.py` | MAINTAINER: every `evidence.ref` resolves at its pin; non-EXECUTED residue | `SUMMARY vector-provenance: vectors=2060 refs_checked=2235 broken=0 residue_recomputed=3 residue_extracted=0` |
+| `python3 scripts/maintainer/holdout-split.py --check\|--write [--seed S] [--prune-vec-tags]` | MAINTAINER: seeded, stratified 20 % holdout into `maintainer-data/holdout/` (lead, at integration) | `--check` on 1.2.0 (report only, the holdout stays stable): `vectors=1961 eligible=444 holdout=329 (16.8 %) moves=74 prunes=0 mode=check` |
+| `python3 scripts/maintainer/make-kit-json.py --check\|--write` | MAINTAINER: `kit.json` manifest (sha256 per file, maintainer flags), written last | 1.2.0, `--write` then `--check`: `SUMMARY make-kit-json: files=468 maintainer=69 vectors=1659 … changed=0 mode=check` |
+| `bash scripts/maintainer/kit-pack.sh --cleanroom (--out F \| --out-dir D)` | MAINTAINER: clean-room pack (strip, manifest, validator, forbidden-content scan) | `SUMMARY kit-pack: mode=cleanroom files=400 … stripped=69 forbidden=0 validate_errors=0` (inside the pack: `files=112 vectors=1659 scenarios=76 errors=0 warnings=0`) |
 
 ## 12. Provenance and maintenance
 
@@ -371,7 +371,30 @@ Author questions answered by a rebuild decision are closed there and have no row
 (RBD-103), the wallet tie order (RBD-104, RBD-105 for the interval anchor), the credit-note offset (RBD-106), the
 grouped prorated phantom day (RBD-31), division by zero (RBD-37) and the simulator's scope and event count (RBD-54).
 
-## 13. Changes in 1.1.0 (2026-10-05)
+## 13. Changes
+
+### 1.2.0 (2026-10-05)
+
+Second fix round, after seven implementers re-ran on the 1.1.0 pack and met every threshold: every question they
+still logged, and the two minor spec items 1.1.0 left open, was classified and the kit side closed, each new
+reference claim executed on the reference first. 17 vectors added (11 `both`, 3 `compat`, 3 corrected twins), none
+changed or removed; an implementation graded on 1.1.0 must be re-run on the areas below.
+
+<!-- evidence-check: off change summary; evidence = the rule and vector ids named per line and the gate runs of section 11 -->
+
+| Area | Changes |
+|---|---|
+| grading, format | NUM-OUT is expected on the range bounds that BE-PR-58 echoes as JSON numbers (`reference/vector-format.md` §4.1, `reference/acceptance-and-grading.md` §3) |
+| expression | the BE-EX-40 member checks also apply to an `event` object on the processor surface (`expression.ep.022`) |
+| aggregation | BE-AG-74 states the columnar store's own decimal→binary64 conversion (3.1 → 3.0999999999999996, 8.3 → 8.3) and its undefined summation order (a part with three or more contributions is not reproducible); `aggregation.store_ch.prorated.005`, `.006` and their corrected twins |
+| pricing | BE-PR-41 covers grouped charges (`pricing.projection.010`) and marks `days(from, to) ≤ 0` not reachable; BE-PR-58 says the NUM-OUT warning on echoed bounds is expected; BE-PR-71 uses the already-billed units as given; BE-PR-87 covers the pricing-unit op record (`pricing.pricing_unit.008`) in both profiles; new BE-PR-88 (period ratio of the current-usage fee path, prose only, not observable) |
+| invoice, credit notes | BE-CN-18 exit order: upgrade with refund or offset answers `server_error` before the creditable-amount exits (`credit_notes.termination.013`..`.015`); `dec16` is a cut of the shortest text after 16 significant digits, never a rounding (`credit_notes.compute.019`, `019x`); BE-IV-17 checks `expiration_at` whatever `expiration` says (`invoice.coupon_create.017`); BE-IV-18 value checks apply whatever the coupon type (`invoice.coupon_create.016`, `invoice.coupon_apply.016`, `.017`); a void item just below a tie at 5 places (`invoice.void.009`); schema descriptions of `invoice.coupon_apply` (`applied_before`), `invoice.coupon_create`, `credit_notes.termination` and `expression.evaluate` (`event`) |
+| clock | BE-CK-2: ticks at whole-second instants, the period counted from the previous run cut to the second, the op window half-open `[from, to)`; a `from` with a fraction of a second is not graded |
+| kit | version 1.2.0; RBD-68 and RBD-96 rows (vectors, BE-AG-74 wording); billing unit vectors 1,789 → 1,806 (section 6); the maintainer model `recompute-invoicing.py` rounds void items with round5 and applies the dec16 cut |
+
+<!-- evidence-check: on -->
+
+### 1.1.0 (2026-10-05)
 
 Fix round after the clean-room acceptance run of 1.0.0: every gap that twelve independent implementations logged
 was classified (vector, format, spec or implementation defect) and the kit defects were fixed, each new reference

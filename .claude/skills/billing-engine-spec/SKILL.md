@@ -11,7 +11,7 @@ description: "Behaviour spec of the in-scope Lago billing engine (lago-api at pi
 Language-neutral specification of the billing core of Lago — catalogue, customers, event ingestion, usage
 aggregation, pricing, billing periods, invoices, taxes, coupons, credit notes, wallets, progressive billing, alerts,
 the REST API v1 surface, webhooks and the clock — written so that a team holding only the kit can build an
-equivalent engine and prove it with the kit's vectors. Facts as of lago-api `591ae9005110`; kit v1.1.0.
+equivalent engine and prove it with the kit's vectors. Facts as of lago-api `591ae9005110`; kit v1.2.0.
 Scope IN: the items above. Scope OUT (interface boundary only, chapter 14): payment providers, tax providers,
 accounting/CRM integrations, e-invoicing, documents and e-mail, dunning, the newer quote/contract features,
 entitlements, GraphQL administration, authentication of members, analytics and data exports.
@@ -92,7 +92,7 @@ and billed on its own invoice or fee. The scenario tier drives the whole engine 
 | `reference/02-events-ingestion.md` | BE-EV-1..74 (46) | `events.ingest` | building `POST /events` and `/events/batch`: timestamp grammar, validation order, idempotency per store, raw message |
 | `reference/03-expression-language.md` | BE-EX-1..51 (27) | `expression` | metric expressions: grammar, values, division, rounding functions, three surfaces |
 | `reference/04-aggregation-and-usage.md` | BE-AG-1..74 (59) | `aggregation.core`, `.filters`, `.in_advance`, `.prorated`, `.store_ch` | usage for a window: selection, numeric gate, six aggregation types, filters and groups, in-advance state, proration, columnar variant |
-| `reference/05-pricing-and-fees.md` | BE-PR-1..87 (87) | `pricing.models`, `.in_advance`, `.fees`, `.validation`, `.fixed_charges`, `.misc` | charge models, delta pricing, fee money, true-up, pricing units, fixed charges, validation |
+| `reference/05-pricing-and-fees.md` | BE-PR-1..88 (88) | `pricing.models`, `.in_advance`, `.fees`, `.validation`, `.fixed_charges`, `.misc` | charge models, delta pricing, fee money, true-up, pricing units, fixed charges, validation |
 | `reference/06-subscriptions-and-periods.md` | BE-SP-1..66 (66) | `periods.boundaries`, `.billing_days`, `.chains`, `.subscription_fee`, `.lifecycle` | period algebra, billing-run boundaries, scheduling, subscription fee, lifecycle, plan changes, trials |
 | `reference/07-invoices-taxes-coupons.md` | BE-IV-1..58 (58) | `invoice.totals`, `.taxes`, `.coupons`, `.lifecycle`, `.commitment` | invoice types, totals pipeline, taxes, coupons, lifecycle, void, minimum commitment |
 | `reference/08-credit-notes.md` | BE-CN-1..24 (24) | `credit_notes` | credit, refund and offset notes, rounding correction, estimate, termination notes |
@@ -198,18 +198,18 @@ both/compat/corrected; every both/compat vector EXECUTED through the oracle at t
 | `domain.numbering.jsonl` | credit_note_number, customer_slug, document_prefix, invoice_number, next_sequential_id | 45 | 45/0/0 |
 | `domain.catalog.jsonl` | charge_filter_code, code_reusable, subscription_external_id_valid | 33 | 31/1/1 |
 | `events.ingest.jsonl` | duplicate_key, parse_timestamp, raw_message, validate, validate_batch | 87 | 72/7/8 |
-| `expression.jsonl` | evaluate (surfaces `rails`, `ep`, `preview`) | 106 | 102/1/3 |
+| `expression.jsonl` | evaluate (surfaces `rails`, `ep`, `preview`) | 107 | 103/1/3 |
 | `aggregation.core.jsonl` | aggregate | 105 | 100/3/2 |
 | `aggregation.filters.jsonl` | event_filter, group_keys, matching_and_ignored, select_events | 38 | 32/3/3 |
 | `aggregation.in_advance.jsonl` | aggregate, current_usage_in_advance, in_advance_units | 35 | 27/5/3 |
 | `aggregation.prorated.jsonl` | aggregate, in_advance_units | 49 | 33/8/8 |
-| `aggregation.store_ch.jsonl` | aggregate, group_keys, select_events (columnar) | 57 | 19/20/18 |
+| `aggregation.store_ch.jsonl` | aggregate, group_keys, select_events (columnar) | 61 | 19/22/20 |
 | `pricing.models.jsonl` | charge_model | 112 | 94/9/9 |
 | `pricing.in_advance.jsonl` | pay_in_advance | 43 | 37/3/3 |
-| `pricing.fees.jsonl` | fee_money, pricing_unit, true_up | 46 | 32/7/7 |
+| `pricing.fees.jsonl` | fee_money, pricing_unit, true_up | 47 | 33/7/7 |
 | `pricing.validation.jsonl` | default_properties, filter_properties, validate_charge, validate_properties | 100 | 100/0/0 |
 | `pricing.fixed_charges.jsonl` | fixed_charge_fee, fixed_charge_in_advance, fixed_charge_units | 27 | 21/3/3 |
-| `pricing.misc.jsonl` | estimate_instant, projection, simulate | 27 | 18/5/4 |
+| `pricing.misc.jsonl` | estimate_instant, projection, simulate | 28 | 19/5/4 |
 | `periods.boundaries.jsonl` | boundaries, invoice_boundaries | 123 | 111/6/6 |
 | `periods.billing_days.jsonl` | billing_days, periodic_billing | 34 | 32/1/1 |
 | `periods.chains.jsonl` | chain | 8 | 8/0/0 |
@@ -217,21 +217,21 @@ both/compat/corrected; every both/compat vector EXECUTED through the oracle at t
 | `periods.lifecycle.jsonl` | classify_change, create_status, terminate, termination_credit_days, trial_end | 41 | 33/4/4 |
 | `invoice.totals.jsonl` | totals | 28 | 28/0/0 |
 | `invoice.taxes.jsonl` | apply_taxes, fee_tax_selection | 23 | 21/1/1 |
-| `invoice.coupons.jsonl` | coupon_amount, coupon_apply, coupon_create, coupon_distribution, coupon_order | 59 | 57/1/1 |
-| `invoice.lifecycle.jsonl` | available_to_credit, final_status, issuing_date, payment_due_date, void | 49 | 45/2/2 |
+| `invoice.coupons.jsonl` | coupon_amount, coupon_apply, coupon_create, coupon_distribution, coupon_order | 63 | 61/1/1 |
+| `invoice.lifecycle.jsonl` | available_to_credit, final_status, issuing_date, payment_due_date, void | 50 | 46/2/2 |
 | `invoice.commitment.jsonl` | commitment_true_up | 11 | 9/1/1 |
-| `credit_notes.jsonl` | compute, estimate, termination, validate | 53 | 45/4/4 |
+| `credit_notes.jsonl` | compute, estimate, termination, validate | 58 | 48/5/5 |
 | `wallets.jsonl` | allocate, consumption_order, credits, interval_due, ongoing_balance, threshold_top_up, top_up, topup_amount | 99 | 96/1/2 |
 | `progressive.jsonl` | check_thresholds, lifetime_usage, passed_amount, to_credit | 57 | 57/0/0 |
 | `alerts.jsonl` | crossed, measure | 32 | 24/4/4 |
 | `api.jsonl` | auth_token, authorize, count_cache_key, error_body, pagination_meta | 46 | 42/2/2 |
 | `webhooks.jsonl` | encode, endpoint_receives, normalize_event_types, payload_envelope, public_key, retry_step, sign, type_info | 63 | 61/1/1 |
 | `clock.jsonl` | idempotency_key, jobs_due, termination_alert_due | 20 | 18/1/1 |
-| total | 105 unit ops | 1,789 | 1,571/110/108 |
+| total | 105 unit ops | 1,806 | 1,582/113/111 |
 
 <!-- evidence-check: on -->
 
-Corrected twins (`…x`) are RECOMPUTED from their rebuild decision; all 108 of them are `ruling: proposed` (UNRULED
+Corrected twins (`…x`) are RECOMPUTED from their rebuild decision; all 111 of them are `ruling: proposed` (UNRULED
 until the owner rules). Three test-only vectors carry the kit's test RSA key (tag `test-key`); never use it elsewhere.
 
 Scenario tier: 76 end-to-end scenarios in `scenarios/scn.*.json` (index `scenarios/MANIFEST.md`): a tenant set up

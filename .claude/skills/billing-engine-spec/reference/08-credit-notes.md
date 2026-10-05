@@ -31,7 +31,7 @@ in section 6.
 ## 2. Amounts of a note
 
 - **BE-CN-5** Items: each item names a fee of the invoice (unknown fee → `fee_not_found`) and an amount in cents that may be fractional; the item keeps `precise_amount_cents` = the requested amount and `amount_cents = round(amount)`. An item whose cent amount is < 0 is `invalid_value`; an item whose cent amount is above the fee's creditable amount (its amount minus the cent amounts of earlier notes' items on it; for a credit fee also capped by the wallet-backed amount, then `higher_than_wallet_balance`) is `higher_than_remaining_fee_amount`, except on a credit invoice whose payment is pending or failed, where any amount passes this check. Items are checked in order and the first invalid one stops the request. [vec: credit_notes.compute.009, credit_notes.validate.003, credit_notes.validate.004, credit_notes.validate.009, credit_notes.validate.010]
-- **BE-CN-6** Coupon adjustment: for each item, `item_rate = item.precise ⊘ fee.amount_cents` (binary64; 0 when the fee amount is 0); `adjustment = Σ (fee.precise_coupons_amount_cents × dec16(item_rate))` (exact products of the 16-digit rate), 0 for invoices of version < 3; the note stores the adjustment at 5 places (half away) and `coupons_adjustment_amount_cents = round(adjustment)`. The rate is divided first: 3 coupon cents on a 192-cent fee and an item of 1 give `3 × dec16(1 ⊘ 192)` = 0.015624999999999999 → 0.01562, where `3 × 1 / 192` = 0.015625 would store 0.01563 (RBD-68; corrected twin). [vec: credit_notes.compute.003, credit_notes.compute.016, credit_notes.compute.016x, credit_notes.estimate.002]
+- **BE-CN-6** Coupon adjustment: for each item, `item_rate = item.precise ⊘ fee.amount_cents` (binary64; 0 when the fee amount is 0); `adjustment = Σ (fee.precise_coupons_amount_cents × dec16(item_rate))` (exact products of the 16-digit rate), 0 for invoices of version < 3; the note stores the adjustment at 5 places (half away) and `coupons_adjustment_amount_cents = round(adjustment)`. The rate is divided first: 3 coupon cents on a 192-cent fee and an item of 1 give `3 × dec16(1 ⊘ 192)` = 0.015624999999999999 → 0.01562, where `3 × 1 / 192` = 0.015625 would store 0.01563 (RBD-68; corrected twin). `dec16` truncates the rate's shortest text after 16 significant digits (chapter 07 reading guide): an item of 5 on the same fee gives `5 ⊘ 192` = 0.026041666666666668, which enters as 0.02604166666666666, so `3 ×` it = 0.07812499999999998 → 0.07812; the uncut text, or the exact binary64 value rounded to 16 digits (0.02604166666666667), would store 0.07813. [vec: credit_notes.compute.003, credit_notes.compute.016, credit_notes.compute.016x, credit_notes.compute.019, credit_notes.compute.019x, credit_notes.estimate.002]
 - **BE-CN-7** Taxes, per tax code present on the items' fees (rows take code, name and rate from the invoice's tax snapshot): `base = Σ (item.precise − fee.precise_coupons × item_rate)` over the items whose fee carries the code — the coupon share leaves the base **even for version < 3 invoices**, whose adjustment is 0; `taxes_base_rate` = the invoice row's taxable amount ⊘ its fees amount (1 for locally computed taxes); `precise_tax = ((base × taxes_base_rate) × rate) ⊘ 100` — the product is exact (`taxes_base_rate` and `rate` entering it at 16 digits) and only the division by 100 is binary64, as for a tax row (BE-IV-11): an item of 180 at 17.5 % gives 3150 ⊘ 100 = 31.5 → 32; row `amount_cents = round(precise_tax)`, row `base_amount_cents = round(base × taxes_base_rate)`. The note's precise taxes = `precise_tax_1 ⊕ precise_tax_2 ⊕ …` (binary64 sum), stored by rounding its text to 5 places, and `taxes_amount_cents = round(precise taxes)` after BE-CN-9. [vec: credit_notes.compute.001, credit_notes.compute.002, credit_notes.compute.003, credit_notes.compute.015]
 - **BE-CN-8** `taxes_rate` of the note = round(Σ over codes of `(base_code / (Σ item.precise − adjustment)) × rate`, 5 places, half away), computed in **decimal** (exact quotient, the rate at 16 digits) — unlike the invoice's binary64 rate (BE-IV-14): items of 7 (at 5.5 %) and 153 give 7 / 160 × 5.5 = 0.240625 → 0.24063 on the note where the invoice shows 0.24062; 0 when the divisor is 0. [vec: credit_notes.compute.018, credit_notes.estimate.003]
 - **BE-CN-9** Last-note tax residue: when, once this note's items are counted, the invoice's creditable amount (BE-IV-47) is 0, the note's precise taxes are reduced by Σ (taxes_amount − precise taxes) over the invoice's existing notes, so the notes' taxes add up to the invoice's taxes (two notes of 1367 and 1366 on a 2733 invoice tax). The per-code rows are **not** adjusted. RBD-75 keeps this. [vec: credit_notes.compute.002, credit_notes.estimate.004]
@@ -75,10 +75,10 @@ When a subscription of a plan **paid in advance** is terminated (not as a downgr
 `on_termination_credit_note` ∈ {`credit`, `refund`, `offset`}, an automatic note returns the unused part of the last
 subscription fee.
 
-- **BE-CN-15** Unused amount: `sdp ⊗ remaining` (BE-SP-58: `sdp` is the binary64 single-day price of the plan amount recorded on the last subscription fee, else the plan's amount); nothing when ≤ 0; capped at the last subscription fee's `amount_cents`; minus the items of earlier notes on that fee; nothing when ≤ 0. The single item is that amount **truncated** to 5 decimals (e.g. 15466.66666), so its cent amount rounds and the totals are re-rounded (BE-CN-11). [vec: credit_notes.termination.001, credit_notes.termination.002, credit_notes.termination.003]
+- **BE-CN-15** Unused amount: `sdp ⊗ remaining` (BE-SP-58: `sdp` is the binary64 single-day price of the plan amount recorded on the last subscription fee, else the plan's amount); nothing when ≤ 0; capped at the last subscription fee's `amount_cents`; minus the items of earlier notes on that fee; nothing when ≤ 0. The single item is that amount **truncated** to 5 decimals (e.g. 15466.66666), so its cent amount rounds and the totals are re-rounded (BE-CN-11). [vec: credit_notes.termination.001, credit_notes.termination.002, credit_notes.termination.003, credit_notes.termination.015]
 - **BE-CN-16** The day counts are those of BE-SP-58/59: remaining days from the end of the termination's local day to the end of the period (one day more when terminated by an upgrade: the end point `F` moves one day earlier, so the termination day itself is credited back, BE-SP-58; trial-aware), both taken as UTC calendar dates of local day ends; this equals local-date arithmetic when both local day ends have negative UTC offsets or both have zero or positive ones (always true except in a zone whose offset crosses UTC during the period, such as one at −01:00 in winter and +00:00 in summer: `periods.termination_credit_days.010`). [vec: credit_notes.termination.001, credit_notes.termination.003, credit_notes.termination.006]
 - **BE-CN-17** Amounts: `T = round(item − adjustment + precise taxes)` with BE-CN-6/7 applied to the single item on the paid invoice. `refund = round(min(paid_share − used, T))`, 0 when `paid_share − used` is not positive, where `paid_share = ((fee precise sub-total + fee precise taxes) ⊘ invoice sub_total_including_taxes) ⊗ invoice total_paid` (0 when that sub-total is 0) and `used` = the same chain as `T` applied to `sdp ⊗ used days` (BE-SP-59): truncated to 5 decimals like the item, then `round(x − adjustment + precise taxes)`. Split: `credit` → (T, 0, 0); `refund` → (T − refund, refund, 0); `offset` → (0, refund, T − refund). The note is then created as an automatic note (BE-CN-1, BE-CN-5..12 apply). [vec: credit_notes.termination.001, credit_notes.termination.002, credit_notes.termination.003, credit_notes.termination.004, credit_notes.termination.005]
-- **BE-CN-18** No termination note when the last subscription fee is 0 or its invoice is voided, or when the three amounts are all 0. Termination by upgrade combined with `refund` or `offset` is not supported: the reference fails with an unhandled error that has no code (kit domain error `server_error`); the zero-fee and voided-invoice cases are checked first, so they still answer "no note" without an error. [vec: credit_notes.termination.007, credit_notes.termination.010, credit_notes.termination.011, credit_notes.termination.012]
+- **BE-CN-18** No termination note when the last subscription fee is 0 or its invoice is voided (the invoice's `status` is `voided`; its payment status plays no part), or when the three amounts are all 0. Termination by upgrade combined with `refund` or `offset` is not supported: the reference fails with an unhandled error that has no code (kit domain error `server_error`). The exits are taken in this order: (1) a zero fee or a voided invoice → no note, without an error; (2) upgrade with `refund` or `offset` → `server_error`, before any amount is computed, so the error is raised even when nothing would be credited (no remaining day, an unused amount of 0, earlier notes covering the fee); (3) nothing left to credit after BE-CN-15 → no note; (4) the three amounts of BE-CN-17 all 0 → no note. [vec: credit_notes.termination.007, credit_notes.termination.010, credit_notes.termination.011, credit_notes.termination.012, credit_notes.termination.013, credit_notes.termination.014, credit_notes.termination.015]
 
 ## 5. After creation
 
@@ -95,10 +95,10 @@ subscription fee.
 |---|---|---|---|
 | RBD-75 | ±1-cent total correction, termination items truncated to 5 places, last note absorbs the tax residue | KEEP | KEEP: the `both` vectors that cite it (`credit_notes.compute.002`, `.009`, `.011`, `credit_notes.termination.001..003`) carry no offset, so the RBD-106 correction leaves them unchanged |
 | RBD-106 | the ±1-cent correction ignores the offset: on a note with an offset, credit + refund + offset ≠ total (BE-CN-11) | `credit_notes.compute.013`, `credit_notes.compute.014`, `credit_notes.termination.005` | proposed: the cent lands on one requested field (credit, else offset, else refund); twins `…x` |
-| RBD-68 | item rates and the paid share in binary64 (the note's tax rate is decimal, BE-CN-8) | `credit_notes.compute.016` (0.01562) | exact decimal (proposed): twin `credit_notes.compute.016x` (0.01563) |
+| RBD-68 | item rates and the paid share in binary64 (the note's tax rate is decimal, BE-CN-8) | `credit_notes.compute.016` (0.01562), `credit_notes.compute.019` (0.07812) | exact decimal (proposed): twins `credit_notes.compute.016x` (0.01563), `credit_notes.compute.019x` (0.07813) |
 
 Binary64 islands of this chapter, with their exact evaluation order: the item rate `item ⊘ fee amount` entering the
-coupon adjustment at 16 digits (BE-CN-6, `credit_notes.compute.016`); the tax `((base × taxes_base_rate) × rate) ⊘ 100`
+coupon adjustment at 16 digits, its shortest text truncated (BE-CN-6, `credit_notes.compute.016`, `credit_notes.compute.019`); the tax `((base × taxes_base_rate) × rate) ⊘ 100`
 with the binary64 sum of the per-code taxes (BE-CN-7, `credit_notes.compute.015`: 32, where `180 ⊗ (17.5 ⊘ 100)` would
 give 31); the termination unused amount `sdp ⊗ days` and the paid share `(fee amount ⊘ invoice sub-total) ⊗ paid`
 (BE-CN-15, BE-CN-17; the two orders of the paid share differ for some inputs taken alone — `(15 ⊘ 22) ⊗ 11` =
@@ -115,7 +115,7 @@ give 31); the termination unused amount `sdp ⊗ days` and the paid share `(fee 
 | The estimate drops item fractions (toward zero); the note itself keeps them | BE-CN-14, BE-CN-5 |
 | The note's tax rate is decimal (0.24063) where the invoice's is binary64 (0.24062) for the same shares | BE-CN-8, BE-IV-14 |
 | One error is reported: the first failing check in order, e.g. the item-total mismatch (base) before an unpaid refund | BE-CN-12 |
-| Upgrade termination with refund or offset is an unhandled error, not a note | BE-CN-18 |
+| Upgrade termination with refund or offset is an unhandled error, not a note, even when nothing would be credited | BE-CN-18 |
 | Termination items are truncated, not rounded, to 5 decimals | BE-CN-15 |
 | A credit note on a draft invoice stays draft until the invoice is finalized | BE-CN-2 |
 
@@ -123,10 +123,10 @@ give 31); the termination unused amount `sdp ⊗ days` and the paid share `(fee 
 
 | File | Ops | Vectors |
 |---|---|---|
-| `credit_notes.jsonl` | `credit_notes.compute`, `credit_notes.estimate`, `credit_notes.termination`, `credit_notes.validate` | 53 (four corrected twins) |
+| `credit_notes.jsonl` | `credit_notes.compute`, `credit_notes.estimate`, `credit_notes.termination`, `credit_notes.validate` | 58 (five corrected twins) |
 
 Evidence: every `both`/`compat` vector is EXECUTED through the oracle adapter at the pin (spec-derived values were
-first checked against the reference examples); the four corrected twins (three RBD-106, one RBD-68) are RECOMPUTED
+first checked against the reference examples); the five corrected twins (three RBD-106, two RBD-68) are RECOMPUTED
 with `ruling: proposed`. Run them with `python3 reimplementation-kit/scripts/kitrun.py --impl-cmd "<adapter>"
 --areas credit_notes`.
 
@@ -157,6 +157,19 @@ kit v1.1 integration).
 The paid-share order `(fee ⊘ sub-total) ⊗ paid` differs from `(fee × paid) ⊘ sub-total` on isolated inputs (15, 22, 11)
 but no termination vector reaches such a case. kitrun against the oracle: all `credit_notes` vectors, shipped and
 holdout, PASS (part of the 392/392 run of chapter 07); the model `recompute-invoicing.py` passes them all in both profiles.
+
+Later pass of 2026-10-05 (database `lago_api_test_fr3b`; each new vector run twice through `oracle.sh adapter`). Exit
+order of the termination note from `$API/app/services/credit_notes/create_from_termination.rb:22-33`: the zero-fee and
+voided-invoice exit tests the invoice status only (`:22`), the unsupported combination is raised at `:24-25`, before
+the creditable amount (`:27-29`, earlier notes deducted at `:77`) and the three amounts (`:31-33`); executed: upgrade
+with a refund and earlier notes covering the fee, and upgrade with an offset and a 60-day trial covering the rest of the
+period, both `server_error`, while the same upgrade with `credit` and covering notes gives no note
+(`credit_notes.termination.013..015`). The 16-digit cut: `$API/app/services/credit_notes/apply_taxes_service.rb:79-80`
+multiplies a decimal by a binary64, which BigDecimal 4.1.2 converts from the shortest text truncated after 16
+significant digits (probed on the pinned Ruby: `5 ⊘ 192` enters as 0.02604166666666666 and 3 times it gives
+0.07812499999999998); executed as `credit_notes.compute.019` (0.07812), while a control vector expecting the half-up
+reading for `1 × (23 ⊘ 320)` (0.07187) failed against the oracle's 0.07188. The model `recompute-invoicing.py` now
+applies the same cut where the chapters write `dec16` and passes every vector of this chapter in both profiles.
 
 | Rules | Reference code @591ae90 |
 |---|---|

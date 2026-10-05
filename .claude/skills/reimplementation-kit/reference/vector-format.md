@@ -124,7 +124,7 @@ The runner compares the adapter's `output` with `expected` recursively. `expecte
 | Expected value | Default mode | PASS when |
 |---|---|---|
 | JSON integer | integer-exact | actual is a JSON number with the same integral value (a non-integer spelling such as `103.0` passes with warning NUM-OUT) |
-| canonical decimal string | `numeric` | actual is a decimal string or JSON number with the same value (`"1.50"` = `"1.5"`); a non-integer JSON number raises warning NUM-OUT (an integer JSON number does not) |
+| canonical decimal string | `numeric` | actual is a decimal string or JSON number with the same value (`"1.50"` = `"1.5"`); a non-integer JSON number raises warning NUM-OUT (an integer JSON number does not); the warning is expected where a rule makes the reference itself answer a JSON number at that path, as for the range bounds echoed in `amount_details` (billing-engine-spec BE-PR-58, `pricing.gp.006`) |
 | JSON float (payload subtrees only) | `numeric` | same value |
 | instant string | `instant` | actual is an instant (any zone) denoting the same point in time, to the nanosecond |
 | any other string | `text` | byte-equal |
@@ -469,7 +469,7 @@ reimplementation-kit/maintainer-data/holdout`.
 **Manifest.** `scripts/maintainer/make-kit-json.py --write` (run last, after the split) writes:
 
 ```json
-{"kit_version":"1.1.0","kit_schema":1,"proto":1,"pins":{"lago_api":"591ae9005110","events_processor_tree":"83e012866f29"},
+{"kit_version":"1.2.0","kit_schema":1,"proto":1,"pins":{"lago_api":"591ae9005110","events_processor_tree":"83e012866f29"},
  "generated_by":"reimplementation-kit/scripts/maintainer/make-kit-json.py","files":{
 "billing-engine-spec/reference/05-pricing-and-fees.md":"<sha256>",
 "billing-engine-spec/vectors/pricing.models.jsonl":{"sha256":"<sha256>","vectors":106},
@@ -481,7 +481,7 @@ Every file of the three kit skills is listed (one per line, sorted, no timestamp
 maintainer-only files (what `kit-pack.sh --cleanroom` strips: `scripts/maintainer/`, `maintainer-data/`,
 `reference/maintainer-oracle.md`, any file with the MAINTAINER-ONLY header) add `"maintainer": true`. `--check`
 reports ADDED/REMOVED/CHANGED entries and exits 1 when the file is absent or stale. `kitrun.py` reads `kit_version`
-from it (default `1.1.0-dev`); `kit-pack.sh` verifies every listed hash (maintainer entries may be absent from a
+from it (default `1.2.0-dev`); `kit-pack.sh` verifies every listed hash (maintainer entries may be absent from a
 clean-room pack).
 
 ## Provenance (maintainers)
@@ -502,6 +502,8 @@ clean-room pack).
   places, billing-engine-spec BE-PR-87; the 1.0.0 text "unrounded" contradicted the fee vectors); the section 8 rows of
   `webhooks.type_info` (the 75 configured names, billing-engine-spec 12 BE-WH-11) and `webhooks.payload_envelope`
   (outputs `body` and `webhook_type`) follow their op schemas; the catalogue still has one row per op schema (116).
+- Kit 1.2.0 (2026-10-05): the canonical-decimal row of section 4.1 says where NUM-OUT is expected (the range bounds
+  that billing-engine-spec BE-PR-58 echoes as JSON numbers); no op or envelope change.
 - Update triggers: a new op or mode (minor `kit_version`; add its row to section 8), an envelope change
   (`kit_schema`), a pin bump (`maintainer-oracle.md` re-mint procedure), a budget decision (`thresholds.json`
   `kit_budget` and section 9.1 together).
