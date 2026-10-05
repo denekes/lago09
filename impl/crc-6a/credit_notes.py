@@ -6,14 +6,14 @@ from decimal import ROUND_DOWN, Decimal
 
 import invoice as iv
 import periods as pr
-from common import KitError, ZERO, dec, exact, float_round, frnd, rint, rnd, store5, trunc
+from common import cut16, KitError, ZERO, dec, exact, float_round, frnd, rint, rnd, store5, trunc
 
 Q5 = Decimal("0.00001")
 
 
 def d16(f: float) -> Decimal:
     """A float read back at 16 significant digits."""
-    return Decimal(format(f, ".15e"))
+    return cut16(f)
 
 
 class Inv:
@@ -108,7 +108,7 @@ def note_core(inv: Inv, items, residue_check=True):
             t = float(base) * float(rates[code]) / 100
         rows.append({"code": code, "amount_cents": rint(t) if ex else frnd(t), "base_amount_cents": rint(base)})
         ptax += t
-    ptax = store5(ptax) if ex else store5(d16(ptax))
+    ptax = store5(ptax) if ex else store5(Decimal(format(float(ptax), ".15e")))
     sum_precise = sum((p for _, p, _ in items), ZERO)
     return {"rows": rows, "ptax": ptax, "padj": padj, "adj": adj, "sum_precise": sum_precise, "bases": bases, "rates": rates}
 
@@ -365,6 +365,8 @@ def termination(inp, ctx):
     fee_amount = int(invd["subscription_fee_amount_cents"])
     if fee_amount == 0 or invd.get("voided") or invd.get("status") == "voided":
         return {"credit_note": None}
+    if inp.get("upgrade") and inp.get("on_termination", "credit") in ("refund", "offset"):
+        raise KitError("server_error")
     term = pr.parse_instant(inp["terminated_at"])
     started = pr.parse_instant(sub["started_at"])
     sub_at = pr.parse_instant(sub.get("subscription_at", sub["started_at"]))
@@ -416,8 +418,6 @@ def termination(inp, ctx):
     # amount of the note (T)
     t_total = chain_total(inv, fee, item)
     mode = inp.get("on_termination", "credit")
-    if inp.get("upgrade") and mode in ("refund", "offset"):
-        raise KitError("server_error")
     credit = refund = offset = 0
     if mode == "credit":
         credit = t_total

@@ -45,3 +45,7 @@ Each entry: question; where I looked; assumption made.
 2. **`invoice.coupon_create`: is the `expiration_at` check conditional on `expiration: time_limit`?** Looked: BE-IV-17 ("when given"). Assumption: checked whenever `expiration_at` is given, whatever `expiration` says.
 3. **`coupon_apply` `applied_before` entries without a `coupon` key**: schema does not say these are applied coupons of the same catalogue coupon. Assumption (from `coupon_apply.013`): they inherit the applied coupon's own limitations and count for reusability.
 4. **Percentage coupon given an `amount_cents`/currency** is value-checked like a fixed one (BE-IV-17 "whatever the coupon type"); assumed also for apply overrides.
+
+## v1.2
+
+No open questions. One observation: BE-CN-7 says the note's precise taxes are "stored by rounding its text to 5 places"; the text that passes `credit_notes.compute.009` is the 16-significant-digit rounding of the binary64 sum, not its shortest repr. Assumption kept: round to 16 digits, then half-up to 5 places.

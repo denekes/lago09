@@ -68,10 +68,21 @@ def float_round(x: float, nd: int) -> float:
     return f / s
 
 
+def cut16(f: float) -> Decimal:
+    """dec16: the shortest repr text of a binary64, cut (not rounded) after 16 significant digits."""
+    d = Decimal(repr(float(f)))
+    if d == 0:
+        return Decimal(0)
+    t = d.as_tuple()
+    digs = t.digits
+    if len(digs) <= 16:
+        return d
+    return Decimal((t.sign, digs[:16], t.exponent + len(digs) - 16))
+
+
 def pct16(rate) -> Decimal:
     """rate / 100 taken as binary64 and read back at 16 significant digits."""
-    f = float(dec(rate)) / 100.0
-    return Decimal(format(f, ".15e"))
+    return cut16(float(dec(rate)) / 100.0)
 
 
 def fnum(f: float):

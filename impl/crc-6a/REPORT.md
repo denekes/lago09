@@ -64,3 +64,19 @@ What changed:
 - Termination (BE-CN-18): voided invoice via `status: voided` exits with no note; upgrade with refund/offset raises `server_error`.
 
 Time spent: about 15 minutes.
+
+## v1.2
+
+Kit 1.2.0, areas invoice,credit_notes.
+
+Final kitrun lines:
+
+- compat: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=187 passed=187 skipped_ops=0 exit=0` (credit_notes 45/45 = 100.0 %, core 100 %; invoice 142/142 = 100.0 %, core 100 %)
+- corrected: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=187 passed=177 skipped_ops=0 exit=0` (credit_notes 40 pass + 5 unruled, 100.0 %; invoice 137 pass + 5 unruled, 100.0 %)
+
+What changed:
+
+- `dec16` (BE-CN-6, BE-CN-7, BE-IV-11 reading): now a cut of the shortest repr text after 16 significant digits, never a rounding (`common.cut16`, used by `d16` and `pct16`). Fixes `credit_notes.compute.019`. The stored sum of the note's precise taxes (BE-CN-7) keeps its 16-digit rounding before the 5-place store (`compute.009` needs it).
+- BE-CN-18 exit order: upgrade combined with refund or offset now answers `server_error` right after the zero-fee/voided exit, before any amount is computed. Fixes `credit_notes.termination.013`, `.014`.
+
+Wall clock: start 2026-10-05 15:13:36 UTC, end 2026-10-05 15:14:24 UTC (`date -u`).
