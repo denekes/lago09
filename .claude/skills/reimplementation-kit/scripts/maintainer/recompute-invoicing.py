@@ -98,9 +98,13 @@ class Num:
         f = x if isinstance(x, float) else float(x)
         s = 1e5
         xs = f * s
-        r = math.floor(abs(xs) + 0.5) * (1 if xs >= 0 else -1)
+        # round half away from zero on the exact binary64 product (floor(xs + 0.5) is wrong from 2^52 up)
+        r = float(D(xs).to_integral_value(rounding=ROUND_HALF_UP))
+        # the correction adds 0.5 in binary64: from 2^52 up the sum lands on the even neighbour (BE-IV-14)
         if f > 0 and (r + 0.5) / s <= f:
             r += 1
+        elif f < 0 and (r - 0.5) / s >= f:
+            r -= 1
         return D(repr(r / s))
 
     def store_col5(self, x):

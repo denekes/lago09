@@ -1,6 +1,6 @@
 # Value corpus: JSON literal → `value` string (compat and corrected)
 
-Part of `events-processor-spec` (re-implementation kit v1.3.0). The `value` string of an enriched record is what
+Part of `events-processor-spec` (re-implementation kit v1.4.0). The `value` string of an enriched record is what
 the ClickHouse event store turns into the number it aggregates, so its text is a billing contract. Read when you
 implement EP-F2 (`processing-rules.md`) or a downstream reader of `value`. Data file:
 `conformance/value-corpus.tsv` (columns id, json, want_value, want_decimal, note); exercised by EPC-07 (through
