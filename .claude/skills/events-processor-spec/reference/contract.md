@@ -1,6 +1,6 @@
 # Implementation contract: configuration, Kafka, Redis, Postgres, startup, shutdown
 
-Part of `events-processor-spec` (re-implementation kit v1.4.0). Read before writing the process skeleton of an
+Part of `events-processor-spec` (re-implementation kit v1.5.0). Read before writing the process skeleton of an
 events-processor: what it is configured with, what it reads and writes, how it starts, signals readiness and
 stops. Behaviour facts: reference events-processor tree `83e012866f29` (compat profile) plus the corrected
 profile where stated. Production runs **memory-cache mode** (owner decision OD-1); DB mode is the development and

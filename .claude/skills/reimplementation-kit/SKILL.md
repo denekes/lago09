@@ -12,7 +12,7 @@ This skill is the entry point of a self-contained kit for rebuilding — in any 
 that behaves like the Lago billing engine (lago-api) and the Lago events-processor, and for proving it with
 golden vectors. The behaviour itself lives in `billing-engine-spec` and `events-processor-spec`; this skill holds
 the method, the vector format, the adapter protocol, the runners and the grading rules. Behaviour facts as of
-lago-api `591ae90` (v1.53.0, 2026-09-08) and events-processor tree `83e012866f29`; kit v1.4.0 (fix rounds of
+lago-api `591ae90` (v1.53.0, 2026-09-08) and events-processor tree `83e012866f29`; kit v1.5.0 (fix rounds of
 2026-10-05 after the clean-room acceptance run and the implementers' re-runs; changes in section 13).
 
 ## 1. When to use / when NOT to use
@@ -76,7 +76,7 @@ Do NOT use it for:
 <!-- evidence-check: on -->
 
 Pins: lago-api `591ae9005110`; events-processor tree `83e012866f29`. Versions: adapter protocol `proto` 1, vector
-envelope `kit_schema` 1, catalogue `kit_version` 1.4.0 (from `kit.json`; kitrun prints `1.4.0-dev` until it exists).
+envelope `kit_schema` 1, catalogue `kit_version` 1.5.0 (from `kit.json`; kitrun prints `1.5.0-dev` until it exists).
 
 ## 4. Rebuild method (summary of `reference/method.md`)
 
@@ -162,25 +162,25 @@ file; counts include the vectors the maintainers keep in the holdout):
 | `…/aggregation.{core,store_ch,filters,in_advance,prorated}.jsonl` | aggregation | 288 | 211 / 41 / 36 | 252/252 |
 | `…/pricing.{models,in_advance,fees,validation,fixed_charges,misc}.jsonl` | pricing | 357 | 304 / 27 / 26 | 331/331 |
 | `…/periods.{boundaries,billing_days,chains,subscription_fee,lifecycle}.jsonl` | periods | 264 | 230 / 17 / 17 | 247/247 |
-| `…/invoice.{totals,taxes,coupons,lifecycle,commitment}.jsonl`, `…/credit_notes.jsonl` | invoice, credit_notes | 239 | 213 / 13 / 13 | 226/226 |
+| `…/invoice.{totals,taxes,coupons,lifecycle,commitment}.jsonl`, `…/credit_notes.jsonl` | invoice, credit_notes | 244 | 214 / 15 / 15 | 229/229 |
 | `…/wallets.jsonl`, `…/progressive.jsonl`, `…/alerts.jsonl` | wallets, progressive, alerts | 188 | 177 / 5 / 6 | 182/182 |
 | `…/api.jsonl`, `…/webhooks.jsonl`, `…/clock.jsonl` | api, webhooks, clock | 129 | 121 / 4 / 4 | 125/125 |
-| billing unit total | 14 areas | 1,812 | 1,582 / 116 / 114 | 1,698/1,698 |
+| billing unit total | 14 areas | 1,817 | 1,583 / 118 / 116 | 1,701/1,701 |
 | `billing-engine-spec/scenarios/scn.*.json` | scn | 76 (5 `core`) | every scenario replayed twice on the reference | 76/76 |
 | `events-processor-spec/vectors/ep.units.jsonl` | ep | 155 | 77 / 43 / 35 | 117/120 (3 `ep.refresh_member` RECOMPUTED with a note) |
 | `reimplementation-kit/selftest/domain.selftest.jsonl` | domain (runner fixtures) | 23 | 23 / 0 / 0 | 23/23 |
 
 <!-- evidence-check: on -->
 
-Every corrected twin is RECOMPUTED by definition (its `ref` names its RBD); all 114 billing twins and 4 of the 35
+Every corrected twin is RECOMPUTED by definition (its `ref` names its RBD); all 116 billing twins and 4 of the 35
 `ep` twins are `ruling: proposed` and graded UNRULED until the owner rules.
 
 Kit gates (`validate-vectors.py --gate`, `acceptance/thresholds.json` `kit_gates`): billing `both`/`compat` ≥ 95 %
 EXECUTED, ≤ 5 % RECOMPUTED, 0 EXTRACTED; scenarios 100 % EXECUTED; `ep` `both`/`compat` ≥ 95 % EXECUTED (the rest
 RECOMPUTED with a note, corrected twins not counted). Size budget (`kit_budget`, whole-kit runs): billing unit vectors
 1,450,000 bytes (1,400,000 until 1.2.0), scenarios 600,000, events-processor conformance 650,000, events-processor unit vectors 130,000,
-schemas and metadata 420,000, total 3,000,000 (`SIZES` line of the validator; measured 2026-10-05 on 1.4.0: 1,402,624 /
-387,658 / 509,473 / 103,944 / 375,882, total 2,846,863).
+schemas and metadata 420,000, total 3,000,000 (`SIZES` line of the validator; measured 2026-10-05 on 1.5.0: 1,408,197 /
+387,658 / 509,473 / 103,944 / 375,882, total 2,852,436).
 
 ## 7. Running conformance
 
@@ -273,16 +273,16 @@ Read the diff path first; group failures by op and first diff path — one wrong
 | Command | Purpose | Observed (2026-10-05) |
 |---|---|---|
 | `python3 scripts/kitrun.py --impl-cmd CMD [--areas …] [--profile …] [--report F]` | run unit vectors through an adapter | vs the oracle on the self-test vectors: `SUMMARY kitrun: areas=1 pass=1 fail=0 vectors=23 passed=23 skipped_ops=0 exit=0` |
-| `python3 scripts/validate-vectors.py [FILES] [--gate] [--rule-coverage] [--inventory]` | format, evidence, budget, content and text checks | on the self-test vectors: `SUMMARY validate-vectors: files=1 vectors=23 scenarios=76 errors=0 warnings=0`; whole kit with `--gate --rule-coverage`: `files=146 vectors=1990 scenarios=76 errors=0 warnings=0` |
+| `python3 scripts/validate-vectors.py [FILES] [--gate] [--rule-coverage] [--inventory]` | format, evidence, budget, content and text checks | on the self-test vectors: `SUMMARY validate-vectors: files=1 vectors=23 scenarios=76 errors=0 warnings=0`; whole kit with `--gate --rule-coverage`: `files=146 vectors=1995 scenarios=76 errors=0 warnings=0` |
 | `python3 scripts/adapter_ref.py [--list-ops]` | reference adapter loop + `domain.round` example; op list | `--only round`: 14/14 PASS |
-| `bash scripts/kit-selftest.sh [--skip-kit-validate] [--skip-ep-build]` | syntax, 18 runner unit tests, validation, selftest adapter 100 % / mutation ≥ 99 %, EP runner build | `unit PASS Ran 18 tests`; `selftest-pass PASS compat 1524/1524 … corrected 1405/1405 (+unruled 110/110)`; `selftest-mutate PASS detected compat 1522/1524 corrected 1403/1405`; `ep-build PASS`; `SUMMARY kit-selftest: steps=7 pass=7 fail=0 skip=0` (`--skip-ep-build`: pass=6 skip=1) |
+| `bash scripts/kit-selftest.sh [--skip-kit-validate] [--skip-ep-build]` | syntax, 18 runner unit tests, validation, selftest adapter 100 % / mutation ≥ 99 %, EP runner build | `unit PASS Ran 18 tests`; `selftest-pass PASS compat 1527/1527 … corrected 1406/1406 (+unruled 112/112)`; `selftest-mutate PASS detected compat 1525/1527 corrected 1404/1406`; `ep-build PASS`; `SUMMARY kit-selftest: steps=7 pass=7 fail=0 skip=0` (`--skip-ep-build`: pass=6 skip=1) |
 | `python3 scripts/selftest/test_runner.py` | runner unit tests (compare modes, crash/timeout/garbage/wrong-id adapters, exit codes 0/2/3/4, parallel, report schema) | `Ran 18 tests … OK` |
 | `scripts/maintainer/oracle.sh setup\|db\|clickhouse\|run\|adapter\|env\|status\|stop` | MAINTAINER: the reference at the pin as rspec runner and as adapter | from an empty cache 94 s; `run spec/services/charge_models` 140/140 in 21 s |
 | `python3 scripts/maintainer/selftest-adapter.py [--mutate]` | MAINTAINER: answers from `expected` to test the runners | 100 % PASS; mutation detected 100 % |
-| `python3 scripts/maintainer/vector-provenance.py` | MAINTAINER: every `evidence.ref` resolves at its pin; non-EXECUTED residue | `SUMMARY vector-provenance: vectors=2066 refs_checked=2241 broken=0 residue_recomputed=3 residue_extracted=0` |
-| `python3 scripts/maintainer/holdout-split.py --check\|--write [--seed S] [--prune-vec-tags]` | MAINTAINER: seeded, stratified 20 % holdout into `maintainer-data/holdout/` (lead, at integration) | `--check` on 1.4.0 (report only, the holdout stays stable): `vectors=1967 eligible=444 holdout=329 (16.7 %) moves=74 prunes=0 mode=check` |
-| `python3 scripts/maintainer/make-kit-json.py --check\|--write` | MAINTAINER: `kit.json` manifest (sha256 per file, maintainer flags), written last | 1.4.0, `--write` then `--check`: `SUMMARY make-kit-json: files=468 maintainer=69 vectors=1665 … changed=0 mode=check` |
-| `bash scripts/maintainer/kit-pack.sh --cleanroom (--out F \| --out-dir D)` | MAINTAINER: clean-room pack (strip, manifest, validator, forbidden-content scan) | `SUMMARY kit-pack: mode=cleanroom files=400 … stripped=69 forbidden=0 validate_errors=0` (inside the pack: `files=112 vectors=1665 scenarios=76 errors=0 warnings=0`) |
+| `python3 scripts/maintainer/vector-provenance.py` | MAINTAINER: every `evidence.ref` resolves at its pin; non-EXECUTED residue | `SUMMARY vector-provenance: vectors=2071 refs_checked=2246 broken=0 residue_recomputed=3 residue_extracted=0` |
+| `python3 scripts/maintainer/holdout-split.py --check\|--write [--seed S] [--prune-vec-tags]` | MAINTAINER: seeded, stratified 20 % holdout into `maintainer-data/holdout/` (lead, at integration) | `--check` on 1.5.0 (report only, the holdout stays stable): `vectors=1972 eligible=444 holdout=329 (16.7 %) moves=74 prunes=0 mode=check` |
+| `python3 scripts/maintainer/make-kit-json.py --check\|--write` | MAINTAINER: `kit.json` manifest (sha256 per file, maintainer flags), written last | 1.5.0, `--write` then `--check`: `SUMMARY make-kit-json: files=468 maintainer=69 vectors=1670 … changed=0 mode=check` |
+| `bash scripts/maintainer/kit-pack.sh --cleanroom (--out F \| --out-dir D)` | MAINTAINER: clean-room pack (strip, manifest, validator, forbidden-content scan) | `SUMMARY kit-pack: mode=cleanroom files=400 … stripped=69 forbidden=0 validate_errors=0` (inside the pack: `files=112 vectors=1670 scenarios=76 errors=0 warnings=0`) |
 
 ## 12. Provenance and maintenance
 
@@ -372,6 +372,22 @@ Author questions answered by a rebuild decision are closed there and have no row
 grouped prorated phantom day (RBD-31), division by zero (RBD-37) and the simulator's scope and event count (RBD-54).
 
 ## 13. Changes
+
+### 1.5.0 (2026-10-05)
+
+Fifth fix round: a cross-check of the implementations' column rule against the maintainer model on random inputs found
+two more points the text left open, both settled on the reference: an exact tie at the 16th significant digit goes to
+the even digit, and an odd `f` in `round5` from 2^52 up is kept. 5 vectors added (1 `both`, 2 `compat`, 2 corrected
+twins), none changed or removed; implementations of the invoice and credit-note areas must be re-run.
+
+<!-- evidence-check: off change summary; evidence = the rule and vector ids named per line and the gate runs of section 11 -->
+
+| Area | Changes |
+|---|---|
+| invoice, credit notes | the column rule's 16-digit step rounds an exact tie to even (256924291381.03125 → 256924291381.0312, `invoice.void.013` and twin `.013x`); `round5` keeps an odd `f` from 2^52 up (72606570804.87341, `invoice.void.012`, profile-neutral); a further note-tax case of the column rule (171802469353.58026 → 171802469353.5803, `credit_notes.compute.021` and twin `.021x`) |
+| kit | version 1.5.0; RBD-68 row cites the new vectors; billing unit vectors 1,812 → 1,817 |
+
+<!-- evidence-check: on -->
 
 ### 1.4.0 (2026-10-05)
 
