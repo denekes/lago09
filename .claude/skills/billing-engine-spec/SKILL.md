@@ -11,7 +11,7 @@ description: "Behaviour spec of the in-scope Lago billing engine (lago-api at pi
 Language-neutral specification of the billing core of Lago — catalogue, customers, event ingestion, usage
 aggregation, pricing, billing periods, invoices, taxes, coupons, credit notes, wallets, progressive billing, alerts,
 the REST API v1 surface, webhooks and the clock — written so that a team holding only the kit can build an
-equivalent engine and prove it with the kit's vectors. Facts as of lago-api `591ae9005110`; kit v1.0.0.
+equivalent engine and prove it with the kit's vectors. Facts as of lago-api `591ae9005110`; kit v1.2.0.
 Scope IN: the items above. Scope OUT (interface boundary only, chapter 14): payment providers, tax providers,
 accounting/CRM integrations, e-invoicing, documents and e-mail, dunning, the newer quote/contract features,
 entitlements, GraphQL administration, authentication of members, analytics and data exports.
@@ -91,8 +91,8 @@ and billed on its own invoice or fee. The scenario tier drives the whole engine 
 | `reference/01-domain-model.md` | BE-DM-1..66 (61) | `domain.time`, `domain.money`, `domain.numbering`, `domain.catalog` | always first: entities, settings inheritance, time, money, numbering, codes, status machines |
 | `reference/02-events-ingestion.md` | BE-EV-1..74 (46) | `events.ingest` | building `POST /events` and `/events/batch`: timestamp grammar, validation order, idempotency per store, raw message |
 | `reference/03-expression-language.md` | BE-EX-1..51 (27) | `expression` | metric expressions: grammar, values, division, rounding functions, three surfaces |
-| `reference/04-aggregation-and-usage.md` | BE-AG-1..73 (58) | `aggregation.core`, `.filters`, `.in_advance`, `.prorated`, `.store_ch` | usage for a window: selection, numeric gate, six aggregation types, filters and groups, in-advance state, proration, columnar variant |
-| `reference/05-pricing-and-fees.md` | BE-PR-1..86 (86) | `pricing.models`, `.in_advance`, `.fees`, `.validation`, `.fixed_charges`, `.misc` | charge models, delta pricing, fee money, true-up, pricing units, fixed charges, validation |
+| `reference/04-aggregation-and-usage.md` | BE-AG-1..74 (59) | `aggregation.core`, `.filters`, `.in_advance`, `.prorated`, `.store_ch` | usage for a window: selection, numeric gate, six aggregation types, filters and groups, in-advance state, proration, columnar variant |
+| `reference/05-pricing-and-fees.md` | BE-PR-1..88 (88) | `pricing.models`, `.in_advance`, `.fees`, `.validation`, `.fixed_charges`, `.misc` | charge models, delta pricing, fee money, true-up, pricing units, fixed charges, validation |
 | `reference/06-subscriptions-and-periods.md` | BE-SP-1..66 (66) | `periods.boundaries`, `.billing_days`, `.chains`, `.subscription_fee`, `.lifecycle` | period algebra, billing-run boundaries, scheduling, subscription fee, lifecycle, plan changes, trials |
 | `reference/07-invoices-taxes-coupons.md` | BE-IV-1..58 (58) | `invoice.totals`, `.taxes`, `.coupons`, `.lifecycle`, `.commitment` | invoice types, totals pipeline, taxes, coupons, lifecycle, void, minimum commitment |
 | `reference/08-credit-notes.md` | BE-CN-1..24 (24) | `credit_notes` | credit, refund and offset notes, rounding correction, estimate, termination notes |
@@ -100,14 +100,14 @@ and billed on its own invoice or fee. The scenario tier drives the whole engine 
 | `reference/10-progressive-billing-and-alerts.md` | BE-PB-1..24 (21), BE-AL-1..12 (12) | `progressive`, `alerts` | lifetime usage, usage thresholds, progressive credits, alert measures and crossings |
 | `reference/11-rest-api.md` | BE-API-1..36 (36) | `api` | auth, errors, pagination, endpoint table, response field catalogue with JSON types |
 | `reference/12-webhooks.md` | BE-WH-1..29 (29) | `webhooks` | endpoints and filters, catalogue, payload envelope, exact body bytes, HMAC and RS256 JWT, retries |
-| `reference/13-clock-and-async.md` | BE-CK-1..11 (11) | `clock` | job schedule and deployment gates, local days, termination alerts, idempotency keys |
+| `reference/13-clock-and-async.md` | BE-CK-1..12 (12) | `clock` | job schedule and deployment gates, local days, termination alerts, idempotency keys |
 | `reference/14-out-of-scope-interfaces.md` | BE-IF-1..12 (12, prose only) | — | what the core emits to and accepts from payments, tax providers, integrations, documents, licensing |
 
 Every chapter has an AGPL note, numbered rules each ending in `[vec: …]` (or a prose-only marker with a reason), an
-edge-case table, a vector table and a maintainer Provenance section. Rule coverage on 2026-10-02: every BE rule has a
+edge-case table, a vector table and a maintainer Provenance section. Rule coverage on 2026-10-05: every BE rule has a
 vector or a prose-only marker (`validate-vectors.py --rule-coverage`, section 11).
 
-## 6. The 25 rules people get wrong
+## 6. The 32 rules people get wrong
 
 Each line: the rule, the trap, the vectors that catch it (all EXECUTED against the reference unless marked `x`).
 
@@ -138,6 +138,13 @@ Each line: the rule, the trap, the vectors that catch it (all EXECUTED against t
 23. **BE-AL-3** Metric alerts measure the LARGEST matching fee, not the sum, so a metric split by filters is measured by its largest bucket (RBD-77, corrected proposal: sum). [vec: alerts.measure.002, alerts.measure.002x]
 24. **BE-API-21** `per_page` absent means 100, but a non-numeric or negative `per_page` means 25 (and `per_page=0` with records fails, RBD-86). [vec: api.pagination_meta.006, api.pagination_meta.007]
 25. **BE-WH-12/14** Sign the exact body bytes as sent: `<` `>` `&` are escaped as `\u003c` `\u003e` `\u0026`, non-ASCII stays raw, floats follow the shortest-digits rule (RBD-84); re-serialising a parsed body breaks the HMAC. [vec: webhooks.encode.001, webhooks.sign.002]
+26. **BE-DM-15** The day count adds `offset(to) − offset(from)` to the elapsed time (the wall-clock duration), not the reverse: across the New York spring change an elapsed 29 d 23:30 is a wall-clock 30 d 00:30 and counts 31 days. [vec: domain.time.days_between.006, domain.time.days_between.013]
+27. **BE-SP-38** Proration is `days × (amount ÷ length)` with the quotient rounded to binary64 first, never `(days × amount) ÷ length`: 21 × (34 ÷ 28) = 25.499999999999996 → 25 cents. [vec: periods.subscription_fee.034, periods.termination_credit_days.009]
+28. **BE-PR-87** Every fee (in-advance and fixed-charge in-advance included) stores its precise amounts rounded half away at 15 decimal places, and fixed-charge units at 10 places, before anything else reads them. [vec: pricing.fee_money.022, pricing.in_advance.040, pricing.fixed_charge_in_advance.007]
+29. **BE-EX-15** A zero subtrahend returns the minuend as written: `5 - 0.00` is `5` (not `5.00`). [vec: expression.text.009]
+30. **BE-AG-56** In-advance proration cuts the binary64 ratio to 16 digits while the period aggregation keeps all 17 of its shortest text: 28 × 5/28 gives 5 in advance and 5.00001 for the period. [vec: aggregation.prorated.in_advance.006, aggregation.prorated.island.004]
+31. **BE-IV-23 vs BE-IV-11** 17.5 % of 180 cents is 31 as an unlimited coupon (rate divided first, binary64 product), 32 as a metric- or plan-limited coupon (exact product of a decimal base) and 32 as a tax (exact product divided by 100 last). [vec: invoice.coupon_amount.010, invoice.coupon_distribution.013, invoice.apply_taxes.011]
+32. **BE-CN-8 vs BE-IV-14** The credit note's tax rate is decimal (7/160 × 5.5 → 0.24063) while the invoice's is binary64 (0.24062). [vec: credit_notes.compute.018, invoice.apply_taxes.003]
 
 <!-- evidence-check: on -->
 
@@ -161,6 +168,7 @@ columnar schema changes this needs). Which store a tenant uses is fixed at organ
 | Weighted-sum durations | exact fractional seconds | whole-second boundaries crossed | BE-AG-17, BE-AG-64, RBD-29 |
 | Ties | `latest` by ingestion order | no tie-break; in-advance boundary ties by `transaction_id` text | BE-AG-65, BE-AG-73, RBD-30 |
 | Prorated unique count | grouped variant adds a phantom day | grouped = ungrouped | BE-AG-52, BE-AG-66, RBD-31 |
+| Prorated sums | decimal day ratio q (20 places) and 17-digit carried ratio, then ceil₅ | binary64 products and sums inside the store, ceil₅ of their decimal texts (31 × 15/31 → 15, relational 15.00001) | BE-AG-56, BE-AG-74, RBD-96 |
 | Time precision | microseconds | milliseconds | BE-AG-67, RBD-40 |
 | Ingestion idempotency | per (organization, subscription, `transaction_id`) | none at ingestion; query-time de-duplication behind an organization flag | BE-EV-30..33, BE-AG-68, RBD-32 |
 
@@ -177,54 +185,54 @@ Nothing there is graded by unit vectors.
 
 ## 9. Vectors and scenarios
 
-Unit vectors (`vectors/*.jsonl`, format `reimplementation-kit/reference/vector-format.md`; counts on 2026-10-02 from
-`python3 reimplementation-kit/scripts/validate-vectors.py --inventory --quiet`, both/compat/corrected; every
-both/compat vector EXECUTED through the oracle at the pin):
+Unit vectors (`vectors/*.jsonl`, format `reimplementation-kit/reference/vector-format.md`; counts on 2026-10-05 from
+`python3 reimplementation-kit/scripts/validate-vectors.py --inventory --quiet`, shipped plus the maintainers' holdout,
+both/compat/corrected; every both/compat vector EXECUTED through the oracle at the pin):
 
-<!-- evidence-check: off measured inventory of 2026-10-02; evidence = the validate-vectors.py --inventory run named in the line above -->
+<!-- evidence-check: off measured inventory of 2026-10-05; evidence = the validate-vectors.py --inventory run named in the line above -->
 
 | File | Ops | Vectors | b/c/x |
 |---|---|---|---|
-| `domain.time.jsonl` | applicable_settings, days_between, effective_timezone, terminated_at_reached, to_local | 40 | 40/0/0 |
+| `domain.time.jsonl` | applicable_settings, days_between, effective_timezone, terminated_at_reached, to_local | 41 | 41/0/0 |
 | `domain.money.jsonl` | currency_exponent, fee_taxes, round, to_minor_units | 34 | 34/0/0 |
-| `domain.numbering.jsonl` | credit_note_number, customer_slug, document_prefix, invoice_number, next_sequential_id | 42 | 42/0/0 |
+| `domain.numbering.jsonl` | credit_note_number, customer_slug, document_prefix, invoice_number, next_sequential_id | 45 | 45/0/0 |
 | `domain.catalog.jsonl` | charge_filter_code, code_reusable, subscription_external_id_valid | 33 | 31/1/1 |
-| `events.ingest.jsonl` | duplicate_key, parse_timestamp, raw_message, validate, validate_batch | 85 | 70/7/8 |
-| `expression.jsonl` | evaluate (surfaces `rails`, `ep`, `preview`) | 92 | 88/1/3 |
-| `aggregation.core.jsonl` | aggregate | 103 | 98/3/2 |
-| `aggregation.filters.jsonl` | event_filter, group_keys, matching_and_ignored, select_events | 37 | 33/2/2 |
-| `aggregation.in_advance.jsonl` | aggregate, current_usage_in_advance, in_advance_units | 32 | 26/4/2 |
-| `aggregation.prorated.jsonl` | aggregate, in_advance_units | 39 | 31/4/4 |
-| `aggregation.store_ch.jsonl` | aggregate, group_keys, select_events (columnar) | 57 | 19/20/18 |
-| `pricing.models.jsonl` | charge_model | 106 | 94/6/6 |
-| `pricing.in_advance.jsonl` | pay_in_advance | 42 | 36/3/3 |
-| `pricing.fees.jsonl` | fee_money, pricing_unit, true_up | 41 | 33/4/4 |
-| `pricing.validation.jsonl` | default_properties, filter_properties, validate_charge, validate_properties | 96 | 96/0/0 |
-| `pricing.fixed_charges.jsonl` | fixed_charge_fee, fixed_charge_in_advance, fixed_charge_units | 23 | 19/2/2 |
-| `pricing.misc.jsonl` | estimate_instant, projection, simulate | 26 | 17/5/4 |
-| `periods.boundaries.jsonl` | boundaries, invoice_boundaries | 121 | 109/6/6 |
+| `events.ingest.jsonl` | duplicate_key, parse_timestamp, raw_message, validate, validate_batch | 87 | 72/7/8 |
+| `expression.jsonl` | evaluate (surfaces `rails`, `ep`, `preview`) | 107 | 103/1/3 |
+| `aggregation.core.jsonl` | aggregate | 105 | 100/3/2 |
+| `aggregation.filters.jsonl` | event_filter, group_keys, matching_and_ignored, select_events | 38 | 32/3/3 |
+| `aggregation.in_advance.jsonl` | aggregate, current_usage_in_advance, in_advance_units | 35 | 27/5/3 |
+| `aggregation.prorated.jsonl` | aggregate, in_advance_units | 49 | 33/8/8 |
+| `aggregation.store_ch.jsonl` | aggregate, group_keys, select_events (columnar) | 61 | 19/22/20 |
+| `pricing.models.jsonl` | charge_model | 112 | 94/9/9 |
+| `pricing.in_advance.jsonl` | pay_in_advance | 43 | 37/3/3 |
+| `pricing.fees.jsonl` | fee_money, pricing_unit, true_up | 47 | 33/7/7 |
+| `pricing.validation.jsonl` | default_properties, filter_properties, validate_charge, validate_properties | 100 | 100/0/0 |
+| `pricing.fixed_charges.jsonl` | fixed_charge_fee, fixed_charge_in_advance, fixed_charge_units | 27 | 21/3/3 |
+| `pricing.misc.jsonl` | estimate_instant, projection, simulate | 28 | 19/5/4 |
+| `periods.boundaries.jsonl` | boundaries, invoice_boundaries | 123 | 111/6/6 |
 | `periods.billing_days.jsonl` | billing_days, periodic_billing | 34 | 32/1/1 |
 | `periods.chains.jsonl` | chain | 8 | 8/0/0 |
-| `periods.subscription_fee.jsonl` | single_day_price, subscription_fee | 56 | 44/6/6 |
-| `periods.lifecycle.jsonl` | classify_change, create_status, terminate, termination_credit_days, trial_end | 37 | 31/3/3 |
-| `invoice.totals.jsonl` | totals | 25 | 25/0/0 |
-| `invoice.taxes.jsonl` | apply_taxes, fee_tax_selection | 21 | 19/1/1 |
-| `invoice.coupons.jsonl` | coupon_amount, coupon_apply, coupon_create, coupon_distribution, coupon_order | 46 | 44/1/1 |
-| `invoice.lifecycle.jsonl` | available_to_credit, final_status, issuing_date, payment_due_date, void | 44 | 42/1/1 |
-| `invoice.commitment.jsonl` | commitment_true_up | 9 | 9/0/0 |
-| `credit_notes.jsonl` | compute, estimate, termination, validate | 42 | 36/3/3 |
-| `wallets.jsonl` | allocate, consumption_order, credits, interval_due, ongoing_balance, threshold_top_up, top_up, topup_amount | 94 | 91/1/2 |
-| `progressive.jsonl` | check_thresholds, lifetime_usage, passed_amount, to_credit | 56 | 56/0/0 |
-| `alerts.jsonl` | crossed, measure | 31 | 23/4/4 |
-| `api.jsonl` | auth_token, authorize, count_cache_key, error_body, pagination_meta | 44 | 40/2/2 |
-| `webhooks.jsonl` | encode, endpoint_receives, normalize_event_types, payload_envelope, public_key, retry_step, sign, type_info | 46 | 44/1/1 |
-| `clock.jsonl` | idempotency_key, jobs_due, termination_alert_due | 13 | 11/1/1 |
-| total | 105 unit ops | 1,655 | 1,471/93/91 |
+| `periods.subscription_fee.jsonl` | single_day_price, subscription_fee | 58 | 46/6/6 |
+| `periods.lifecycle.jsonl` | classify_change, create_status, terminate, termination_credit_days, trial_end | 41 | 33/4/4 |
+| `invoice.totals.jsonl` | totals | 28 | 28/0/0 |
+| `invoice.taxes.jsonl` | apply_taxes, fee_tax_selection | 23 | 21/1/1 |
+| `invoice.coupons.jsonl` | coupon_amount, coupon_apply, coupon_create, coupon_distribution, coupon_order | 63 | 61/1/1 |
+| `invoice.lifecycle.jsonl` | available_to_credit, final_status, issuing_date, payment_due_date, void | 50 | 46/2/2 |
+| `invoice.commitment.jsonl` | commitment_true_up | 11 | 9/1/1 |
+| `credit_notes.jsonl` | compute, estimate, termination, validate | 58 | 48/5/5 |
+| `wallets.jsonl` | allocate, consumption_order, credits, interval_due, ongoing_balance, threshold_top_up, top_up, topup_amount | 99 | 96/1/2 |
+| `progressive.jsonl` | check_thresholds, lifetime_usage, passed_amount, to_credit | 57 | 57/0/0 |
+| `alerts.jsonl` | crossed, measure | 32 | 24/4/4 |
+| `api.jsonl` | auth_token, authorize, count_cache_key, error_body, pagination_meta | 46 | 42/2/2 |
+| `webhooks.jsonl` | encode, endpoint_receives, normalize_event_types, payload_envelope, public_key, retry_step, sign, type_info | 63 | 61/1/1 |
+| `clock.jsonl` | idempotency_key, jobs_due, termination_alert_due | 20 | 18/1/1 |
+| total | 105 unit ops | 1,806 | 1,582/113/111 |
 
 <!-- evidence-check: on -->
 
-Corrected twins (`…x`) are RECOMPUTED from their rebuild decision; 91 of them are `ruling: proposed` (UNRULED until
-the owner rules). Three test-only vectors carry the kit's test RSA key (tag `test-key`); never use it elsewhere.
+Corrected twins (`…x`) are RECOMPUTED from their rebuild decision; all 111 of them are `ruling: proposed` (UNRULED
+until the owner rules). Three test-only vectors carry the kit's test RSA key (tag `test-key`); never use it elsewhere.
 
 Scenario tier: 76 end-to-end scenarios in `scenarios/scn.*.json` (index `scenarios/MANIFEST.md`): a tenant set up
 over REST v1, a frozen clock moved step by step, events and API calls, named clock jobs, and a final (sometimes
@@ -268,11 +276,11 @@ python3 $K/scripts/scenario-replay.py --impl-cmd "<your system adapter>"        
 
 This skill ships data and text only; it uses the kit's tooling:
 
-| Command (from the skills root) | Purpose | Observed (2026-10-02) |
+| Command (from the skills root) | Purpose | Observed (2026-10-05) |
 |---|---|---|
 | `python3 reimplementation-kit/scripts/validate-vectors.py billing-engine-spec/vectors/*.jsonl` | format, evidence, content checks of these vectors | 0 errors |
 | `python3 reimplementation-kit/scripts/validate-vectors.py --rule-coverage --quiet \| grep 'COVERAGE billing'` | per chapter: rules with vectors, prose-only, uncovered | 14 chapters, `uncovered=0 holdout_only=0` each |
-| `python3 reimplementation-kit/scripts/validate-vectors.py --inventory --quiet` | per-file counts and evidence mix | every both/compat billing vector EXECUTED (1,564 of 1,564) |
+| `python3 reimplementation-kit/scripts/validate-vectors.py --inventory --quiet` | per-file counts and evidence mix | every both/compat billing vector EXECUTED (1,681 of 1,681, holdout included) |
 | `python3 reimplementation-kit/scripts/kitrun.py --impl-cmd CMD --areas …` | grade an implementation | section 10 |
 | `python3 reimplementation-kit/scripts/scenario-replay.py --impl-cmd CMD` | grade the scenario tier | `reimplementation-kit/reference/scenario-tier.md` §10 |
 
@@ -288,12 +296,13 @@ This skill ships data and text only; it uses the kit's tooling:
 - Re-verification one-liners (maintainers, own database per person, `-j 1`):
   - one area against the reference: `ORACLE_DB=lago_api_test_<you> python3 reimplementation-kit/scripts/kitrun.py
     --impl-cmd "reimplementation-kit/scripts/maintainer/oracle.sh adapter" --areas <area>` → every both/compat vector
-    PASS, corrected `proposed` twins UNRULED (2026-10-02: the 45 both/compat vectors of section 6 and every other
-    both/compat vector cited by id in `rebuild-decisions.md`, 194/194 PASS);
+    PASS, corrected `proposed` twins UNRULED (2026-10-05, all 14 areas with `--include-holdout
+    reimplementation-kit/maintainer-data/holdout`: `SUMMARY kitrun: areas=28 pass=28 fail=0 vectors=1681 passed=1681`,
+    which covers every both/compat vector of section 6 and every one cited by id in `rebuild-decisions.md`);
   - evidence references: `python3 reimplementation-kit/scripts/maintainer/vector-provenance.py` → `broken=0`;
   - scenarios: `reimplementation-kit/scripts/maintainer/replay-on-lago.sh` (two replays + mutation, all ACCEPT);
   - rule coverage: `python3 reimplementation-kit/scripts/validate-vectors.py --rule-coverage --quiet` → `uncovered=0`
-    in every chapter (2026-10-02).
+    in every chapter (2026-10-05).
 - Update triggers: a lago-api pin bump (re-mint every vector and scenario through the oracle and triage the diffs as
   behaviour change or kit defect), a runtime or decimal-library change of the oracle (re-mint the float-island
   vectors), an owner ruling on an RBD (flip the twins' `ruling`; `reimplementation-kit/reference/rebuild-decisions.md`),

@@ -1,6 +1,6 @@
 # Wire formats: raw, enriched, in-advance, dead-letter, refresh flag, CDC
 
-Part of `events-processor-spec` (re-implementation kit v1.0.0). Read when you parse the input topic or write any
+Part of `events-processor-spec` (re-implementation kit v1.2.0). Read when you parse the input topic or write any
 output the billing engine and ClickHouse consume. Behaviour facts: reference events-processor tree `83e012866f29`
 (compat profile) plus the corrected profile where stated. Byte-level rendering rules the conformance suite
 compares are in §7.
@@ -71,7 +71,7 @@ column); reads `timestamp` as text into a millisecond date-time; reads `properti
 
 ## 4. Dead-letter record (`LAGO_KAFKA_EVENTS_DEAD_LETTER_TOPIC`)
 
-- **EP-W4** No key. Value: a JSON object [vec: ep.decode.001, ep.decode.018, ep.decode.019, ep.decode.021, ep.decode.022, EPC-03, EPC-09, EPC-18]
+- **EP-W4** No key. Value: a JSON object [vec: ep.decode.001, ep.decode.004, ep.decode.018, ep.decode.019, ep.decode.021, ep.decode.022, EPC-03, EPC-09, EPC-18]
 
 | Field | JSON type | Content |
 |---|---|---|
@@ -92,10 +92,23 @@ column); reads `timestamp` as text into a millisecond date-time; reads `properti
 | `""` | `""` | the broker rejected the enriched or in-advance produce; `initial_error_message` = `failed to push to <topic> topic` (EP-L2, EP-L3) | — |
 
 Retryable codes reach the dead-letter topic only past the retry horizon (`delivery-and-failures.md` EP-L1).
-Corrected profile: every dead-letter record has a non-empty `error_code` (RBD-6); a record whose bytes could not
-be decoded is dead-lettered with `raw_event` = the exact record value as a string plus the parse error (RBD-4;
-field and code names are an open owner question, KQ-5; the suite attributes such a record to its input by byte
-equality of `raw_event`); retries that exhausted their budget may use a code such as `retry_exhausted:<code>`.
+Corrected profile: every dead-letter record has a non-empty `error_code` (RBD-6), and a record whose bytes could
+not be decoded is dead-lettered with its raw bytes and the parse error (RBD-4). The exact names are an open owner
+question (KQ-5); until the owner rules, the kit DEFAULT below is `proposed` so that implementations converge. The
+suite grades only what is decided: a non-empty `error_code` (`on_dlq`, `done_with_cause`) and, for undecodable
+bytes, attribution by `raw_event`.
+
+| Cause (corrected profile) | `error_code` | `error_message` | `event` | Other fields |
+|---|---|---|---|---|
+| undecodable record value (RBD-4), including a numeric `precise_total_amount_cents` when it is not accepted | `decode_event` | `Error decoding event` | the all-empty event (exactly the object written for the JSON literal `null`, `ep.decode.004`) | `raw_event` = the record value as a JSON string (UTF-8; invalid byte sequences replaced by U+FFFD), `initial_error_message` = the parse error |
+| non-finite timestamp `NaN` / `Inf` (RBD-4) | `build_enriched_event` | `Error while converting event to enriched event` | the decoded event | — |
+| broker rejects the enriched produce, record-specific (RBD-6) | `produce_enriched_event` | `Error producing enriched event` | the decoded event (expression result included, as for other failures after EP-G2) | `initial_error_message` = the broker error |
+| retry budget or maximum age exhausted (RBD-1, RBD-3) | the failing step's code from the table above (e.g. `fetch_subscription`) | that step's message | the decoded event | `initial_error_message` = the last underlying error |
+
+`raw_event` is additive: any dead-letter record may carry it, and the suite then attributes the record by byte
+equality of `raw_event` with a produced raw value before it looks at `event.transaction_id` (EP-P6). A rejected
+in-advance produce (RBD-7, proposed) and a rejected dead-letter produce (RBD-5) are not dead-lettered at all
+(SYSTEMIC), so they need no code.
 
 ## 5. Refresh flag (Redis, `LAGO_REDIS_STORE_URL`)
 
@@ -157,3 +170,10 @@ and `:40`, dead-letter `:51`; refresh flag `events-processor/models/stores.go:54
 `$API/app/services/events/pay_in_advance_service.rb:12`; ClickHouse enriched table
 `$API/db/clickhouse_migrate/20240705080709_create_events_enriched.rb:5`; dead-letter view
 `$API/db/clickhouse_migrate/20260430075848_update_events_dead_letter_mv.rb:7`.
+
+Kit default dead-letter names (2026-10-05, `proposed` until the owner answers KQ-5): they follow the reference's
+step-named codes (`build_enriched_event`, `fetch_*`, `flag_subscription_refresh`), keep the reference's own code
+for an exhausted retry (the reference writes the step code past its 12 h horizon, EPC-12 golden), and reuse the
+all-empty `event` object the reference already writes for the JSON literal `null` (`ep.decode.004`, EPC-09 golden),
+so existing dead-letter readers see no new shape. The maintainer self-test IUT (`scripts/maintainer/selftest-iut.py`)
+writes the undecodable default.
