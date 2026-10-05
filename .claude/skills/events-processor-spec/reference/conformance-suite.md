@@ -1,6 +1,6 @@
 # The black-box conformance suite (`run-suite.sh`, runner `epconf`)
 
-Part of `events-processor-spec` (re-implementation kit v1.0.0). Read when you run the suite against an
+Part of `events-processor-spec` (re-implementation kit v1.1.0). Read when you run the suite against an
 implementation under test (IUT), read a DIFF or FAIL, add a scenario, or re-mint goldens. The suite drives ANY
 implementation through its real interfaces only: Kafka, Redis, Postgres, process signals and exit status. It is
 independent of the reference's language and client libraries (proved with a Python IUT on librdkafka).
@@ -13,8 +13,11 @@ independent of the reference's language and client libraries (proved with a Pyth
 
 ```bash
 S=.claude/skills/events-processor-spec
-bash $S/scripts/run-suite.sh --impl-cmd "/path/to/my-processor" --mode db --profile both --loose-errors
-bash $S/scripts/run-suite.sh --impl-cmd "/path/to/my-processor" --mode cache --profile both --loose-errors
+bash $S/scripts/run-suite.sh --impl-cmd "/path/to/my-processor" --mode db --profile corrected
+bash $S/scripts/run-suite.sh --impl-cmd "/path/to/my-processor" --mode cache --profile corrected
+# migration-compat builds: a separate run with the implementation's own compat setting (§9)
+bash $S/scripts/run-suite.sh --impl-cmd "/path/to/my-processor" --impl-env MY_EP_PROFILE=compat \
+     --mode db --profile compat --loose-errors
 bash $S/scripts/run-suite.sh --impl-cmd "/path/to/my-processor" --only 'EPC-0[4-7]' --keep /tmp/epc-run
 ```
 
@@ -86,10 +89,14 @@ status the IUT's own (a wrapper script must also `exec` its final command).
   topics, committed offsets of the group, refresh-set size). Quiescent = unchanged for `settle_ms` (default
   1000) with every raw record committed, or unchanged for `withheld_settle_ms` (default 3000) with some records
   uncommitted. Timeout 60 s (a step failure noted in the output). The suite never sleeps a fixed time to wait
-  for an IUT.
+  for an IUT. The stability clock starts when the wait step starts and restarts at every observable change; a
+  retry that fails changes nothing observable. Hence an IUT that is backing off when a fault clears (the step
+  before the wait) must make its next attempt within about 3 s of that wait's start, or the wait ends, the runner
+  stops the IUT and the record is graded as it stands (`delivery-and-failures.md` EP-R3: cap retry delays at 2 s
+  under the suite). No catalogue scenario overrides the two defaults.
 4. Stop: SIGTERM, wait up to 30 s (then SIGKILL, reported), record the exit status.
-5. Collect every observable output and render the canonical text (§6); compare with the golden (compat) and/or
-   evaluate the assertion file (corrected).
+5. Collect every observable output (including what the IUT produced and committed while stopping) and render the
+   canonical text (§6); compare with the golden (compat) and/or evaluate the assertion file (corrected).
 
 ## 4. Fault injection
 
@@ -189,6 +196,10 @@ Comparison is a multiset of lines (order-free; blank lines and lines starting wi
 | `zset_has` / `zset_lacks` | a masked refresh member starting with `want|` exists / does not exist |
 | `startup_exit` | the IUT exited with a non-zero status before readiness |
 
+When the IUT never becomes ready in a scenario that expects readiness (every scenario without `expect_no_ready`),
+every assertion of that scenario fails ("IUT never became ready"), so ledger-wide kinds such as `all_done` cannot
+pass on an empty ledger.
+
 <!-- evidence-check: on -->
 
 ## 8. Reference results (2026-10-02, runner and goldens of this kit version)
@@ -197,7 +208,7 @@ Comparison is a multiset of lines (order-free; blank lines and lines starting wi
 |---|---|---|---|---|
 | Go reference (tree 83e0128), 3 full passes | db | 30/30 MATCH | EPC-04, 07, 08, 09, 10, 14, 15, 16, 17, 18, 19, 30 | EPC-20 |
 | Go reference, 3 full passes | cache | 27/27 MATCH | EPC-04, 07, 08, 09, 17, 18, 19 | EPC-20, EPC-31 |
-| Python self-test IUT (corrected design, librdkafka) | db, `--loose-errors` | 9/30 MATCH (expected: it implements the corrected profile) | EPC-18 (documented deviation: retries a broker rejection instead of dead-lettering) | — |
+| Python self-test IUT (corrected design, librdkafka), re-run 2026-10-05 | db, `--loose-errors` | 9/30 MATCH: EPC-02, 11, 21, 23, 25, 26..29 (expected: it implements the corrected profile) | EPC-18 (documented deviation: retries a broker rejection instead of dead-lettering) | — |
 
 Measured on the way: a 201-record burst against a 30-connection limit lost 85 to 170 records in nine runs (EPC-30,
 reference binary); the strings `NaN` and `Inf` as `timestamp` are silently lost (EPC-08); in cache mode an
@@ -205,12 +216,24 @@ external id that is a `:`-prefix of another one sees both subscriptions (unit ve
 
 ## 9. Grading a new implementation (component CRC-9 of `reimplementation-kit`)
 
-| Check | Command | Threshold |
-|---|---|---|
-| corrected profile, decided assertions | `run-suite.sh --profile corrected --mode db` and `--mode cache` | 100 % PASS |
-| compat, portable | `run-suite.sh --profile compat --loose-errors --mode db` | ≥ 90 % of DB goldens MATCH (only for a migration-compat build) |
-| startup contract | EPC-26..29 corrected | 4/4 |
-| unit vectors | `kitrun.py --areas ep --impl-cmd …` (`reimplementation-kit`) | ≥ 95 % shipped, 100 % core |
+The two profiles are graded on SEPARATE runs, because the compat goldens require the reference's loss modes and
+quirks while the corrected assertions forbid them; no single configuration can meet both. An implementation that
+offers both profiles may select one with a setting of its own (for example an environment variable such as
+`MY_EP_PROFILE=compat`, passed with `--impl-env`; the name is the implementation's choice and not part of the
+environment contract). The same build is used for every run; only that setting differs. An implementation that
+offers one profile is graded on that profile only (corrected for a greenfield build; compat only for a
+migration-compat build).
+
+| Check | Run (IUT setting) | Command | Threshold |
+|---|---|---|---|
+| corrected profile, decided assertions | corrected | `run-suite.sh --profile corrected --mode db` and `--mode cache` (cache when implemented) | 100 % PASS (UNRULED never fails) |
+| startup contract | corrected | EPC-26..29 within the corrected run | 4/4 |
+| compat, portable | compat | `run-suite.sh --profile compat --loose-errors --mode db` | ≥ 90 % of DB goldens MATCH (only for a migration-compat build) |
+| unit vectors | per profile | `kitrun.py --areas ep --impl-cmd … --profile compat` and `--profile corrected` (`reimplementation-kit`) | ≥ 95 % shipped, 100 % core |
+
+Under the suite the IUT also runs with its retry delays capped at 2 s (EP-R3); that is likewise an
+implementation setting. `--profile both` remains useful for the reference binary and for a quick look; its
+summary counts compat DIFFs and corrected FAILs of one configuration together and is not the grading run.
 
 ## 10. Gotchas for implementers (each one cost a debugging session)
 
@@ -230,6 +253,14 @@ external id that is a `:`-prefix of another one sees both subscriptions (unit ve
 8. Superusers ignore per-database connection limits; that is why the IUT gets its own role.
 9. In cache mode the CDC topics must exist before the IUT starts (the runner seeds them).
 10. The suite does not observe a retry topic (KQ-1): make in-place retries succeed for one-shot faults.
+11. Idempotent librdkafka producers (2.15.1 measured) stall after the runner answers INVALID_RECORD: every later
+    produce fails with UNKNOWN_LEADER_EPOCH, so EPC-18/19/20 never finish. Idempotence is not part of the contract
+    (`contract.md` EP-A7); use a non-idempotent producer with acknowledgement by all in-sync replicas (the
+    self-test IUT does) or verify your client against EPC-18..20 first (KQ-14).
+12. Retry delays longer than the 3 s quiescence window make the suite stop the IUT before the retry (EPC-17
+    measured with a 1 s → 60 s schedule): cap them at 2 s under the suite (EP-P3, `delivery-and-failures.md` EP-R3).
+13. Grade the two profiles on separate runs (§9); a single configuration cannot MATCH the compat goldens and PASS
+    the corrected assertions at the same time.
 
 ## 11. Adding or changing a scenario (maintainers)
 
@@ -258,3 +289,23 @@ EPC-04 --passes 3` (the three passes agreed; only the `sm_ts_offset` record chan
 as an instant). One full pass per mode afterwards (`run-suite.sh --profile both`) reproduced §8: DB 30/30 and cache
 27/27 compat MATCH, the same corrected FAIL and UNRULED sets; EPC-04 now fails four decided assertions in DB mode
 (RBD-15 three times, RBD-16) and three in cache mode (RBD-15 twice, RBD-17).
+
+Re-verification of 2026-10-05 (kit v1.1, after the EPC-03 extension, the self-test IUT's dead-letter `event`
+default and the new unit vectors): one full pass per mode of the Go reference with `run-suite.sh --profile both`
+reproduced §8 exactly (`run-suite: scenarios=31 failing=12 unruled=1 skipped=4 mode=db profile=both … exit=3`, DB
+30/30 compat MATCH; `scenarios=27 failing=7 unruled=2 skipped=8 mode=cache`, cache 27/27 compat MATCH; the same
+corrected FAIL and UNRULED sets); the self-test IUT row of §8 was re-measured the same day. Gotchas 11 and 12 and the
+EP-P3 note: probes recorded in the Provenance of `contract.md` (idempotent producer) and `delivery-and-failures.md`
+(retry delays).
+
+Runner change of 2026-10-05 (independent verification of kit v1.1): a corrected scenario whose IUT never became
+ready now fails every assertion (§7). Before, a self-test IUT variant that could not start (an invalid producer
+setting) was reported `corrected=PASS` on EPC-19, because `all_done` held on an empty ledger. Re-verified with the
+rebuilt runner: one full pass per mode of the Go reference with `run-suite.sh --profile both` (`scenarios=31
+failing=12 unruled=1 skipped=4 mode=db`, DB 30/30 compat MATCH; `scenarios=27 failing=7 unruled=2 skipped=8
+mode=cache`, cache 27/27 compat MATCH; the same corrected FAIL and UNRULED sets as §8) and the self-test IUT row of
+§8 (`scenarios=31 failing=21 unruled=0 skipped=4`, 9/30 MATCH, only EPC-18 failing in corrected). The same day the
+idempotent-producer stall (gotcha 11) and the retry-delay cap (gotcha 12) were reproduced: a self-test IUT variant
+with `enable.idempotence=true` (and default producer retries) left both EPC-19 records PENDING_UNCOMMITTED after
+UNKNOWN_LEADER_EPOCH errors; a variant with a 1 s → 60 s schedule failed EPC-17 while the stock 0.1 s → 2 s
+schedule passed EPC-17 and EPC-19.
