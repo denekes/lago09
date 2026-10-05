@@ -269,7 +269,7 @@ def op_true_up(inp, profile):
                                            "precise_amount_cents": pu["precise_amount_cents"],
                                            "unit_amount_cents": int(pu["unit_amount_cents"]),
                                            "precise_unit_amount": pu["precise_unit_amount"],
-                                           "conversion_rate": D(rate)}})
+                                           "conversion_rate": q15(D(rate))}})
     else:
         fee.update({"amount_cents": amount_cents, "precise_amount_cents": q15(precise),
                     "unit_amount_cents": amount_cents, "precise_unit_amount": q15(precise / s)})
@@ -277,6 +277,10 @@ def op_true_up(inp, profile):
 
 
 # --------------------------------------------------------------------------- fixed charges
+
+def q10(d):
+    return D(d).quantize(Decimal(1).scaleb(-10), rounding=ROUND_HALF_UP)
+
 
 def _local_date(dt: datetime, tz):
     return dt.astimezone(tz).date()
@@ -288,14 +292,14 @@ def fixed_units(inp, profile):
     w = inp["window"]
     frm, to = parse_instant(w["from"]), parse_instant(w["to"])
     duration = int(w["duration_days"])
-    evs = [(int(e["created_seq"]), parse_instant(e["timestamp"]), D(e["units"])) for e in inp.get("events", [])]
+    evs = [(int(e["created_seq"]), parse_instant(e["timestamp"]), q10(D(e["units"]))) for e in inp.get("events", [])]
     inside = [e for e in evs if frm <= e[1] < to]
     before = [e for e in evs if e[1] < frm]
     if before:
         inside.append(max(before, key=lambda e: e[0]))
     inside.sort(key=lambda e: e[0])
     if not inside:
-        return ZERO, ZERO, [], []
+        return ZERO, ZERO, [ZERO], [ZERO]
     fu = inside[-1][2]
     if not prorated:
         return fu, fu, None, None
@@ -355,7 +359,7 @@ def op_fixed_charge_in_advance(inp, profile):
     props = inp.get("properties") or {}
     prorated = bool(inp.get("prorated", False))
     currency = inp.get("currency", "EUR")
-    delta = D(inp["new_units"]) - D(inp["already_billed_units"])
+    delta = q10(D(inp["new_units"])) - D(inp["already_billed_units"])
     e, s = exponent(currency), subunit(currency)
     if delta <= 0:
         return {"amount_cents": 0, "precise_amount_cents": ZERO, "unit_amount_cents": 0,
@@ -396,8 +400,10 @@ def op_projection(inp, profile):
     elif now < frm:
         rho = ZERO
     else:
-        rho = div(Decimal(days_between(frm, now, tz)), Decimal(duration))
-        rho = min(max(rho, ZERO), ONE)
+        tzi = tzinfo(tz)
+        total = days_between(frm, to, tz)
+        rf = (days_between(frm, now, tz) / total) if total else 0.0
+        rho = Decimal(repr(min(max(rf, 0.0), 1.0)))
     e, s = exponent(currency), subunit(currency)
     if inp.get("recurring"):
         cur = inp.get("current") or {"amount_cents": 0, "units": "0"}

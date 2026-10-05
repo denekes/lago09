@@ -322,7 +322,7 @@ def graduated_percentage(props, agg, ctx):
         tot = ptotal + flat
         if zero_exclude:
             flat, tot = ZERO, 0
-        details.append({"from_value": r["from_value"], "to_value": to_raw, "flat_unit_amount": ds(flat),
+        details.append({"from_value": r["from_value"], "to_value": to_raw, "flat_unit_amount": 0 if zero_exclude else ds(flat),
                         "rate": ds(rate), "units": ds(units), "per_unit_total_amount": ds(ptotal),
                         "total_with_flat_amount": ds(tot) if tot != 0 or not zero_exclude else 0})
         total += tot
@@ -697,8 +697,9 @@ def pu_convert(A, u, rate, currency, corrected=False):
     rate = D(rate)
     pu_cents = round_half_away(A, 2) * 100
     pu_unit_cents = Decimal(trunc(u * 100))
-    pu = {"amount_cents": pu_cents, "precise_amount_cents": A * 100,
-          "unit_amount_cents": pu_unit_cents, "precise_unit_amount": u}
+    rate = q15(rate)
+    pu = {"amount_cents": pu_cents, "precise_amount_cents": q15(A * 100),
+          "unit_amount_cents": pu_unit_cents, "precise_unit_amount": q15(u)}
     if corrected:
         adj, adj_u = A * rate, u * rate
     else:
@@ -750,7 +751,7 @@ def fee_money(inp, profile="compat"):
                                      "precise_amount_cents": pu["precise_amount_cents"],
                                      "unit_amount_cents": int(pu["unit_amount_cents"]),
                                      "precise_unit_amount": pu["precise_unit_amount"],
-                                     "conversion_rate": D(rate)}
+                                     "conversion_rate": q15(D(rate))}
     else:
         mf = money_fields(amount, unit_amount, currency)
     out.update(mf)

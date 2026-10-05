@@ -21,3 +21,13 @@
 8. **Prorated fixed charge, no events**: `per_event_full/prorated` are returned empty; not pinned.
 9. **Corrected percentage per-transaction** (RBD-41): implemented as events `< FC` fully free, remaining free units
    consumed in order, bounds per paid event; only 016x pins it.
+
+## v1.1
+
+No open question blocked a v1.1 vector; v1.1 answers v1.0 gaps 3, 4, 5, 6, 7 and 8 (BE-PR-58, 87, 41, 78, 69).
+1. Question: are the 10-place fixed-charge unit rounding (BE-PR-87) and the 15-place conversion-rate storage applied
+   to the `already_billed_units` input of the in-advance fixed-charge op, and to the corrected profile? Where I
+   looked: BE-PR-71, BE-PR-87. Assumption: only `new_units` and event units are rounded to 10 places; the rate is
+   rounded to 15 places in both profiles.
+2. Question: does the projection ratio keep binary64 text in the corrected profile for groups? Where: BE-PR-41,
+   RBD-96. Assumption: same binary64 ratio in both profiles.

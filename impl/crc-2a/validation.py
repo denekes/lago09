@@ -51,13 +51,18 @@ def is_json_num(x):
 class Errors:
     def __init__(self):
         self.fields = {}
-        self.messages = []
+
+    @property
+    def messages(self):
+        out = []
+        for codes in self.fields.values():
+            for c in codes:
+                if c not in out:
+                    out.append(c)
+        return out
 
     def add(self, field, code):
-        codes = self.fields.setdefault(field, [])
-        if code not in codes:
-            codes.append(code)
-        self.messages.append(code)
+        self.fields.setdefault(field, []).append(code)
 
 
 def _group_keys(props, errs):
@@ -82,9 +87,9 @@ def _group_keys(props, errs):
             for e in pg)
         if not ok:
             errs.add("presentation_group_keys", "invalid_type")
-        elif len(pg) > 2:
+        if ok and len(pg) > 2:
             errs.add("presentation_group_keys", "too_many_keys")
-        elif len({e["value"] for e in pg}) != len(pg):
+        if ok and len({e["value"] for e in pg}) != len(pg):
             errs.add("presentation_group_keys", "value_is_duplicated")
 
 
@@ -149,12 +154,12 @@ def validate_properties(model, props, kind="charge", metric_agg=None, premium=Fa
     elif model == "package":
         if not valid_decimal(props.get("amount")):
             errs.add("amount", "invalid_amount")
-        ps = props.get("package_size")
-        if not (is_json_int(ps) and ps > 0):
-            errs.add("package_size", "invalid_package_size")
         fu = props.get("free_units")
         if not (is_json_int(fu) and fu >= 0):
             errs.add("free_units", "invalid_free_units")
+        ps = props.get("package_size")
+        if not (is_json_int(ps) and ps > 0):
+            errs.add("package_size", "invalid_package_size")
     elif model == "percentage":
         if latest:
             errs.add("billable_metric", "invalid_value")
