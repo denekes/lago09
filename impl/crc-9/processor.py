@@ -157,6 +157,9 @@ class Catalog:
 
     def metric(self, org, code):
         if not valid_uuid(org):
+            if COMPAT:
+                # EP-E4 reference: the database type error is a retryable lookup failure
+                raise Transient('invalid input syntax for type uuid: "%s"' % org)
             return None
         return self.query_one(
             "SELECT id, aggregation_type, recurring, field_name, expression FROM billable_metrics "

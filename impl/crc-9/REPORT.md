@@ -59,3 +59,23 @@ at the end.
 4. Honour pause()/resume() with the fetched-record purge semantics instead of blocking, plus metrics (disposition
    counters, lag, retry depth) from ADR-001.
 5. Unit tests for `expr.py` against the `expression.*` vectors (an `expression.evaluate` adapter op, mode `ep`).
+
+## v1.2
+
+Kit v1.2.0 (read section 13 "Changes", 1.1.0 and 1.2.0).
+
+Final kitrun (ep unit vectors):
+- compat: `SUMMARY kitrun: areas=1 pass=1 fail=0 vectors=120 passed=120 skipped_ops=0 exit=0`
+- corrected: `SUMMARY kitrun: areas=1 pass=1 fail=0 vectors=112 passed=108 skipped_ops=0 exit=0` (4 UNRULED)
+
+run-suite (db mode):
+- corrected: `run-suite: scenarios=31 failing=0 unruled=0 skipped=4 mode=db profile=corrected exit=0`
+- compat (`EP_PROFILE=compat --loose-errors`): `run-suite: scenarios=31 failing=0 unruled=0 skipped=4 mode=db profile=compat exit=0`
+
+What changed (rule ids):
+- EP-C1, EP-C4: top-level field names and `source_metadata.api_post_processed` match ignoring case; the last spelling wins.
+- EP-D2: a decimal-string timestamp truncating to 0 ms with a negative sign is emitted as `-0`.
+- EP-D1/EP-D2: no range check on timestamps (`"1e19"` accepted, plain notation); beyond 1e17 s the matching instant is clamped (outside the contract).
+- EP-E4 (compat): a non-UUID organization id is a retryable lookup failure (database type error) instead of "not found"; EPC-03 compat now matches. Corrected profile unchanged (permanent, dead-lettered at once).
+
+Wall clock: start 2026-10-05 14:42:31 UTC, end Oct  5 14:53:18 UTC 2026 (`date -u`: Mon Oct  5 14:53:18 UTC 2026).
