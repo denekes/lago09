@@ -1,6 +1,6 @@
 # Scenario catalogue EPC-00 .. EPC-34
 
-Part of `events-processor-spec` (re-implementation kit v1.3.0). One card per conformance scenario: what it pins,
+Part of `events-processor-spec` (re-implementation kit v1.5.0). One card per conformance scenario: what it pins,
 how it runs, what the reference produces (compat golden) and what the corrected profile asserts. Read when a
 scenario fails and you need to know what it is about. Files: `conformance/scenarios/<name>.json`, goldens
 `conformance/golden/compat-{db,cache}/<name>.golden`, assertions `conformance/golden/corrected/<name>.assert.json`.

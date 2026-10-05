@@ -27,7 +27,7 @@ runner is `scripts/kitrun.py` (standard-library Python ≥ 3.10). Machine-readab
 
 ```jsonc
 // runner -> adapter (first line)
-{"type":"hello","role":"runner","proto":1,"kit_version":"1.3.0","kit_schema":1,"profiles":["compat"],"areas":["domain","pricing"]}
+{"type":"hello","role":"runner","proto":1,"kit_version":"1.5.0","kit_schema":1,"profiles":["compat"],"areas":["domain","pricing"]}
 // adapter -> runner
 {"type":"hello","proto":1,"impl":"acme-billing","impl_version":"0.4.2","profiles":["compat","corrected"],
  "ops":["pricing.charge_model","pricing.pay_in_advance","domain.*"]}
@@ -107,7 +107,7 @@ kitrun.py --impl-cmd CMD [--kit-root DIR] [--vectors FILE ...] [--areas a,b] [--
 Output (illustrative run of an implementation under development):
 
 ```
-kitrun 1.3.0 proto=1 kit=1.3.0 profile=compat vectors=153 files=2
+kitrun 1.5.0 proto=1 kit=1.5.0 profile=compat vectors=153 files=2
 impl=acme-billing 0.4.2 profiles=compat,corrected ops=3
 PASS domain.selftest.days_between.001
 …
@@ -170,7 +170,7 @@ consumer (also `sh -c "exec …"` in its own process group). Only the pure funct
 A minimal session (requests `>`, responses `<`), from the reference adapter skeleton `scripts/adapter_ref.py`:
 
 ```
-> {"type":"hello","role":"runner","proto":1,"kit_version":"1.3.0-dev","kit_schema":1,"profiles":["compat"],"areas":["domain"]}
+> {"type":"hello","role":"runner","proto":1,"kit_version":"1.5.0-dev","kit_schema":1,"profiles":["compat"],"areas":["domain"]}
 < {"type":"hello","proto":1,"impl":"adapter-ref-example","impl_version":"1.0.0","profiles":["compat","corrected"],"ops":["domain.round"]}
 > {"type":"call","id":"domain.selftest.round.010#1","area":"domain","op":"round","profile":"compat","input":{"value":"-0.125","mode":"round","precision":2}}
 < {"type":"result","id":"domain.selftest.round.010#1","output":{"value":"-0.13"}}
