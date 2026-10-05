@@ -1,6 +1,6 @@
 # Scenario catalogue EPC-00 .. EPC-34
 
-Part of `events-processor-spec` (re-implementation kit v1.0.0). One card per conformance scenario: what it pins,
+Part of `events-processor-spec` (re-implementation kit v1.1.0). One card per conformance scenario: what it pins,
 how it runs, what the reference produces (compat golden) and what the corrected profile asserts. Read when a
 scenario fails and you need to know what it is about. Files: `conformance/scenarios/<name>.json`, goldens
 `conformance/golden/compat-{db,cache}/<name>.golden`, assertions `conformance/golden/corrected/<name>.assert.json`.
@@ -65,9 +65,13 @@ C: none (values covered by EPC-07).
 
 **EPC-02 filters-pass-through** (both; EP-E3). Filter properties pass unchanged, including nested values. C: none.
 
-**EPC-03 billable-metric-resolution** (both; EP-E1, EP-N1). Unknown, soft-deleted, other-organization, unknown
-organization, empty and case-mismatched codes → DLQ `fetch_billable_metric` (`record not found` / `Key not found`);
-control enriched. C: none.
+**EPC-03 billable-metric-resolution** (both; EP-E1, EP-E2, EP-E4, EP-N1, EP-B4, EP-L1). Unknown, soft-deleted,
+other-organization, unknown organization, empty and case-mismatched codes → DLQ `fetch_billable_metric`
+(`record not found` / `Key not found`); control enriched. Then four organization ids that are not canonical UUID
+text, and a later batch: DB mode: `org-not-a-uuid` and `""` fresh → lost (NO_OUTPUT_COMMITTED after the later batch
+commits past them), `org-not-a-uuid` 13 h old → DLQ `fetch_billable_metric` with the database type error, the
+UUID without hyphens → enriched, in-advance and refresh flag under that text; cache mode: all four → DLQ
+`Key not found`. C: none (proposal in EP-E4: PERMANENT, dead letter at once; no assertion until the owner rules).
 
 **EPC-04 subscription-matching** (both; EP-D3, EP-D4, EP-H1..H7). 18 events against the fixture windows: ordering,
 both bounds, future start, recurring fallback (…006 with in-advance), no fallback for non-recurring, incomplete status
@@ -177,3 +181,8 @@ full passes per mode on 2026-10-02. Fixture column names and integer enums follo
 tables at lago-api `591ae90`: `$API/db/structure.sql:2340` (billable_metrics), `$API/db/structure.sql:3901`
 (subscriptions), `$API/db/structure.sql:2581` (charges), aggregation codes `$API/app/models/billable_metric.rb:28`,
 subscription statuses `$API/app/models/subscription.rb:58`.
+
+EPC-03 changed on 2026-10-05 (kit v1.1): four organization-id records and a later batch were appended (generator
+`scripts/gen-scenarios.py`); the earlier seven records and their golden lines are unchanged. Compat goldens of both
+modes re-minted with `scripts/maintainer/regen-goldens.sh --only EPC-03 --passes 3` (three agreeing passes per mode,
+then `--apply`).

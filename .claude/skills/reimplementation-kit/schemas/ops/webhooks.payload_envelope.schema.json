@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ops/webhooks.payload_envelope.schema.json",
   "title": "webhooks.payload_envelope",
-  "description": "Body POSTed for an emitted webhook (BE-WH-9): the JSON object {\"webhook_type\": <type>, \"object_type\": <object_type>, \"organization_id\": <organization id>, <object_type>: <serialized object>} in exactly this key order, encoded per BE-WH-12.",
+  "description": "Body POSTed for an emitted webhook (BE-WH-9): the JSON object {\"webhook_type\": <type>, \"object_type\": <object_type>, \"organization_id\": <organization id>, <object_type>: <serialized object>} in exactly this key order, encoded per BE-WH-12. Output: `body` (the exact text POSTed) and `webhook_type` (the type recorded for the delivery, equal to the input). Delivery status is not an output of this op (BE-WH-19..22 are graded by webhooks.retry_step).",
   "x-kit": {
     "area": "webhooks",
     "op": "payload_envelope",
@@ -43,13 +43,12 @@
       "additionalProperties": true,
       "properties": {
         "body": {
-          "type": "string"
+          "type": "string",
+          "description": "Exact body text POSTed (BE-WH-9, BE-WH-12)."
         },
         "webhook_type": {
-          "type": "string"
-        },
-        "status": {
-          "type": "string"
+          "type": "string",
+          "description": "Type recorded for the delivery (the input webhook_type)."
         }
       }
     }

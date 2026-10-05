@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ops/domain.days_between.schema.json",
   "title": "domain.days_between",
-  "description": "Whole local days between two instants in a zone (DST-aware); one day fewer for a subscription terminated by upgrade. Rule: (1) if `to` falls exactly on a local midnight of `timezone`, move it one second later (a period that ends at midnight counts the day that starts there); (2) take the local wall-clock duration from `from` to `to`, i.e. the elapsed time corrected by the change of UTC offset between the two instants, so a DST change neither adds nor removes a day; (3) divide by 24 hours and round up to an integer (any fraction of a day counts as a whole day); (4) with `terminated_upgraded: true`, subtract 1 and floor at 0.",
+  "description": "Whole local days between two instants in a zone (DST-aware); one day fewer for a subscription terminated by upgrade (BE-DM-15..18). Rule: (1) if `to` falls exactly on a local midnight of `timezone`, move it one second later (a period that ends at midnight counts the day that starts there); (2) take the local wall-clock duration seconds = (to - from) + (offset(to) - offset(from)), where offset(x) is the zone's UTC offset at x in seconds (positive east of UTC), so a DST change neither adds nor removes a day (domain.time.days_between.006 and .013 pin the sign); (3) days = ceil(seconds / 86400) (any fraction of a day counts as a whole day); (4) with `terminated_upgraded: true`, subtract 1 and floor at 0.",
   "x-kit": {
     "area": "domain",
     "op": "days_between",

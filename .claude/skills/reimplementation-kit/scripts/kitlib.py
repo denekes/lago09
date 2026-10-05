@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_HALF_UP
 
-KITLIB_VERSION = "1.0.0"
+KITLIB_VERSION = "1.1.0"
 PROTO = 1
 KIT_SCHEMA = 1
 BILLING_PIN = "591ae9005110"
@@ -676,9 +676,9 @@ def kit_version(kit_root: str) -> str:
     p = os.path.join(kit_root, "reimplementation-kit", "kit.json")
     try:
         with open(p, encoding="utf-8") as f:
-            return str(json.load(f).get("kit_version", "1.0.0-dev"))
+            return str(json.load(f).get("kit_version", "1.1.0-dev"))
     except (OSError, ValueError):
-        return "1.0.0-dev"
+        return "1.1.0-dev"
 
 
 def load_catalogue(kit_root: str) -> dict:
