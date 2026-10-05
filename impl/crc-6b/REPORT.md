@@ -32,7 +32,7 @@ Time spent: about 1 minutes.
 
 ## v1.2
 
-Kit 1.2.0, started 2026-10-05 15:13:36 UTC, finished 15:15 UTC (wall clock from `date -u`; roughly 2 minutes).
+Kit 1.2.0, started 2026-10-05 15:13:36 UTC, finished 15:14:35 UTC (wall clock from `date -u`: 59 s).
 
 Final kitrun (areas invoice,credit_notes):
 
