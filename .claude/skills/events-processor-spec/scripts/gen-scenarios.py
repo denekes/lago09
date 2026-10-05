@@ -182,8 +182,10 @@ def build():
                      ev("flt_nested", "filtered_calls", properties={"amount": 1, "region": "eu", "meta": {"a": [1, "b", None, True]}}),
                  ]}, Q])
 
-    scenario("EPC-03-billable-metric-resolution", "Unknown, soft-deleted, wrong-organization, empty and case-mismatched codes.",
-             ["EP-E1", "EP-N1", "EP-I3", "EP-W4"], [], [
+    scenario("EPC-03-billable-metric-resolution",
+             "Unknown, soft-deleted, wrong-organization, empty and case-mismatched codes; organization ids that are not "
+             "canonical UUID text (a later batch follows).",
+             ["EP-E1", "EP-E2", "EP-E4", "EP-N1", "EP-I3", "EP-W4", "EP-B4", "EP-L1"], ["RBD-1"], [
                  {"produce": [
                      ev("bm_unknown", "nope"),
                      ev("bm_deleted", "deleted_metric", properties={"amount": 1}),
@@ -192,7 +194,12 @@ def build():
                      ev("bm_empty_code", ""),
                      ev("bm_case", "API_CALLS"),
                      ev("bm_ok_control", "count_calls"),
-                 ]}, Q])
+                     ev("bm_org_not_uuid", "api_calls", organization_id="org-not-a-uuid"),
+                     ev("bm_org_empty", "api_calls", organization_id=""),
+                     ev("bm_org_not_uuid_13h", "api_calls", organization_id="org-not-a-uuid", ingested_at="$INGESTED_13H_AGO"),
+                     ev("bm_org_no_hyphens", "api_calls", organization_id="11111111111111111111111111111111", properties={"amount": 1}),
+                 ]}, Q,
+                 {"produce": [ev("bm_after", "count_calls")]}, Q])
 
     scenario("EPC-04-subscription-matching",
              "Subscription window, ordering, boundaries, recurring fallback, status, external-id exactness, timestamp precision.",

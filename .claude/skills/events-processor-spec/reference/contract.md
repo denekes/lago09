@@ -1,6 +1,6 @@
 # Implementation contract: configuration, Kafka, Redis, Postgres, startup, shutdown
 
-Part of `events-processor-spec` (re-implementation kit v1.0.0). Read before writing the process skeleton of an
+Part of `events-processor-spec` (re-implementation kit v1.2.0). Read before writing the process skeleton of an
 events-processor: what it is configured with, what it reads and writes, how it starts, signals readiness and
 stops. Behaviour facts: reference events-processor tree `83e012866f29` (compat profile) plus the corrected
 profile where stated. Production runs **memory-cache mode** (owner decision OD-1); DB mode is the development and
@@ -71,7 +71,11 @@ the processor's role, otherwise bursts turn into retryable failures and, in the 
   Outputs: enriched and in-advance records keyed `<organization_id>-<transaction_id>`; dead-letter
   records unkeyed; partition chosen by the producer's default partitioner. Producer guarantees (reference): wait
   for all in-sync replicas, idempotent producer, unlimited retries of retriable broker errors (so a broker outage
-  blocks the record instead of losing it); a non-retriable rejection fails the produce (EP-L2..L4).
+  blocks the record instead of losing it); a non-retriable rejection fails the produce (EP-L2..L4). Contract for a
+  rebuild (both profiles): acknowledgement by all in-sync replicas is required; idempotence is NOT required,
+  because duplicates are tolerated and removed downstream on `transaction_id` (EP-R7, RBD-11). Under the
+  conformance suite, prefer a non-idempotent producer: an idempotent librdkafka producer stalls after the suite's
+  injected rejection (`conformance-suite.md` §10, gotcha 11).
 - **EP-A8** [vec: EPC-31, EPC-32, EPC-33, EPC-34]
   Memory-cache mode adds one consumer per CDC topic (`memory-cache-mode.md`), each in a NEW consumer group
   `lago_evp_<table>_<random UUID>` per process start, starting at the earliest offset, committing after every poll.
@@ -131,7 +135,9 @@ reference never writes to Postgres.
 |---|---|---|
 | Retry topic | none | ADR-001 candidate `<raw topic>-retry`, consumer group `<prefix>_<retry topic>`, headers `attempt`, `first_failed_at`, `last_error_code`, `not_before` (names and variable: open owner question KQ-1; the suite does not seed or observe it, so corrected scenarios are designed to succeed with in-place retries) |
 | Unknown SCRAM mechanism | crash | fatal with message (RBD-23) |
-| Systemic failure | records left unprocessed, later commits pass them | pause the affected partitions with backoff 1 s → 60 s, commit nothing past the first record without a disposition (RBD-5, RBD-10) |
+| Producer | idempotent, all in-sync replicas | all in-sync replicas required; idempotence optional (EP-A7) |
+| Systemic failure | records left unprocessed, later commits pass them | pause the affected partitions with backoff 1 s → 60 s, commit nothing past the first record without a disposition (RBD-5, RBD-10); under the conformance suite retry delays are capped at 2 s by an implementation-specific setting (`delivery-and-failures.md` EP-R3) |
+| Profile switch | — | an implementation that offers both profiles may select one by a setting of its own (for example an environment variable passed with `--impl-env`); not part of this contract, graded on separate runs (`conformance-suite.md` §9) |
 | Observability | logs, error reporter | counters per disposition, lag, retry depth (not graded) |
 
 <!-- evidence-check: on -->
@@ -157,3 +163,10 @@ poll size `:168`; SCRAM switch `events-processor/config/kafka/kafka.go:56`; Redi
 `events-processor/config/redis/redis.go:25`; snapshot `events-processor/cache/cache.go:63`; CDC group id
 `events-processor/cache/consumer.go:27`. Exit statuses and readiness observed with
 `scripts/run-suite.sh --only 'EPC-2[0-9]'` against the reference binary (3 passes per mode, 2026-10-02).
+
+Addition of 2026-10-05 (kit v1.1): the idempotent-producer stall was measured with the maintainer self-test IUT
+switched to `enable.idempotence=true` (confluent-kafka and librdkafka 2.15.1): after the runner's INVALID_RECORD
+answers were cleared, every later produce failed with UNKNOWN_LEADER_EPOCH ("Leader epoch is newer than broker
+epoch"), so EPC-19 ended with both records PENDING_UNCOMMITTED (`run-suite.sh --only 'EPC-(18|19|20)' --profile
+corrected`: EPC-19 FAIL; EPC-18 fails for this IUT in any case, a documented deviation; EPC-20 UNRULED); the
+unmodified self-test IUT (`enable.idempotence=false`) passes EPC-19. The Go reference's idempotent franz-go producer is not affected (compat goldens of EPC-18..20).

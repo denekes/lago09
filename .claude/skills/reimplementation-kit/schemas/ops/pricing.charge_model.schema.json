@@ -187,7 +187,7 @@
           "items": {
             "$ref": "../common.schema.json#/$defs/decimal"
           },
-          "description": "Running totals of event values in timestamp order, as produced by the aggregation for the percentage model's free units (aggregation chapter).",
+          "description": "Running totals of event values in timestamp order, as produced by the aggregation for the percentage model's free units (aggregation chapter BE-AG-20). Kit inputs keep it consistent with per_event_values (the corrected per-transaction walk of BE-PR-30 relies on it).",
           "default": []
         },
         "per_event_values": {
