@@ -17,7 +17,8 @@
 #                   cache: memory-cache mode (LAGO_USE_MEMORY_CACHE=true, six CDC topics seeded)
 #   --profile       compat    = golden text of the reference behaviour (conformance/golden/compat-<mode>/)
 #                   corrected = assertion files (conformance/golden/corrected/), rulings decided|proposed
-#                   both      = both in the same run (default)
+#                   both      = both in the same run (default; for the reference and quick looks:
+#                               grading uses separate compat and corrected runs, conformance-suite.md section 9)
 #   --loose-errors  compat comparison masks implementation text: initial_error_message and the
 #                   exact non-zero exit status of a startup failure (portable compat for non-reference IUTs)
 #   --only          regex on the scenario file name (e.g. 'EPC-0[0-9]')
@@ -53,7 +54,7 @@ cache="${LAGO_SKILLS_CACHE:-$HOME/.cache/lago-skills}"
 impl=""; mode=db; profile=both; update=0; only='.'; keep=""; runner_bin=""; golden_dir=""
 pg_admin="${EPCONF_PG_ADMIN_URL:-postgres://lago:lago@localhost:5432/lago}"
 rargs=()
-usage() { sed -n '2,49p' "$0"; }
+usage() { sed -n '2,50p' "$0"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --impl-cmd) impl="${2:?}"; shift ;;

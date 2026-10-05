@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ops/domain.to_minor_units.schema.json",
   "title": "domain.to_minor_units",
-  "description": "Major-unit amount to minor units (BE-DM-23, BE-DM-24): amount_cents = round(amount, exponent) x 10^exponent with ties rounded away from zero (also for negatives); precise_amount_cents = amount x 10^exponent, unrounded. Defined for currencies whose minor unit is a power of ten (not MRO).",
+  "description": "Major-unit amount to minor units (BE-DM-23, BE-DM-24): amount_cents = round(amount, exponent) x 10^exponent with ties rounded away from zero (also for negatives); precise_amount_cents = amount x 10^exponent, unrounded. Defined only for the accepted currencies (BE-DM-22) whose minor unit is a power of ten. A code outside the accepted list never reaches a conversion in the engine (it is rejected on every currency-bearing attribute) and MRO (5 minor units per major unit) needs explicit treatment, so no vector uses either and the result for them is not graded (an implementation may answer the domain error value_is_invalid on field currency).",
   "x-kit": {
     "area": "domain",
     "op": "to_minor_units",

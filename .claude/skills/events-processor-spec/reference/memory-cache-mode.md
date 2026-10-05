@@ -1,6 +1,6 @@
 # Memory-cache mode (production): snapshot, CDC, and how it differs from DB mode
 
-Part of `events-processor-spec` (re-implementation kit v1.0.0). **Production runs this mode** (owner decision
+Part of `events-processor-spec` (re-implementation kit v1.1.0). **Production runs this mode** (owner decision
 OD-1, 2026-10-02); DB mode is the development and fallback mode. Read when you implement the catalog cache or the
 CDC consumers, or when a scenario behaves differently with `--mode cache`. Behaviour facts: reference
 events-processor tree `83e012866f29` plus the corrected profile where stated. The production CDC connector
@@ -77,6 +77,7 @@ never queries Postgres per event.
 | RFC 3339 offset | compared as wall clock | compared as instant | instant (RBD-16) |
 | terminated subscriptions | all | ≤ 1 calendar month before snapshot (+ CDC) | owner (RBD-20) |
 | external id with `:` | exact | prefix leak (EP-H8) | exact in both (RBD-99, proposed) |
+| `organization_id` text (EP-E4) | any UUID spelling the database accepts matches; other text = retryable database error (lost when fresh) | exact canonical text, anything else not found (dead letter at once) | not UUID text: PERMANENT in both (RBD-1, proposed) |
 | freshness | read-your-writes | snapshot + CDC lag | — |
 | per-event database load | 2-4 queries | none | — |
 | column gap | n/a | edit resets omitted columns (EP-N4) | proposed: never reset (RBD-21) |
