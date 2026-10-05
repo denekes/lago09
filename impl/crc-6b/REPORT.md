@@ -74,3 +74,17 @@ What changed:
 
 - BE-IV-14 `round5`: the correction `(f ⊕ 0.5) ⊘ 100000 ≤ x` is now always evaluated as a binary64 sum. I had skipped it when `f + 0.5 == f` (f ≥ 2^52), so an even f was never raised (invoice.void.011).
 - Column rule (BE-IV-14 / ch.07 storage text): the 16-significant-digit step now rounds the exact binary64 value to nearest instead of its shortest repr text. With the corrected `round5` this keeps invoice.void.010 passing (it regressed to .7987 when only the first fix was applied).
+
+## v1.5
+
+Kit 1.5.0 (kit.json checked). Time: start Mon Oct  5 15:58:26 UTC 2026, end Mon Oct  5 15:59:29 UTC 2026.
+
+Final kitrun (areas invoice,credit_notes):
+
+- compat: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=193 passed=193 skipped_ops=0 exit=0` — invoice 146/146 (100 %, core 100 %), credit_notes 47/47 (100 %, core 100 %)
+- corrected (info): `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=193 passed=178 skipped_ops=0 exit=0` — invoice 138 pass + 8 unruled, credit_notes 40 pass + 7 unruled, 0 fail
+
+Changes:
+
+- Column rule (chapter 07 notation, BE-IV-14): the 16-significant-digit step now rounds an exact tie to even (ROUND_HALF_EVEN) instead of half up (`invoice.void.013`).
+- BE-CN-7: the per-code tax base is accumulated exactly (Fraction) in compat; it had been folded into a binary64 float by the `N(0)` seed, which lost the digits that decide the product's binary64 rounding (`credit_notes.compute.021`).

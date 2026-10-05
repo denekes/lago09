@@ -73,7 +73,7 @@ def q5(x):
 
 def col5(x):
     """Column rule (ch.07 notation): round5, then 16 significant digits (nearest), then 5 places half away."""
-    from decimal import Decimal, ROUND_HALF_UP, localcontext
+    from decimal import Decimal, ROUND_HALF_EVEN, localcontext
     r = ruby_round_float(x, 5)
     if r == 0:
         return r
@@ -81,7 +81,7 @@ def col5(x):
         r = Fraction(repr(_round5_float(x)))  # the binary64 round5 result; its text is what gets cast
     with localcontext() as c:
         c.prec = 16
-        c.rounding = ROUND_HALF_UP
+        c.rounding = ROUND_HALF_EVEN
         d = +Decimal(float(r))  # nearest on the exact binary64 value
     return round_places(Fraction(d), 5)
 
@@ -1014,7 +1014,7 @@ def note_amounts(inv, items, residue_check):
         for code, rate in f.taxes:
             code_rate[code] = rate
             b = (F(it["precise"]) - F(share)) if COMPAT else N(it["precise"]) - share  # BE-CN-7: exact base
-            per_code[code] = per_code.get(code, N(0)) + b
+            per_code[code] = per_code.get(code, F(0) if COMPAT else N(0)) + b
     adj_stored = q5(F(adj) if COMPAT else adj)
     adj_cents = rnd(adj)
     rows = []
