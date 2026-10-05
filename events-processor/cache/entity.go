@@ -100,7 +100,7 @@ func (e entity[T]) consumerConfig(c *Cache) ConsumerConfig[T] {
 		ModelName: e.table,
 		IsDeleted: e.isDeleted,
 		GetKey: func(item *T) string {
-			// Only used for logging: a key error is reported by the cache operation itself.
+			// Only used for logging. A key error makes GetCached, SetCache and Delete fail.
 			key, _ := e.key(item)
 			return key
 		},

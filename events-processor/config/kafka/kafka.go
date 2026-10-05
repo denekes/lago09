@@ -24,9 +24,9 @@ type ServerConfig struct {
 	Password       string
 }
 
-// newLogger returns a logger tagged with the given attribute, that logs at info level or above
-// whatever the level of the default logger.
-func newLogger(key string, value string) *slog.Logger {
+// newLogger returns a logger tagged with the given attribute that never logs below info level,
+// even when the default logger is at debug level.
+func newLogger(key, value string) *slog.Logger {
 	return slog.New(utils.NewLevelHandler(slog.LevelInfo, slog.Default().Handler())).With(key, value)
 }
 

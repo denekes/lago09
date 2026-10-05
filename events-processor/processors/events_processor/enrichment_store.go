@@ -21,18 +21,22 @@ type EnrichmentStore interface {
 var _ EnrichmentStore = (*models.ApiStore)(nil)
 
 type cacheEnrichmentStore struct {
-	*cache.Cache
+	cache *cache.Cache
 }
 
 // NewCacheEnrichmentStore serves enrichment lookups from the in-memory cache.
 func NewCacheEnrichmentStore(memCache *cache.Cache) EnrichmentStore {
-	return cacheEnrichmentStore{Cache: memCache}
+	return cacheEnrichmentStore{cache: memCache}
 }
 
 func (s cacheEnrichmentStore) FetchBillableMetric(organizationID string, code string) utils.Result[*models.BillableMetric] {
-	return s.GetBillableMetric(organizationID, code)
+	return s.cache.GetBillableMetric(organizationID, code)
 }
 
 func (s cacheEnrichmentStore) FetchSubscription(organizationID string, externalID string, timestamp time.Time) utils.Result[*models.Subscription] {
-	return s.SearchSubscriptions(organizationID, externalID, timestamp)
+	return s.cache.SearchSubscriptions(organizationID, externalID, timestamp)
+}
+
+func (s cacheEnrichmentStore) HasPayInAdvanceCharge(organizationID string, planID string, billableMetricID string) utils.Result[bool] {
+	return s.cache.HasPayInAdvanceCharge(organizationID, planID, billableMetricID)
 }
