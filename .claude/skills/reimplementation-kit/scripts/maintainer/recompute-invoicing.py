@@ -109,8 +109,10 @@ class Num:
 
     def store_col5(self, x):
         """A binary64 value assigned to a 5-place decimal column (BE-IV-42, BE-CN-7; chapter 07 notation): the float is
-        rounded by round5, converted to decimal at 16 significant digits, then rounded half away to 5 places (compat);
-        from 1e11 up the 16-digit step drops the fifth decimal (102880657510.79861 -> 102880657510.7986)."""
+        rounded by round5, the exact value of that binary64 (not its shortest text) converted to decimal at 16 significant
+        digits (nearest, ties to even: format ".16g"), then rounded half away to 5 places (compat); from 2^36 up this can
+        differ from round5's text (78096345254.9564 -> 78096345254.95641) and from 1e11 up it drops the fifth decimal
+        (102880657510.79861 -> 102880657510.7986)."""
         if not self.compat:
             return store5(x)
         return store5(D(format(float(self.round5_float(x)), ".16g")))

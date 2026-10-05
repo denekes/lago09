@@ -1,6 +1,6 @@
 # Delivery and failures: batches, commits, retries, loss (compat vs corrected)
 
-Part of `events-processor-spec` (re-implementation kit v1.5.0). Read when you implement consumption, commits,
+Part of `events-processor-spec` (re-implementation kit v1.6.0). Read when you implement consumption, commits,
 retries and the dead-letter path, or when you decide which profile a deployment needs. The compat profile
 reproduces the reference at events-processor tree `83e012866f29`, INCLUDING its silent-loss modes (useful only
 for migration testing against existing data). The corrected profile is the delivery contract ADR-001 (owner

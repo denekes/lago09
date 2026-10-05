@@ -1,6 +1,6 @@
 # Processing rules: from one raw record to its outputs
 
-Part of `events-processor-spec` (re-implementation kit v1.5.0). Read when you implement or grade the per-record
+Part of `events-processor-spec` (re-implementation kit v1.6.0). Read when you implement or grade the per-record
 pipeline: decoding, time, metric resolution, the `value` string, expressions, subscription matching, the
 pay-in-advance split and the refresh flag. Behaviour facts: reference events-processor tree `83e012866f29`
 ("compat" profile) and the kit's corrected profile (ADR-001 plus the rebuild decisions RBD-n of

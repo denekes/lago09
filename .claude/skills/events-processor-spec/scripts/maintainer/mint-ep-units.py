@@ -510,7 +510,7 @@ def literal_properties(ref_json, inp):
 class Oracle:
     def __init__(self, cmd):
         self.p = subprocess.Popen(["sh", "-c", "exec " + cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        h = self.rpc({"type": "hello", "proto": 1, "kit_version": "1.5.0", "kit_schema": 1, "profiles": ["compat"], "areas": ["ep"]})
+        h = self.rpc({"type": "hello", "proto": 1, "kit_version": "1.6.0", "kit_schema": 1, "profiles": ["compat"], "areas": ["ep"]})
         assert h.get("type") == "hello", h
         self.n = 0
 
