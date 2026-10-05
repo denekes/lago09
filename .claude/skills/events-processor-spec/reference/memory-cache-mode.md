@@ -1,6 +1,6 @@
 # Memory-cache mode (production): snapshot, CDC, and how it differs from DB mode
 
-Part of `events-processor-spec` (re-implementation kit v1.2.0). **Production runs this mode** (owner decision
+Part of `events-processor-spec` (re-implementation kit v1.3.0). **Production runs this mode** (owner decision
 OD-1, 2026-10-02); DB mode is the development and fallback mode. Read when you implement the catalog cache or the
 CDC consumers, or when a scenario behaves differently with `--mode cache`. Behaviour facts: reference
 events-processor tree `83e012866f29` plus the corrected profile where stated. The production CDC connector
