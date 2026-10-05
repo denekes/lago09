@@ -19,3 +19,10 @@
 8. **Termination note validation (BE-CN-18):** the note is created without BE-CN-12 validation; no vector says
    otherwise. Plan amount for `sdp` = `plan.amount_cents` (else the fee amount).
 9. **Wallet order:** priority then input order (age); allocation per fee type (ch. 09) not needed for the totals op.
+
+## v1.1
+
+- Q: Is `status: voided` the only voided-invoice marker in the termination input (BE-CN-18), or can `payment_status`/other fields signal it? Looked: BE-CN-18, `credit_notes.termination.011/.012`. Assumption: `invoice.status == "voided"`.
+- Q: Coupon create (BE-IV-17): does `expiration_at` in the past fail even when `expiration` is not `time_limit`? Looked: BE-IV-17 ("when given"). Assumption: yes, whenever given.
+- Q: Exactly how `dec16` rounds (half-up vs shortest repr) for the binary64 item rate (BE-CN-6). Looked: chapter 07 reading guide. Assumption: 16 significant digits, half up of the exact binary64 value.
+- Q: Apply-coupon reusability when `applied_before` entries lack a `coupon` key. Looked: BE-IV-18. Assumption: such entries are of the same coupon.

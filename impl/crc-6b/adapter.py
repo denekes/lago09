@@ -247,12 +247,14 @@ def mkcoupon(d, currency):
     return c
 
 
-def coupon_amount(c, B):
+def coupon_amount(c, B, limited=None):
     """BE-IV-23. Returns amount (exact)."""
     B = F(B)
+    if limited is None:
+        limited = bool(c.metrics or c.plans) or B.denominator != 1
     if c.type == "percentage":
         rate = c.rate
-        if B.denominator == 1:
+        if not limited:
             if COMPAT:
                 v = float(B) * (float(rate) / 100.0)
                 vf = Fraction(v)
@@ -308,7 +310,7 @@ def apply_coupon(c, fees, sub_total, currency, credited_ids):
         B = sum((f.amount - f.pc for f in targets), Fraction(0))
     else:
         B = F(sub_total)
-    amount = coupon_amount(c, B)
+    amount = coupon_amount(c, B, limited)
     credit = trunc(amount)
     if B != 0:
         for f in targets:
@@ -576,50 +578,56 @@ def op_fee_tax_selection(inp):
 
 
 # ----------------------------------------------------------------------------- coupon create / apply
+KNOWN_CURRENCIES = frozenset("""
+AED AFN ALL AMD ANG AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD BND BOB BRL BSD BWP BYN BZD CAD CDF CHF CLF CLP CNY COP CRC CVE CZK DJF DKK DOP DZD EGP ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HRK HTG HUF IDR ILS INR IRR ISK JMD JOD JPY KES KGS KHR KMF KRW KWD KYD KZT LAK LBP LKR LRD LSL MAD MDL MGA MKD MMK MNT MOP MRO MUR MVR MWK MXN MYR MZN NAD NGN NIO NOK NPR NZD PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SEK SGD SHP SLL SOS SRD STD SZL THB TJS TOP TRY TTD TWD TZS UAH UGX USD UYU UZS VND VUV WST XAF XCD XOF XPF YER ZAR ZMW
+""".split())
+
+
 def op_coupon_create(inp):
     c = inp["coupon"]
     cat = inp.get("catalog", {})
     now = parse_instant(inp.get("now", "2024-03-01T10:00:00Z"))
-    validate_coupon(c, now)
+    ea = c.get("expiration_at")
+    if ea is not None and parse_instant(ea) <= now:
+        raise DomainError("invalid_date", "expiration_at")
     plans = c.get("plan_codes", [])
     bms = c.get("billable_metric_codes", [])
-    if plans and bms:
-        raise DomainError("only_one_limitation_type_per_coupon_allowed")
     if plans and any(p not in cat.get("plan_codes", []) for p in plans):
-        raise DomainError("plans_not_found")
+        raise DomainError("plans_not_found", "base")
     if bms and any(b not in cat.get("billable_metric_codes", []) for b in bms):
-        raise DomainError("billable_metrics_not_found")
+        raise DomainError("billable_metrics_not_found", "base")
+    if plans and bms:
+        raise DomainError("only_one_limitation_type_per_coupon_allowed", "base")
+    validate_coupon(c, now)
     return {"coupon": {"status": "active", "reusable": c.get("reusable", True),
                        "limited_plans": bool(plans), "limited_billable_metrics": bool(bms),
                        "frequency_duration": c.get("frequency_duration"),
-                       "targets": len(plans) + len(bms)}}
+                       "targets": len(set(plans)) + len(set(bms))}}
 
 
 def validate_coupon(c, now, vals=None):
+    """BE-IV-17 value checks: amount_cents, amount_currency, percentage_rate, frequency_duration."""
     v = dict(c)
     if vals:
         v.update(vals)
-    if v["coupon_type"] == "fixed_amount":
-        if v.get("amount_cents") is None:
-            raise DomainError("value_is_mandatory", "amount_cents")
-        if v["amount_cents"] <= 0:
-            raise DomainError("value_is_out_of_range", "amount_cents")
-        if not v.get("amount_currency"):
-            raise DomainError("value_is_mandatory", "amount_currency")
-    else:
-        if v.get("percentage_rate") is None:
-            raise DomainError("value_is_mandatory", "percentage_rate")
-        if F(v["percentage_rate"]) <= 0:
-            raise DomainError("value_is_out_of_range", "percentage_rate")
+    fixed = v["coupon_type"] == "fixed_amount"
+    amt = v.get("amount_cents")
+    cur = v.get("amount_currency")
+    if fixed and amt is None:
+        raise DomainError("value_is_mandatory", "amount_cents")
+    if amt is not None and F(amt) <= 0:
+        raise DomainError("value_is_out_of_range", "amount_cents")
+    if fixed and not cur:
+        raise DomainError("value_is_mandatory", "amount_currency")
+    if cur and cur not in KNOWN_CURRENCIES:
+        raise DomainError("value_is_invalid", "amount_currency")
+    if not fixed and v.get("percentage_rate") is None:
+        raise DomainError("value_is_mandatory", "percentage_rate")
     if v.get("frequency") == "recurring":
         if v.get("frequency_duration") is None:
             raise DomainError("value_is_mandatory", "frequency_duration")
         if v["frequency_duration"] <= 0:
             raise DomainError("value_is_out_of_range", "frequency_duration")
-    if v.get("expiration") == "time_limit":
-        ea = v.get("expiration_at")
-        if ea is None or parse_instant(ea) <= now:
-            raise DomainError("invalid_date", "expiration_at")
 
 
 def op_coupon_apply(inp):
@@ -630,11 +638,7 @@ def op_coupon_apply(inp):
     now = parse_instant(inp.get("now", "2024-03-01T10:00:00Z"))
     cur = inp.get("customer_currency", "EUR")
     if coupon.get("status", "active") != "active":
-        raise DomainError("coupon_not_found")
-    # reusability
-    if coupon.get("reusable", True) is False:
-        if any("coupon" not in b for b in before):
-            raise DomainError("coupon_is_not_reusable", "coupon")
+        raise DomainError("coupon_not_found", "base")
     # overlap
     cplans = set(coupon.get("plan_codes", []))
     cbms = set(coupon.get("billable_metric_codes", []))
@@ -650,7 +654,11 @@ def op_coupon_apply(inp):
             if "coupon" not in b:
                 bc = coupon
             if overlaps(cplans, cbms, bplans, bbms, plans):
-                raise DomainError("plan_overlapping")
+                raise DomainError("plan_overlapping", "base")
+    # reusability
+    if coupon.get("reusable", True) is False:
+        if any("coupon" not in b for b in before):
+            raise DomainError("coupon_is_not_reusable", "coupon")
     vals = {}
     for k in ("amount_cents", "amount_currency", "percentage_rate", "frequency", "frequency_duration"):
         if k in ov:
@@ -663,12 +671,17 @@ def op_coupon_apply(inp):
         "frequency": vals.get("frequency", coupon.get("frequency")),
         "frequency_duration": vals.get("frequency_duration", coupon.get("frequency_duration")),
     }
-    check = dict(applied)
-    check["expiration"] = "no_expiration"
-    try:
-        validate_coupon(check, now)
-    except DomainError as e:
-        raise
+    if applied["amount_cents"] is not None and F(applied["amount_cents"]) < 0:
+        raise DomainError("value_is_out_of_range", "amount_cents")
+    ac = applied["amount_currency"]
+    if ac and ac not in KNOWN_CURRENCIES:
+        raise DomainError("value_is_invalid", "amount_currency")
+    if applied["frequency"] == "recurring":
+        fd = applied["frequency_duration"]
+        if fd is None:
+            raise DomainError("value_is_mandatory", "frequency_duration")
+        if fd <= 0:
+            raise DomainError("value_is_out_of_range", "frequency_duration")
     if applied["frequency"] != "recurring":
         pass
     out_cur = cur
@@ -965,7 +978,11 @@ def note_amounts(inv, items, residue_check):
             item_rate = N(it["precise"]) / N(f.amount)
         else:
             item_rate = N(0)
-        share = N(f.pc) * item_rate
+        if COMPAT:
+            # BE-CN-6: the binary64 rate enters the product at 16 digits, the product is exact
+            share = F(f.pc) * sig16(F(item_rate))
+        else:
+            share = N(f.pc) * item_rate
         if inv.version >= 3:
             adj += share
         for code, rate in f.taxes:

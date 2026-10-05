@@ -26,10 +26,10 @@ def termination_note(inp, G):
     interval = plan["interval"]
 
     fee_amount = A.F(invd["subscription_fee_amount_cents"])
-    if fee_amount == 0:
+    if fee_amount == 0 or invd.get("status") == "voided":
         return {"credit_note": None}
     if upgrade and on_term in ("refund", "offset"):
-        raise A.DomainError("upgrade_with_refund_not_supported")
+        raise A.DomainError("server_error")
 
     tdate = local_date(term, tz)
     pstart, pend = period_of(tdate, interval, billing_time, anchor)
