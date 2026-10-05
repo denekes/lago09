@@ -179,8 +179,8 @@ Kit gates (`validate-vectors.py --gate`, `acceptance/thresholds.json` `kit_gates
 EXECUTED, ≤ 5 % RECOMPUTED, 0 EXTRACTED; scenarios 100 % EXECUTED; `ep` `both`/`compat` ≥ 95 % EXECUTED (the rest
 RECOMPUTED with a note, corrected twins not counted). Size budget (`kit_budget`, whole-kit runs): billing unit vectors
 1,400,000 bytes, scenarios 600,000, events-processor conformance 650,000, events-processor unit vectors 130,000,
-schemas and metadata 420,000, total 3,000,000 (`SIZES` line of the validator; measured 2026-10-05: 1,381,044 /
-387,658 / 509,473 / 103,944 / 374,208, total 2,823,609).
+schemas and metadata 420,000, total 3,000,000 (`SIZES` line of the validator; measured 2026-10-05 on 1.2.0: 1,395,836 /
+387,658 / 509,473 / 103,944 / 375,882, total 2,840,075).
 
 ## 7. Running conformance
 
@@ -273,16 +273,16 @@ Read the diff path first; group failures by op and first diff path — one wrong
 | Command | Purpose | Observed (2026-10-05) |
 |---|---|---|
 | `python3 scripts/kitrun.py --impl-cmd CMD [--areas …] [--profile …] [--report F]` | run unit vectors through an adapter | vs the oracle on the self-test vectors: `SUMMARY kitrun: areas=1 pass=1 fail=0 vectors=23 passed=23 skipped_ops=0 exit=0` |
-| `python3 scripts/validate-vectors.py [FILES] [--gate] [--rule-coverage] [--inventory]` | format, evidence, budget, content and text checks | on the self-test vectors: `SUMMARY validate-vectors: files=1 vectors=23 scenarios=76 errors=0 warnings=0`; whole kit with `--gate --rule-coverage`: `files=146 vectors=1967 scenarios=76 errors=0 warnings=0` |
+| `python3 scripts/validate-vectors.py [FILES] [--gate] [--rule-coverage] [--inventory]` | format, evidence, budget, content and text checks | on the self-test vectors: `SUMMARY validate-vectors: files=1 vectors=23 scenarios=76 errors=0 warnings=0`; whole kit with `--gate --rule-coverage`: `files=146 vectors=1984 scenarios=76 errors=0 warnings=0` |
 | `python3 scripts/adapter_ref.py [--list-ops]` | reference adapter loop + `domain.round` example; op list | `--only round`: 14/14 PASS |
-| `bash scripts/kit-selftest.sh [--skip-kit-validate] [--skip-ep-build]` | syntax, 18 runner unit tests, validation, selftest adapter 100 % / mutation ≥ 99 %, EP runner build | `unit PASS Ran 18 tests`; `selftest-pass PASS compat 1507/1507 … corrected 1394/1394 (+unruled 104/104)`; `selftest-mutate PASS detected compat 1505/1507 corrected 1392/1394`; `ep-build PASS`; `SUMMARY kit-selftest: steps=7 pass=7 fail=0 skip=0` (`--skip-ep-build`: pass=6 skip=1) |
+| `bash scripts/kit-selftest.sh [--skip-kit-validate] [--skip-ep-build]` | syntax, 18 runner unit tests, validation, selftest adapter 100 % / mutation ≥ 99 %, EP runner build | `unit PASS Ran 18 tests`; `selftest-pass PASS compat 1521/1521 … corrected 1405/1405 (+unruled 107/107)`; `selftest-mutate PASS detected compat 1519/1521 corrected 1403/1405`; `ep-build PASS`; `SUMMARY kit-selftest: steps=7 pass=7 fail=0 skip=0` (`--skip-ep-build`: pass=6 skip=1) |
 | `python3 scripts/selftest/test_runner.py` | runner unit tests (compare modes, crash/timeout/garbage/wrong-id adapters, exit codes 0/2/3/4, parallel, report schema) | `Ran 18 tests … OK` |
 | `scripts/maintainer/oracle.sh setup\|db\|clickhouse\|run\|adapter\|env\|status\|stop` | MAINTAINER: the reference at the pin as rspec runner and as adapter | from an empty cache 94 s; `run spec/services/charge_models` 140/140 in 21 s |
 | `python3 scripts/maintainer/selftest-adapter.py [--mutate]` | MAINTAINER: answers from `expected` to test the runners | 100 % PASS; mutation detected 100 % |
-| `python3 scripts/maintainer/vector-provenance.py` | MAINTAINER: every `evidence.ref` resolves at its pin; non-EXECUTED residue | `SUMMARY vector-provenance: vectors=2043 refs_checked=2218 broken=0 residue_recomputed=3 residue_extracted=0` |
-| `python3 scripts/maintainer/holdout-split.py --check\|--write [--seed S] [--prune-vec-tags]` | MAINTAINER: seeded, stratified 20 % holdout into `maintainer-data/holdout/` (lead, at integration) | `--check` on 1.1.0 (report only, the holdout stays stable): `vectors=1944 eligible=443 holdout=329 (16.9 %) moves=74 prunes=0 mode=check` |
-| `python3 scripts/maintainer/make-kit-json.py --check\|--write` | MAINTAINER: `kit.json` manifest (sha256 per file, maintainer flags), written last | 1.1.0, `--write` then `--check`: `SUMMARY make-kit-json: files=468 maintainer=69 vectors=1642 … changed=0 mode=check` |
-| `bash scripts/maintainer/kit-pack.sh --cleanroom (--out F \| --out-dir D)` | MAINTAINER: clean-room pack (strip, manifest, validator, forbidden-content scan) | `SUMMARY kit-pack: mode=cleanroom files=400 … stripped=69 forbidden=0 validate_errors=0` (inside the pack: `files=112 vectors=1642 scenarios=76 errors=0 warnings=0`) |
+| `python3 scripts/maintainer/vector-provenance.py` | MAINTAINER: every `evidence.ref` resolves at its pin; non-EXECUTED residue | `SUMMARY vector-provenance: vectors=2060 refs_checked=2235 broken=0 residue_recomputed=3 residue_extracted=0` |
+| `python3 scripts/maintainer/holdout-split.py --check\|--write [--seed S] [--prune-vec-tags]` | MAINTAINER: seeded, stratified 20 % holdout into `maintainer-data/holdout/` (lead, at integration) | `--check` on 1.2.0 (report only, the holdout stays stable): `vectors=1961 eligible=444 holdout=329 (16.8 %) moves=74 prunes=0 mode=check` |
+| `python3 scripts/maintainer/make-kit-json.py --check\|--write` | MAINTAINER: `kit.json` manifest (sha256 per file, maintainer flags), written last | 1.2.0, `--write` then `--check`: `SUMMARY make-kit-json: files=468 maintainer=69 vectors=1659 … changed=0 mode=check` |
+| `bash scripts/maintainer/kit-pack.sh --cleanroom (--out F \| --out-dir D)` | MAINTAINER: clean-room pack (strip, manifest, validator, forbidden-content scan) | `SUMMARY kit-pack: mode=cleanroom files=400 … stripped=69 forbidden=0 validate_errors=0` (inside the pack: `files=112 vectors=1659 scenarios=76 errors=0 warnings=0`) |
 
 ## 12. Provenance and maintenance
 
