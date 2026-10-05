@@ -7,7 +7,7 @@ import json
 import re
 import sys
 from datetime import datetime, timedelta, timezone, date
-from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, localcontext, getcontext
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, ROUND_DOWN, localcontext, getcontext
 from fractions import Fraction
 from zoneinfo import ZoneInfo
 
@@ -371,6 +371,36 @@ def prorate_P(ctx, days, dd):
     return Fraction(days, dd)
 
 
+def p16(days, dd):
+    """BE-AG-56 (3): the binary64 ratio's shortest text cut (not rounded) to 16 significant digits."""
+    d = Decimal(repr(days / dd))
+    if d == 0:
+        return Fraction(0)
+    e = d.adjusted()
+    return Fraction(d.quantize(Decimal(1).scaleb(e - 15), rounding=ROUND_DOWN))
+
+
+def r64(i):
+    """round a non-negative integer to 64 significant bits, ties to even"""
+    k = i.bit_length() - 64
+    if k <= 0:
+        return i
+    q, rem = divmod(i, 1 << k)
+    half = 1 << (k - 1)
+    if rem > half or (rem == half and q & 1):
+        q += 1
+    return q << k
+
+
+def ch_conv(v):
+    """BE-AG-74: the columnar store's decimal to binary64 conversion."""
+    x = int(abs(v) * 10 ** 26)
+    h, l = x >> 64, x & ((1 << 64) - 1)
+    y = r64(r64(r64(h * ((1 << 64) - 1)) + h) + l)
+    c = float(y) / float(10 ** 26)
+    return -c if v < 0 else c
+
+
 def ratio(ctx, n, dd):
     if ctx.compat or ctx.grouped:
         return Fraction(q20(n, dd))
@@ -634,12 +664,25 @@ def aggregate(inp, profile):
                     csum = sum((vals[id(e)] for e in carried), Decimal(0))
                     tl = local_date(to, tz)
                     contrib_list = []
-                    total = Fraction(csum) * P
-                    pe_prorated = [frac_dec(Fraction(csum) * P)]
+                    chp = ctx.chc and ctx.compat and not ctx.grouped
+                    if chp:
+                        Pf = days / dd
+                        cpart = Decimal(0)
+                        if carried:
+                            cpart = Decimal(repr(sum((ch_conv(vals[id(e)]) * Pf for e in carried), 0.0)))
+                        wcont = [Decimal(repr(ch_conv(vals[id(e)]) * (((tl - local_date(e.ts, tz)).days + 1) / dd))) for e in win]
+                        wpart = Decimal(repr(sum((float(x) for x in wcont), 0.0))) if win else Decimal(0)
+                        total = Fraction(cpart + wpart)
+                    else:
+                        total = Fraction(csum) * P
+                    pe_prorated = [frac_dec(Fraction(csum) * (p16(days, dd) if ctx.compat or ctx.grouped else P))]
                     for e in win:
                         n = (tl - local_date(e.ts, tz)).days + 1
                         t = Fraction(vals[id(e)]) * ratio(ctx, n, dd)
-                        total += t
+                        if chp:
+                            t = Fraction(wcont[len(pe_prorated) - 1])
+                        else:
+                            total += t
                         pe_prorated.append(frac_dec(t))
                     U = sum((vals[id(e)] for e in V), Decimal(0))
                     pv = ceil_n(total, 5)
@@ -647,11 +690,11 @@ def aggregate(inp, profile):
                     r["count"] = Decimal(len(V))
                     r["full_units_number"] = U
                     r["current_usage_units"] = U
-                    if carried:
+                    if carried and csum != 0:
                         pe = [csum] + [vals[id(e)] for e in win]
                     else:
                         pe = [vals[id(e)] for e in win]
-                    pep = pe_prorated if carried else pe_prorated[1:]
+                    pep = pe_prorated if carried and csum != 0 else pe_prorated[1:]
                     r["per_event_prorated"] = pep
                 else:
                     pv, U = prorated_unique(ctx, V, frm, to, dd, tz, bool(grouped_by))
@@ -666,7 +709,7 @@ def aggregate(inp, profile):
                         cur, mx, mp = cvals(c)
                         mp = mp or Decimal(0)
                         if P < 1:
-                            agg = ceil_n((U - max(cur, 0)) * frac_dec(P), 5) + mp
+                            agg = ceil_n(Fraction(U - max(cur, 0)) * (p16(days, dd) if ctx.compat or ctx.grouped else P), 5) + mp
                         else:
                             agg = U - max(cur, 0) + mp
                     else:
@@ -683,7 +726,7 @@ def aggregate(inp, profile):
                 agg = max(T - cur + (mx if mx is not None else cur), Decimal(0))
                 r["aggregation"] = agg
                 if atype == "unique_count_agg":
-                    r["count"] = agg
+                    r["count"] = T if grouped_by else agg
             r["current_usage_units"] = max(T, Decimal(0))
 
         if per_event_wanted:
@@ -918,7 +961,7 @@ def in_advance_units(inp, profile):
     new = {"current_aggregation": fmt(st[0]), "max_aggregation": fmt(st[1]), "units_applied": fmt(st[2])}
     if prorated:
         days = days_between(ev.ts, to, tz, False)
-        pu = ceil_n(Fraction(units) * Fraction(days, dd), 5) if units else Decimal(0)
+        pu = ceil_n(Fraction(units) * (p16(days, dd) if ctx.compat or grouped_by else Fraction(days, dd)), 5) if units else Decimal(0)
         mp_old = D(cached["max_aggregation_with_proration"]) if cached and cached.get("max_aggregation_with_proration") is not None else None
         if not cached:
             mp = pu
