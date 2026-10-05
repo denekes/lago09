@@ -1504,6 +1504,16 @@ func (e *env) checkAssertions(path string, obs *observation) ([]string, []string
 			fails = append(fails, line)
 		}
 	}
+	// An IUT that never became ready (outside the startup-contract scenarios) produced
+	// nothing, so ledger-wide kinds (all_done, all_accounted, no_dup) would pass vacuously.
+	for _, n := range e.notes {
+		if n == "iut_not_ready" {
+			for _, a := range as {
+				fail(a, "IUT never became ready (%s)", obs.exitLine)
+			}
+			return fails, unruled, nil
+		}
+	}
 	for _, a := range as {
 		switch a.Kind {
 		case "all_accounted":

@@ -69,7 +69,7 @@
           ],
           "minimum": 1,
           "default": null,
-          "description": "Per-customer invoice sequence value (when finalizing per customer or self-billed)."
+          "description": "Per-customer invoice sequence value already held by the invoice (used when finalizing per customer or self-billed). Null or absent: the invoice holds none, so finalizing assigns the next value of its scope (BE-DM-37); the op's scope holds no other invoice, so that value is 1."
         },
         "billing_entity_sequential_id": {
           "type": [
@@ -78,7 +78,7 @@
           ],
           "minimum": 1,
           "default": null,
-          "description": "Billing-entity sequence value (when finalizing per billing entity)."
+          "description": "Billing-entity sequence value already held by the invoice (used when finalizing per billing entity, not self-billed). Null or absent: the invoice holds none, so finalizing assigns the next value of its scope (BE-DM-38); the op's scope holds no other invoice, so that value is 1."
         },
         "number": {
           "type": "string",

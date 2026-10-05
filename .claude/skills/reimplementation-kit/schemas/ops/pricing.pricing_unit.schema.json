@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ops/pricing.pricing_unit.schema.json",
   "title": "pricing.pricing_unit",
-  "description": "Pricing-unit conversion of a charge result (BE-PR-63): pricing-unit cents rounded to 2 decimals, then converted to fiat from the ROUNDED pricing-unit cents. fiat values are before the fee's integer cast.",
+  "description": "Pricing-unit conversion of a charge result (BE-PR-63): pricing-unit cents rounded to 2 decimals, then converted to fiat from the ROUNDED pricing-unit cents. fiat values are before the fee's integer cast. pricing_unit_usage is the stored pricing-unit record: its precise_amount_cents and precise_unit_amount are rounded half away from zero to 15 places (BE-PR-87); the fiat block is reported only and not rounded.",
   "x-kit": {
     "area": "pricing",
     "op": "pricing_unit",

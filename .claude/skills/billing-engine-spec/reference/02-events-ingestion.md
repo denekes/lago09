@@ -51,7 +51,7 @@ Let `received_at` be the API wall clock when the request arrives.
 - **BE-EV-12** A JSON **number** that is not an integer is first read as an IEEE-754 binary64 value and then used as its shortest round-trip decimal text, so digits beyond binary64 precision are lost (`1693842312.123456789` becomes `1693842312.1234567`); JSON integers and JSON strings keep every digit (`"1780586634.1"` is exactly .1 s, not the binary64 neighbour). [vec: events.parse_timestamp.006, events.parse_timestamp.007, events.parse_timestamp.010]
 - **BE-EV-13** The relational store keeps the event time at microsecond precision, truncated toward the past (floor): `.9999999` s keeps `.999999`, `-0.5` s is `23:59:59.5` of the previous day. The unrounded parsed value is what the raw message carries (BE-EV-61). [vec: events.parse_timestamp.008, events.parse_timestamp.009, events.parse_timestamp.010, events.parse_timestamp.016, events.raw_message.003]
 - **BE-EV-14** Times before 1970 (negative seconds) are accepted. [vec: events.parse_timestamp.015, events.parse_timestamp.016]
-- **BE-EV-15** Values that pass the grammar but are not finite or not storable fail with an internal error (HTTP 500), not with `invalid_format`: the texts `NaN`, `Infinity`, `-Infinity`, and (relational store) times beyond the database's range such as `1e20`; a columnar-store organization accepts `1e20` because nothing is stored. A rebuild should answer `invalid_format` (proposed rebuild decision, owner). [vec: none (prose only: the reference answers an internal error, which the kit does not grade until a rebuild decision is ruled)]
+- **BE-EV-15** Values that pass the grammar but are not finite or not storable fail with an internal error (HTTP 500), not with `invalid_format`: the texts `NaN`, `Infinity` and `-Infinity` in both stores, and in the relational store any time outside the range the store keeps, which is −210866803200 s (4714-11-24T00:00:00Z before the common era) through 9224318015999.999999 s (294276-12-31T23:59:59.999999Z); `9224318016000` s and `1e13` s fail, as does −210866803201 s. Inside that range every time is accepted, including years 0 and 10000 and later; a columnar-store organization accepts any finite value (`1e20`) because nothing is stored. Graded vectors stay within four-digit years (the kit's instant format); beyond them the kit grades nothing. A rebuild should answer `invalid_format` for the non-finite and unstorable values (open question KQ-31; the compat answer is ungraded). [vec: none (prose only: the reference answers an internal error, which the kit does not grade until a rebuild decision is ruled)]
 - **BE-EV-16** Downstream precision: the events-processor and the columnar store keep milliseconds (`events-processor-spec` EP-D2), the relational store microseconds (RBD-40). [vec: events.raw_message.003, events.raw_message.004]
 
 ## 3. Validating one event
@@ -82,8 +82,8 @@ Checks run in this order; the first failing step decides the answer:
 - **BE-EV-40** `events` absent, null or empty → 422 `{"events": ["no_events"]}`. More events than the configured maximum (deployment setting, default 100) → 422 `{"events": ["too_many_events"]}`; exactly the maximum is accepted. These two checks run before any per-event check. [vec: events.validate_batch.002, events.validate_batch.004, events.validate_batch.005]
 - **BE-EV-41** Each event is checked as a single event would be (time, expression, presence) — in BOTH stores, so a columnar-store batch rejects a missing `transaction_id` that a single columnar-store event would accept. Any error rejects the whole batch: nothing is stored and nothing is published. [vec: events.validate_batch.001, events.validate_batch.006, events.validate_batch.016]
 - **BE-EV-42** `error_details` maps the zero-based index of each failing event (as a JSON object key `"0"`, `"1"`, …) to: `{"timestamp": ["invalid_format"]}` (the other checks of that event are skipped); or the presence errors `{member: ["value_is_mandatory"]}`; or, for an expression failure, the text `expression_evaluation_failed: <message>` — replaced by the presence errors when the same event also lacks `transaction_id` or `code`. [vec: events.validate_batch.010]
-- **BE-EV-43** Relational store: duplicates are detected only after every event passed its own checks (a batch with any per-event error reports only those). Then an event whose key repeats a stored event, or an earlier event of the same batch, gets `{"transaction_id": ["value_already_exist"]}` at its index; the first occurrence inside the batch is not flagged. [vec: events.validate_batch.006, events.validate_batch.007, events.validate_batch.008, events.validate_batch.011]
-- **BE-EV-44** Reference quirk (RBD-33): inside a batch, repeats are matched on `transaction_id` alone. Two events with the same `transaction_id` for different subscriptions, or twice without a subscription id, are rejected at the later index (the single-event path accepts both); and when a batch holds a stored key and a new key with the same `transaction_id`, the error is reported at the later index whichever event is the real duplicate. Corrected (proposed): batches use the single-event key. [vec: events.validate_batch.012, events.validate_batch.012x, events.validate_batch.014, events.validate_batch.014x]
+- **BE-EV-43** Relational store: duplicates are detected only after every event passed its own checks (a batch with any per-event error reports only those). Then each flagged event gets `{"transaction_id": ["value_already_exist"]}` at its index. Call an event's key (`external_subscription_id`, `transaction_id`) **new** when no stored event (soft-deleted ones included) and no earlier event of the batch carries the same key; a key without a subscription id is always new. The events that repeat a stored key, or an earlier event's key, are flagged; the first occurrence of a key inside the batch is not flagged unless it repeats a stored key. Example: one stored key and two batch events repeating it → both indexes are flagged. This is the corrected rule; the reference flags per BE-EV-44, which agrees with it whenever the events sharing a `transaction_id` all carry the same (non-null) subscription id. [vec: events.validate_batch.006, events.validate_batch.007, events.validate_batch.008, events.validate_batch.011, events.validate_batch.018]
+- **BE-EV-44** Reference quirk (RBD-33): inside a batch, repeats are matched on `transaction_id` alone. Compat rule, for each `transaction_id` t of the batch, with the events carrying t in index order: if at least one of them has a new key (BE-EV-43), every one of them except the first (lowest index) is flagged; otherwise (all of them repeat stored keys) every one of them is flagged. Consequences: two events with the same `transaction_id` for different subscriptions, or twice without a subscription id, are rejected at the later index (the single-event path accepts both); when a batch holds a stored key and a new key with the same `transaction_id`, the error is reported at the later index whichever event is the real duplicate; two events that both repeat one stored key are both rejected. Corrected (proposed): batches use the single-event key, and exactly the events whose key is not new are flagged. [vec: events.validate_batch.012, events.validate_batch.012x, events.validate_batch.014, events.validate_batch.014x, events.validate_batch.018]
 - **BE-EV-45** Columnar store: no duplicate detection in batches; accepted events are published, not stored (RBD-32). [vec: events.validate_batch.015, events.validate_batch.015x, events.validate_batch.017]
 - **BE-EV-46** An accepted relational-store batch is stored atomically, then post-processing is scheduled for every event, then every event is published (BE-EV-60). [vec: events.validate_batch.001, events.validate_batch.005]
 
@@ -92,8 +92,8 @@ Checks run in this order; the first failing step decides the answer:
 - **BE-EV-50** If the organization has a non-deleted billable metric whose `code` equals the event's `code` and whose `expression` is not blank, the expression is evaluated on the event (chapter 03, surface "ingestion", BE-EX-30) before storage and publication, and its result is written into `properties[field_name]` of that metric, replacing any value the client sent. This happens in both stores and in single and batch submissions. [vec: events.validate.015, events.validate.018, events.validate_batch.001, events.validate_batch.017]
 - **BE-EV-51** The written value is a JSON string: a number result as plain decimal text with at least one fractional digit (`"3.0"`, `"6.0"`, `"0.2"`, `"1200.0"`, `"0.0000001"`), a string result as is (BE-EX-31). [vec: events.validate.015, events.validate.018, events.raw_message.007, events.validate_batch.001, events.validate_batch.017]
 - **BE-EV-52** An evaluation failure rejects the event with 422 whose `error_details` is the TEXT `expression_evaluation_failed: <message>` (messages of BE-EX-13/14, e.g. `Variable: a not found`, `Expected a decimal`). [vec: events.validate.014, events.validate.016, events.validate_batch.010]
-- **BE-EV-53** Metrics without an expression, and deleted metrics, leave the properties untouched. [vec: events.validate.017]
-- **BE-EV-54** A division by zero inside the expression is not an evaluation failure in the reference: the request fails with an internal error (HTTP 500, single event and batch alike), nothing is stored or published, and the server keeps serving other requests (RBD-37). An event earlier than 1970 whose metric has an expression also fails with an internal error (HTTP 500). The corrected profile rejects both with an expression evaluation failure (422); the internal-error side is not graded (as BE-EV-15). [vec: events.validate.025x]
+- **BE-EV-53** Metrics without an expression (null, empty or whitespace-only), and deleted metrics, leave the properties untouched. [vec: events.validate.017, events.validate.028]
+- **BE-EV-54** A division by zero inside the expression is not an evaluation failure in the reference: the request fails with an internal error (HTTP 500, single event and batch alike), nothing is stored or published, and the server keeps serving other requests (RBD-37). The corrected profile (RBD-37, proposed) rejects it with an expression evaluation failure (422). An event earlier than 1970-01-01T00:00:00Z (its seconds rounded down are negative, so `-0.5` qualifies) whose metric has an expression also fails with an internal error (HTTP 500), in both stores; that case is not part of RBD-37: the kit's proposal is to evaluate it like any other event (BE-EX-32, open question KQ-31). The internal-error side of both cases is not graded (as BE-EV-15). [vec: events.validate.025x]
 
 ## 7. The raw-topic message
 
@@ -153,9 +153,14 @@ accept_batch(org, body, received_at):
     errors ← {} ; for i, ev: run the per-event checks of accept_one (time, expression, presence) → errors[i]
     if errors: return 422 errors
     if org.store = pg:
-        insert all; for i in order: if transaction_id already used by a stored row or by an earlier
-        row of this batch (matched on transaction_id alone, RBD-33): errors[i] ← value_already_exist
-        if errors: roll back everything; return 422 errors
+        new[i] ← key(ev_i) has no subscription id, or is neither stored (deleted included)
+                 nor carried by an earlier event of the batch                               # BE-EV-43
+        for each transaction_id t, I ← the indexes carrying t in order:                   # BE-EV-44, RBD-33
+            flagged ← I minus its first index if any new[i] for i in I, else I
+            for i in flagged: errors[i] ← {"transaction_id": ["value_already_exist"]}
+        (corrected: errors[i] for exactly the i with not new[i])
+        if errors: store nothing; return 422 errors
+        store all
         schedule post-processing for all
     publish every event ; return 200 echoes
 ```
@@ -172,6 +177,7 @@ accept_batch(org, body, received_at):
 8. `precise_total_amount_cents: "12abc"` is 12, not an error (BE-EV-25).
 9. A division by zero in a metric expression is an internal error (HTTP 500) in the reference, not a 422 (BE-EV-54, RBD-37).
 10. A boolean sent as `transaction_id`, `code` or `external_subscription_id` becomes `"t"`/`"f"` (BE-EV-2).
+11. Two batch events repeating one stored key are BOTH rejected; a stored key plus a new key under one `transaction_id` flags only the later index (BE-EV-43/44).
 
 ## 12. Vectors
 
@@ -182,7 +188,7 @@ accept_batch(org, body, received_at):
 | BE-EV-20..25 validation | `events.validate.005/006`, `.008`, `.013`, `.014`, `.018/019(x)`, `.021..024`, `.027` |
 | BE-EV-30..34 idempotency | `events.duplicate_key.*`, `events.validate.009..012`, `.020(x)` |
 | BE-EV-40..46 batch | `events.validate_batch.*` |
-| BE-EV-50..54 expression | `events.validate.014..018`, `.025x`, `events.validate_batch.001/010/017`, `events.raw_message.007` |
+| BE-EV-50..54 expression | `events.validate.014..018`, `.025x`, `.028`, `events.validate_batch.001/010/017`, `events.raw_message.007` |
 | BE-EV-60..65 raw message | `events.raw_message.*` |
 
 ## Provenance (maintainers)
@@ -220,6 +226,14 @@ Executions on the pinned toolchain (ruby-4.0.6, 2026-10-02, database `lago_api_t
   pinned app under its own web server (Puma 7.2.1, test env, private port) answered HTTP 500 to `POST /api/v1/events`,
   `POST /api/v1/events/batch` and the preview endpoint, stored nothing, and served the next request; the binding
   raises a `fatal` that only a process evaluating it on its main thread outside the request stack dies from.
+- Probes of 2026-10-05 through the oracle op module (database of the fix round, `kitrun` on the added vectors 2/2 PASS):
+  batch flagging per `transaction_id` (ten shapes: stored key repeated twice → both indexes; stored key, new key, stored key → the
+  two later indexes; keys without a subscription id never collide with stored ones) follows the per-`transaction_id`
+  index map of the bulk insert, `$API/app/services/events/create_batch_service.rb:78-100`; the relational-store time range
+  (−210866803200 s and 9224318015999.999999 s accepted, −210866803201 s and 9224318016000 s answer 500; `NaN` answers 500 in both stores);
+  pre-1970 events with an expression (`-5`, `-0.5`, both stores) answer 500 through the unsigned timestamp of the binding,
+  `$API/app/services/events/calculate_expression_service.rb:22`; a whitespace-only metric expression is no expression,
+  `$API/app/services/events/calculate_expression_service.rb:20`.
 - Text members (BE-EV-2), `precise_total_amount_cents` corners (BE-EV-25: empty text → null, `true` → 1) and the
   raw-message exponent form (BE-EV-61) were probed through the oracle op module on 2026-10-02.
 - Update triggers: a pin bump; any change to the events controller, the create/batch services, the producer

@@ -20,7 +20,7 @@ a failing vector is triaged. Thresholds are machine-readable in `acceptance/thre
 | CRC-6 | invoice totals, coupons, taxes, credit notes, lifecycle helpers | `--areas invoice,credit_notes` | 95 % | 90 % | 100 % |
 | CRC-7 | wallets, progressive billing, alerts | `--areas wallets,progressive,alerts` | 95 % | 90 % | 100 % |
 | CRC-8 | webhook encoder and signer, API helpers, clock | `--areas api,webhooks,clock` | 100 % | 98 % | 100 % |
-| CRC-9 | events-processor (DB mode required; memory-cache mode graded when implemented) | `run-suite.sh --profile both --loose-errors` + `--areas ep` | corrected: 100 % of decided assertions; compat (loose errors): ≥ 90 % of DB goldens; startup contract EPC-26..29: 4/4; `ep` units ≥ 95 % | — | — |
+| CRC-9 | events-processor (DB mode required; memory-cache mode graded when implemented) | separate runs per profile (§2.1): `run-suite.sh --profile corrected` + `run-suite.sh --profile compat --loose-errors` + `--areas ep` | corrected run: 100 % of decided assertions, startup contract EPC-26..29 4/4; compat run (migration-compat builds only): ≥ 90 % of DB goldens; `ep` units ≥ 95 % per profile | — | — |
 | CRC-10 (stretch) | mini billing service behind `system.*` | `scenario-replay.py` | ≥ 60 % | — | — |
 
 - RATE = PASS / (TOTAL − UNRULED); SKIP counts as not passed; CORE = pass rate on `core`-tagged vectors.
@@ -36,9 +36,29 @@ a failing vector is triaged. Thresholds are machine-readable in `acceptance/thre
    (`--parallel 4` for speed). Corrected: same with `--profile corrected --report corrected.json`.
 3. Holdout: add `--include-holdout reimplementation-kit/maintainer-data/holdout --report holdout.json`; the report
    carries separate `holdout` rows. A gap of more than 10 points between shipped and holdout rates flags overfitting.
-4. Events-processor: `events-processor-spec/scripts/run-suite.sh --impl-cmd "<consumer>" --mode db --profile both
-   --loose-errors` (and `--mode cache` when the implementation supports memory-cache mode).
+4. Events-processor: separate runs per profile (§2.1): `events-processor-spec/scripts/run-suite.sh --impl-cmd
+   "<consumer>" --mode db --profile corrected` (and `--mode cache` when the implementation supports memory-cache
+   mode); for a migration-compat build also `--profile compat --loose-errors --mode db` with the implementation's
+   compat setting; `kitrun.py --areas ep` with `--profile compat` and `--profile corrected`.
 5. Keep the JSON reports and the gap log; triage every non-PASS (§5).
+
+### 2.1 Events-processor profiles: separate runs
+
+The compat goldens of the events-processor suite reproduce the reference's silent-loss modes and quirks (for
+example a commit past an unprocessed record, `<nil>` value text) while the corrected assertions forbid them, so no
+single configuration meets both thresholds. Rules:
+
+- Each profile is graded on its own run: the corrected thresholds on `--profile corrected` runs, the compat
+  threshold on a `--profile compat --loose-errors` run. A `--profile both` run is not a grading run.
+- An implementation that offers both profiles may expose a profile switch of its own, for example an environment
+  variable (`--impl-env MY_EP_PROFILE=compat`) or a command-line flag in `--impl-cmd`. The switch is the
+  implementation's choice and not part of the environment contract; the same build serves every run and only the
+  switch differs. The report names the switch and its value for each run.
+- An implementation that offers only one profile is graded on that profile: corrected for a greenfield build (the
+  default bar), compat only when a migration-compat build is claimed.
+- Under the suite the implementation may also run with its retry delays capped at 2 s (an implementation setting,
+  `events-processor-spec` reference/delivery-and-failures.md EP-R3), because the suite ends a wait after 3 s
+  without an observable change.
 
 ## 3. Reading a report
 
@@ -49,7 +69,8 @@ a failing vector is triaged. Thresholds are machine-readable in `acceptance/thre
   misunderstanding (K-FMT candidate) or an implementation gap.
 - `SKIP` rows show unimplemented ops; `skipped_ops` in the summary counts them.
 - `warnings` with NUM-OUT mean the adapter returns JSON numbers where decimal strings are expected: harmless for
-  integers, risky for decimals (binary float leakage).
+  integers, risky for decimals (binary float leakage); expected, and not a defect, on the echoed range bounds of
+  billing-engine-spec BE-PR-58.
 
 ## 4. Clean-room acceptance of the kit
 
@@ -113,11 +134,12 @@ gap that caused no failure is still a K-SPEC candidate).
 Fix loop: kit fixes are new kit versions (patch for K-VEC/K-FMT, minor for K-SPEC); re-pack; affected components
 re-run; re-implementation only when a K-SPEC changed semantics.
 
-## 6. Exit criteria (kit v1.0 accepted)
+## 6. Exit criteria (a kit version is accepted)
 
 - CRC-1..CRC-9 meet their thresholds on shipped AND holdout sets;
 - 0 open K-VEC; at most 3 open minor K-SPEC, each with a ticket;
-- events-processor corrected profile: 100 % of decided assertions;
+- events-processor corrected profile: 100 % of decided assertions on the corrected run (compat graded on its own
+  run, §2.1);
 - a report for the owner: pass rates per component, the defect list, a summary of the gap log.
 
 ## Provenance (maintainers)
@@ -126,5 +148,8 @@ re-run; re-implementation only when a K-SPEC changed semantics.
   2026-10-02 (pack-only branch, fresh remote sessions, transcript audit).
 - `kit-pack.sh --cleanroom` verified 2026-10-02 on the staging tree: maintainer files stripped, forbidden-content
   scan 0 findings, the in-pack `kit-selftest.sh` runs with the selftest-adapter steps reported SKIP.
+- Separate events-processor runs per profile (§2.1): decided by the lead on 2026-10-02 after the clean-room run, where
+  one implementation met every corrected threshold and 30/30 compat goldens with a profile switch, but only 13/30
+  compat goldens with its single default (corrected) configuration.
 - Update triggers: a threshold change (edit `acceptance/thresholds.json` and §1 together), a new component, an owner
   decision on isolation.
