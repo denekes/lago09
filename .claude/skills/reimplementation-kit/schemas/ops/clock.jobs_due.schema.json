@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ops/clock.jobs_due.schema.json",
   "title": "clock.jobs_due",
-  "description": "Clock jobs that enqueue work during [from, to) (BE-CK-2..4, BE-CK-10), with the number of runs. A clock process started at `from` runs interval jobs at its start and then every period; minute-pinned jobs run once per hour (or per day) when the UTC wall clock reaches the pinned minute. A run counts only when the job's gate lets it enqueue work. `env` lists the deployment settings that change the schedule (absent key = unset).",
+  "description": "Clock jobs that enqueue work during [from, to) (BE-CK-2..4, BE-CK-10, BE-CK-12), with the number of runs. A clock process started at `from` evaluates its schedule at `from` and at every whole-second instant after it (ticks); a tick at `to` is not counted. An interval job runs at the first tick and then at the first tick at least one period after its previous run (a period below one second: every tick). A minute-pinned job runs at a tick whose UTC minute (and hour, for a daily job) equals its pin and that is at least one period (1 h, or 1 day) after its previous run: started at 00:05:30, the :05 jobs run at 00:05:30 and 01:05:30. A run counts only when the job's gate lets it enqueue work. `env` lists the deployment settings that change the schedule (absent key = unset = empty text), read as BE-CK-12 states. Profile corrected (RBD-79, proposed): refresh_wallets_ongoing_balance is scheduled whatever the cache settings, unless LAGO_DISABLE_WALLET_REFRESH is exactly `true`.",
   "x-kit": {
     "area": "clock",
     "op": "jobs_due",
@@ -21,10 +21,12 @@
       ],
       "properties": {
         "from": {
-          "$ref": "../common.schema.json#/$defs/instant"
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Clock start, a whole second in every vector (a fractional start is not graded, BE-CK-2)."
         },
         "to": {
-          "$ref": "../common.schema.json#/$defs/instant"
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Window end, excluded."
         },
         "env": {
           "type": "object",
@@ -32,34 +34,44 @@
           "additionalProperties": false,
           "properties": {
             "LAGO_SUBSCRIPTION_ACTIVITY_PROCESSING_INTERVAL_SECONDS": {
-              "type": "string"
+              "type": "string",
+              "description": "Period in seconds (default 60 when blank): leading integer after leading whitespace, optional sign, a single underscore between two digits skipped (1_20 -> 120, 3__0 -> 3)."
             },
             "LAGO_LIFETIME_USAGE_REFRESH_INTERVAL_SECONDS": {
-              "type": "string"
+              "type": "string",
+              "description": "Period in seconds (default 300 when blank), read like the activity period."
             },
             "LAGO_DISABLE_LIFETIME_USAGE_REFRESH": {
-              "type": "string"
+              "type": "string",
+              "description": "On only for the exact text `true` (the job still ticks, enqueues nothing)."
             },
             "LAGO_MEMCACHE_SERVERS": {
-              "type": "string"
+              "type": "string",
+              "description": "Cache configured when not blank (any text)."
             },
             "LAGO_REDIS_CACHE_URL": {
-              "type": "string"
+              "type": "string",
+              "description": "Cache configured when not blank (any text)."
             },
             "LAGO_DISABLE_WALLET_REFRESH": {
-              "type": "string"
+              "type": "string",
+              "description": "On only for the exact text `true` (the job is not scheduled)."
             },
             "LAGO_WALLET_ONGOING_BALANCE_REFRESH_INTERVAL_SECONDS": {
-              "type": "string"
+              "type": "string",
+              "description": "Period in seconds (default 300 when blank), read like the activity period."
             },
             "LAGO_DISABLE_EVENTS_VALIDATION": {
-              "type": "string"
+              "type": "string",
+              "description": "On for any non-empty text except 0, f, F, false, FALSE, off, OFF (the job is not scheduled)."
             },
             "LAGO_REDIS_STORE_URL": {
-              "type": "string"
+              "type": "string",
+              "description": "Set when not blank (any text); with LAGO_CLICKHOUSE_ENABLED set, schedules refresh_flagged_subscriptions."
             },
             "LAGO_CLICKHOUSE_ENABLED": {
-              "type": "string"
+              "type": "string",
+              "description": "Set when not blank, whatever the text (`false` counts as set)."
             }
           }
         }
