@@ -263,9 +263,9 @@ _HEXF = re.compile(r"^[+-]?0[xX]([0-9a-fA-F]+\.?[0-9a-fA-F]*|\.[0-9a-fA-F]+)[pP]
 _MAX_SECONDS = Decimal(10) ** 17
 
 
-def _decimal_of(text):
+def _decimal_of(text, limit=_MAX_SECONDS):
     d = Decimal(text)
-    if not d.is_finite() or abs(d) >= _MAX_SECONDS:
+    if not d.is_finite() or (limit is not None and abs(d) >= limit):
         raise InvalidTimestamp("out of range")
     return d
 
@@ -274,6 +274,8 @@ def _trunc_ms_text(d):
     """Emitted text: d seconds truncated toward zero to ms, shortest float64 text."""
     ms = int((d * 1000).to_integral_value(rounding="ROUND_DOWN"))
     t = Decimal(ms) / 1000
+    if ms == 0 and d.is_signed():
+        return "-0"
     return go_json_float(float(t))
 
 
@@ -309,7 +311,13 @@ def parse_timestamp(ts, profile="corrected"):
             return {"emitted_text": emitted, "match_ns": ms_ns, "wall_ns": ms_ns, "offset_min": 0}
     else:
         raise InvalidTimestamp("invalid timestamp")
-    d = _decimal_of(text)
+    d = _decimal_of(text, None)
+    if abs(d) >= _MAX_SECONDS:
+        # beyond the contract: accepted, emitted in plain notation, instant clamped
+        emitted = go_json_float(float(d)) if kind == "num" else _trunc_ms_text(d)
+        big = (1 if d > 0 else -1) * _MAX_SECONDS * NS
+        big = int(big)
+        return {"emitted_text": emitted, "match_ns": big, "wall_ns": big, "offset_min": 0}
     if kind == "num" and profile == "compat":
         f = float(text)
         if math.isinf(f):
@@ -369,6 +377,17 @@ def _epoch_seconds(text):
     return ns, out
 
 
+def _fold_key(k):
+    return k.lower().replace("\u017f", "s")
+
+
+def _fold_keys(d):
+    out = {}
+    for k, v in d.items():
+        out[_fold_key(k)] = v
+    return out
+
+
 def decode(raw, profile="corrected"):
     """raw: bytes. -> event dict. Raises Undecodable.
 
@@ -385,6 +404,7 @@ def decode(raw, profile="corrected"):
         obj = {}
     if not isinstance(obj, dict):
         raise Undecodable("record is not a JSON object")
+    obj = _fold_keys(obj)
     ev = {}
     for k in _STR_FIELDS:
         v = obj.get(k)
@@ -413,7 +433,7 @@ def decode(raw, profile="corrected"):
     if sm is not None:
         if not isinstance(sm, dict):
             raise Undecodable("source_metadata must be an object")
-        apm = sm.get("api_post_processed")
+        apm = _fold_keys(sm).get("api_post_processed")
         if apm is None:
             apm = False
         elif not isinstance(apm, bool):
