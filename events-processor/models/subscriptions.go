@@ -42,10 +42,10 @@ func (store *ApiStore) FetchSubscription(organizationID string, externalID strin
 		Find(&sub)
 
 	if result.Error != nil {
-		return failedSubscriptionResult(result.Error)
+		return failedLookupResult[*Subscription](result.Error)
 	}
 	if sub.ID == "" {
-		return failedSubscriptionResult(gorm.ErrRecordNotFound)
+		return failedLookupResult[*Subscription](gorm.ErrRecordNotFound)
 	}
 
 	return utils.SuccessResult(&sub)
@@ -74,14 +74,4 @@ func GetAllSubscriptions(db *gorm.DB) utils.Result[[]Subscription] {
 	}
 
 	return GetAllWithStreaming[Subscription](db, config)
-}
-
-func failedSubscriptionResult(err error) utils.Result[*Subscription] {
-	result := utils.FailedResult[*Subscription](err)
-
-	if err.Error() == gorm.ErrRecordNotFound.Error() {
-		result = result.NonCapturable().NonRetryable()
-	}
-
-	return result
 }

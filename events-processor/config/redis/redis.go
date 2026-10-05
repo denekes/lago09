@@ -22,9 +22,10 @@ type RedisDB struct {
 	Client *redis.Client
 }
 
+var redisSchemeRegexp = regexp.MustCompile(`^rediss?://`)
+
 func (rc *RedisConfig) AddressAndPort() string {
-	re := regexp.MustCompile(`^rediss?://`)
-	return re.ReplaceAllString(rc.Address, "")
+	return redisSchemeRegexp.ReplaceAllString(rc.Address, "")
 }
 
 func NewRedisDB(ctx context.Context, cfg RedisConfig) (*RedisDB, error) {

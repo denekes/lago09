@@ -24,9 +24,14 @@ type ServerConfig struct {
 	Password       string
 }
 
+// newLogger returns a logger tagged with the given attribute, that logs at info level or above
+// whatever the level of the default logger.
+func newLogger(key string, value string) *slog.Logger {
+	return slog.New(utils.NewLevelHandler(slog.LevelInfo, slog.Default().Handler())).With(key, value)
+}
+
 func NewKafkaClient(serverConfig ServerConfig, config []kgo.Opt) (*kgo.Client, error) {
-	logger := slog.New(utils.NewLevelHandler(slog.LevelInfo, slog.Default().Handler())).
-		With("component", "kafka")
+	logger := newLogger("component", "kafka")
 
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(serverConfig.Servers...),

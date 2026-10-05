@@ -225,13 +225,10 @@ func (cg *ConsumerGroup) gracefulShutdown() {
 }
 
 func NewConsumerGroup(serverConfig ServerConfig, cfg *ConsumerGroupConfig) (*ConsumerGroup, error) {
-	logger := slog.New(utils.NewLevelHandler(slog.LevelInfo, slog.Default().Handler())).
-		With("kafka-topic-consumer", cfg.Topic)
-
 	cg := &ConsumerGroup{
 		consumers:      make(map[TopicPartition]*PartitionConsumer),
 		processRecords: cfg.ProcessRecords,
-		logger:         logger,
+		logger:         newLogger("kafka-topic-consumer", cfg.Topic),
 	}
 
 	cgName := fmt.Sprintf("%s_%s", cfg.ConsumerGroup, cfg.Topic)
@@ -276,19 +273,22 @@ func (cg *ConsumerGroup) Start(ctx context.Context) {
 // commitable prefix of the batch. ok is false when no such record exists
 // (typically because the first record of the batch was not processed).
 func findMaxCommitableRecord(processedRecords []*kgo.Record, records []*kgo.Record) (*kgo.Record, bool) {
+	type recordID struct {
+		key    string
+		offset int64
+	}
+
 	// Keep track of processed records
-	processedMap := make(map[string]bool)
+	processedMap := make(map[recordID]bool, len(processedRecords))
 	for _, record := range processedRecords {
-		key := fmt.Sprintf("%s-%d", string(record.Key), record.Offset)
-		processedMap[key] = true
+		processedMap[recordID{string(record.Key), record.Offset}] = true
 	}
 
 	// Find the minimum offset of the unprocessed records
 	minUnprocessedOffset := int64(math.MaxInt64)
 	foundUnprocessed := false
 	for _, record := range records {
-		key := fmt.Sprintf("%s-%d", string(record.Key), record.Offset)
-		if !processedMap[key] {
+		if !processedMap[recordID{string(record.Key), record.Offset}] {
 			if !foundUnprocessed || record.Offset < minUnprocessedOffset {
 				minUnprocessedOffset = record.Offset
 				foundUnprocessed = true

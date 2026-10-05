@@ -124,19 +124,16 @@ type ProcessorTestEnv struct {
 	EventProcessor *EventProcessor
 	Producers      *testProducerService
 	FlagStore      *tests.MockFlagStore
-	CacheStore     *tests.MockCacheStore
 	DataStore      DataStore
 	Cleanup        func()
 }
 
 func setupProcessorTestEnv(t *testing.T, useCache bool) *ProcessorTestEnv {
-	var chargeCache models.Cacher
 	var store EnrichmentStore
 	var dataStore DataStore
 	var cleanup func()
 
 	testProducers := setupProducers()
-	chargeCache = &tests.MockCacheStore{}
 	flagStore := tests.MockFlagStore{}
 	flagger := NewSubscriptionRefreshService(&flagStore)
 
@@ -165,7 +162,6 @@ func setupProcessorTestEnv(t *testing.T, useCache bool) *ProcessorTestEnv {
 		EventProcessor: processor,
 		Producers:      testProducers,
 		FlagStore:      &flagStore,
-		CacheStore:     chargeCache.(*tests.MockCacheStore),
 		DataStore:      dataStore,
 		Cleanup:        cleanup,
 	}
