@@ -10,8 +10,6 @@ import (
 )
 
 func TestBuildChargeKey(t *testing.T) {
-	cache := setupTestCache(t)
-
 	testModel := struct {
 		id               string
 		organizationID   string
@@ -25,7 +23,7 @@ func TestBuildChargeKey(t *testing.T) {
 	}
 
 	expectedKey := "ch:org-123:plan-123:bm-123:123"
-	key := cache.buildChargeKey(testModel.organizationID, testModel.planID, testModel.billableMetricID, testModel.id)
+	key := buildChargeKey(testModel.organizationID, testModel.planID, testModel.billableMetricID, testModel.id)
 	assert.Equal(t, expectedKey, key)
 }
 

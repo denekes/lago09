@@ -18,10 +18,12 @@ import (
 )
 
 const (
-	envEnv                 = "ENV"
-	envSentryDsn           = "SENTRY_DSN"
-	envUseMemoryCache      = "LAGO_USE_MEMORY_CACHE"
-	envDebeziumTopicPrefix = "LAGO_DEBEZIUM_TOPIC_PREFIX"
+	envEnv                       = "ENV"
+	envSentryDsn                 = "SENTRY_DSN"
+	envUseMemoryCache            = "LAGO_USE_MEMORY_CACHE"
+	envDebeziumTopicPrefix       = "LAGO_DEBEZIUM_TOPIC_PREFIX"
+	envDatabaseURL               = "DATABASE_URL"
+	envLagoKafkaBootstrapServers = "LAGO_KAFKA_BOOTSTRAP_SERVERS"
 )
 
 func main() {
@@ -66,8 +68,10 @@ func main() {
 	var memCache *cache.Cache
 	if os.Getenv(envUseMemoryCache) == "true" {
 		memCache, err = cache.NewCache(cache.CacheConfig{
-			Context:             ctx,
-			DebeziumTopicPrefix: os.Getenv(envDebeziumTopicPrefix),
+			Context:               ctx,
+			DebeziumTopicPrefix:   os.Getenv(envDebeziumTopicPrefix),
+			DatabaseURL:           os.Getenv(envDatabaseURL),
+			KafkaBootstrapServers: os.Getenv(envLagoKafkaBootstrapServers),
 		})
 		if err != nil {
 			utils.LogAndPanic(err, "Error creating the cache")

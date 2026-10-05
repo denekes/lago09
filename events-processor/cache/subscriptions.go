@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -9,37 +8,40 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/getlago/lago/events-processor/models"
 	"github.com/getlago/lago/events-processor/utils"
-	"gorm.io/gorm"
 )
 
-const (
-	subscriptionPrefix    = "sub"
-	subscriptionModelName = "subscriptions"
-	subscriptionTopic     = ".public.subscriptions"
-)
+const subscriptionPrefix = "sub"
 
-func (c *Cache) buildSubscriptionKey(organizationID, externalID, ID string) string {
+var subscriptionsTable = entity[models.Subscription]{
+	table:     "subscriptions",
+	key:       subscriptionKey,
+	id:        func(sub *models.Subscription) string { return sub.ID },
+	updatedAt: func(sub *models.Subscription) utils.NullTime { return sub.UpdatedAt },
+	// A terminated subscription is handled as a deletion
+	isDeleted: func(sub *models.Subscription) bool { return sub.TerminatedAt.Valid },
+	fetchAll:  models.GetAllSubscriptions,
+	// Since we want to keep terminated subscriptions to permit grace period events backfill
+	// we update the cache entry with a 1 month TTL
+	deleteTTL: 30 * 24 * time.Hour,
+}
+
+func buildSubscriptionKey(organizationID, externalID, ID string) string {
 	return fmt.Sprintf("%s:%s:%s:%s", subscriptionPrefix, organizationID, externalID, ID)
 }
 
-func (c *Cache) subscriptionKey(sub *models.Subscription) (string, error) {
+func subscriptionKey(sub *models.Subscription) (string, error) {
 	if sub.OrganizationID == nil {
 		return "", fmt.Errorf("subscription %s has nil OrganizationID", sub.ID)
 	}
-	return c.buildSubscriptionKey(*sub.OrganizationID, sub.ExternalID, sub.ID), nil
+	return buildSubscriptionKey(*sub.OrganizationID, sub.ExternalID, sub.ID), nil
 }
 
 func (c *Cache) SetSubscription(sub *models.Subscription) utils.Result[bool] {
-	key, err := c.subscriptionKey(sub)
-	if err != nil {
-		return utils.FailedBoolResult(err)
-	}
-	return setJSON(c, key, sub)
+	return subscriptionsTable.set(c, sub)
 }
 
 func (c *Cache) GetSubscription(organizationID, externalID, ID string) utils.Result[*models.Subscription] {
-	key := c.buildSubscriptionKey(organizationID, externalID, ID)
-	return getJSON[models.Subscription](c, key)
+	return getJSON[models.Subscription](c, buildSubscriptionKey(organizationID, externalID, ID))
 }
 
 func (c *Cache) SearchSubscriptions(organizationID string, externalID string, timestamp time.Time) utils.Result[*models.Subscription] {
@@ -116,68 +118,6 @@ func (c *Cache) SearchSubscriptions(organizationID string, externalID string, ti
 	return utils.SuccessResult(bestMatch)
 }
 
-// Since we want to keep terminated subscriptions to permit grace period events backfill
-// we update the cache entry with a 1 month TTL
 func (c *Cache) DeleteSubscription(sub *models.Subscription) utils.Result[bool] {
-	key, err := c.subscriptionKey(sub)
-	if err != nil {
-		return utils.FailedBoolResult(err)
-	}
-	ttl := 30 * 24 * time.Hour
-	return deleteWithTTL(c, key, sub, ttl)
-}
-
-func (c *Cache) LoadSubscriptionsSnapshot(db *gorm.DB) utils.Result[int] {
-	return LoadSnapshot(
-		c,
-		subscriptionModelName,
-		func() ([]models.Subscription, error) {
-			res := models.GetAllSubscriptions(db)
-			if res.Failure() {
-				return nil, res.Error()
-			}
-			return res.Value(), nil
-		},
-		func(sub *models.Subscription) string {
-			key, err := c.subscriptionKey(sub)
-			if err != nil {
-				c.logger.Error("Skipping subscription in snapshot", slog.String("error", err.Error()))
-				return ""
-			}
-			return key
-		},
-	)
-}
-
-func (c *Cache) StartSubscriptionsConsumer(ctx context.Context) error {
-	return startGenericConsumer(ctx, c, ConsumerConfig[models.Subscription]{
-		Topic:     c.debeziumTopicPrefix + subscriptionTopic,
-		ModelName: subscriptionModelName,
-		IsDeleted: func(sub *models.Subscription) bool {
-			return sub.TerminatedAt.Valid
-		},
-		GetKey: func(sub *models.Subscription) string {
-			// We swallow the error because a subscription should always have an organization_id
-			key, _ := c.subscriptionKey(sub)
-			return key
-		},
-		GetID: func(sub *models.Subscription) string {
-			return sub.ID
-		},
-		GetUpdatedAt: func(sub *models.Subscription) int64 {
-			return sub.UpdatedAt.Time.UnixMilli()
-		},
-		GetCached: func(sub *models.Subscription) utils.Result[*models.Subscription] {
-			if sub.OrganizationID == nil {
-				return utils.FailedResult[*models.Subscription](fmt.Errorf("subscription %s has nil OrganizationID", sub.ID))
-			}
-			return c.GetSubscription(*sub.OrganizationID, sub.ExternalID, sub.ID)
-		},
-		SetCache: func(sub *models.Subscription) utils.Result[bool] {
-			return c.SetSubscription(sub)
-		},
-		Delete: func(sub *models.Subscription) utils.Result[bool] {
-			return c.DeleteSubscription(sub)
-		},
-	})
+	return subscriptionsTable.remove(c, sub)
 }

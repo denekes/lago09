@@ -9,8 +9,6 @@ import (
 )
 
 func TestBuildChargeFilterKey(t *testing.T) {
-	cache := setupTestCache(t)
-
 	testModel := struct {
 		id             string
 		organizationID string
@@ -22,7 +20,7 @@ func TestBuildChargeFilterKey(t *testing.T) {
 	}
 
 	expectedKey := "cf:org-123:ch-123:123"
-	key := cache.buildChargeFilterKey(testModel.organizationID, testModel.chargeID, testModel.id)
+	key := buildChargeFilterKey(testModel.organizationID, testModel.chargeID, testModel.id)
 	assert.Equal(t, expectedKey, key)
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"time"
 
@@ -18,17 +17,36 @@ import (
 // Cache wraps BadgerDB to provide an in-memory key-value store with JSON serialization
 // It manages the lifecycle of cached data and coordinates snapshot loading and CDC consumption.
 type Cache struct {
-	ctx                 context.Context
-	db                  *badger.DB
-	logger              *slog.Logger
-	debeziumTopicPrefix string
-	wg                  sync.WaitGroup
+	ctx                   context.Context
+	db                    *badger.DB
+	logger                *slog.Logger
+	debeziumTopicPrefix   string
+	databaseURL           string
+	kafkaBootstrapServers string
+	wg                    sync.WaitGroup
 }
 
 // CacheConfig holds the configuration needed to initialize a new Cache instance.
 type CacheConfig struct {
 	Context             context.Context
 	DebeziumTopicPrefix string
+
+	// DatabaseURL is the Postgres database the initial snapshot is loaded from.
+	DatabaseURL string
+
+	// KafkaBootstrapServers is the raw LAGO_KAFKA_BOOTSTRAP_SERVERS value,
+	// used as seed broker by the change data capture consumers.
+	KafkaBootstrapServers string
+}
+
+// mirroredTables lists every table kept in the cache, in loading and consumer start order.
+var mirroredTables = []mirroredTable{
+	billableMetricsTable,
+	subscriptionsTable,
+	chargesTable,
+	billableMetricFiltersTable,
+	chargeFiltersTable,
+	chargeFilterValuesTable,
 }
 
 // NewCache creates and initializes a new in-memory cache instance.
@@ -45,10 +63,12 @@ func NewCache(config CacheConfig) (*Cache, error) {
 	}
 
 	return &Cache{
-		db:                  db,
-		logger:              logger,
-		debeziumTopicPrefix: config.DebeziumTopicPrefix,
-		ctx:                 config.Context,
+		db:                    db,
+		logger:                logger,
+		debeziumTopicPrefix:   config.DebeziumTopicPrefix,
+		databaseURL:           config.DatabaseURL,
+		kafkaBootstrapServers: config.KafkaBootstrapServers,
+		ctx:                   config.Context,
 	}, nil
 }
 
@@ -62,7 +82,7 @@ func (c *Cache) Wait() {
 
 func (c *Cache) LoadInitialSnapshot() {
 	dbConfig := database.DBConfig{
-		Url:      os.Getenv("DATABASE_URL"),
+		Url:      c.databaseURL,
 		MaxConns: 10,
 	}
 
@@ -75,53 +95,18 @@ func (c *Cache) LoadInitialSnapshot() {
 	errGroup := errgroup.Group{}
 	defer errGroup.Wait()
 
-	errGroup.Go(func() error {
-		c.LoadBillableMetricsSnapshot(db.Connection)
-		return nil
-	})
-
-	errGroup.Go(func() error {
-		c.LoadSubscriptionsSnapshot(db.Connection)
-		return nil
-	})
-
-	errGroup.Go(func() error {
-		c.LoadChargesSnapshot(db.Connection)
-		return nil
-	})
-
-	errGroup.Go(func() error {
-		c.LoadBillableMetricFiltersSnapshot(db.Connection)
-		return nil
-	})
-
-	errGroup.Go(func() error {
-		c.LoadChargeFiltersSnapshot(db.Connection)
-		return nil
-	})
-
-	errGroup.Go(func() error {
-		c.LoadChargeFilterValuesSnapshot(db.Connection)
-		return nil
-	})
+	for _, table := range mirroredTables {
+		errGroup.Go(func() error {
+			table.loadSnapshot(c, db.Connection)
+			return nil
+		})
+	}
 }
 
 func (c *Cache) ConsumeChanges() error {
-	consumers := []struct {
-		name  string
-		start func(context.Context) error
-	}{
-		{"billable metrics", c.StartBillableMetricsConsumer},
-		{"subscriptions", c.StartSubscriptionsConsumer},
-		{"charges", c.StartChargesConsumer},
-		{"billable metric filters", c.StartBillableMetricFiltersConsumer},
-		{"charge filters", c.StartChargeFiltersConsumer},
-		{"charge filter values", c.StartChargeFilterValuesConsumer},
-	}
-
-	for _, consumer := range consumers {
-		if err := consumer.start(c.ctx); err != nil {
-			return fmt.Errorf("failed to start %s consumer: %w", consumer.name, err)
+	for _, table := range mirroredTables {
+		if err := table.startConsumer(c.ctx, c); err != nil {
+			return fmt.Errorf("failed to start %s consumer: %w", table.displayName(), err)
 		}
 	}
 

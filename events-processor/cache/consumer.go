@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/getlago/lago/events-processor/utils"
 	"github.com/google/uuid"
@@ -25,10 +24,9 @@ type ConsumerConfig[T any] struct {
 
 func startGenericConsumer[T any](ctx context.Context, cache *Cache, config ConsumerConfig[T]) error {
 	groupID := fmt.Sprintf("lago_evp_%s_%s", config.ModelName, uuid.New().String())
-	brokers := os.Getenv("LAGO_KAFKA_BOOTSTRAP_SERVERS")
 
 	client, err := kgo.NewClient(
-		kgo.SeedBrokers(brokers),
+		kgo.SeedBrokers(cache.kafkaBootstrapServers),
 		kgo.ConsumerGroup(groupID),
 		kgo.ConsumeTopics(config.Topic),
 		kgo.DisableAutoCommit(),

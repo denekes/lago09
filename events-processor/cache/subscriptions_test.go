@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/getlago/lago/events-processor/models"
@@ -12,8 +11,6 @@ import (
 )
 
 func TestBuildSubscriptionKey(t *testing.T) {
-	cache := setupTestCache(t)
-
 	testModel := struct {
 		externalID     string
 		organizationID string
@@ -25,7 +22,7 @@ func TestBuildSubscriptionKey(t *testing.T) {
 	}
 
 	expectedKey := "sub:org-123:sub1:123"
-	key := cache.buildSubscriptionKey(testModel.organizationID, testModel.externalID, testModel.id)
+	key := buildSubscriptionKey(testModel.organizationID, testModel.externalID, testModel.id)
 	assert.Equal(t, expectedKey, key)
 }
 
@@ -103,34 +100,7 @@ func TestDeleteSubscription_NilOrganizationID(t *testing.T) {
 func TestProcessRecord_Subscription_NilOrganizationID(t *testing.T) {
 	cache := setupTestCache(t)
 
-	config := ConsumerConfig[models.Subscription]{
-		ModelName: "subscription",
-		IsDeleted: func(sub *models.Subscription) bool {
-			return sub.TerminatedAt.Valid
-		},
-		GetKey: func(sub *models.Subscription) string {
-			key, _ := cache.subscriptionKey(sub)
-			return key
-		},
-		GetID: func(sub *models.Subscription) string {
-			return sub.ID
-		},
-		GetUpdatedAt: func(sub *models.Subscription) int64 {
-			return sub.UpdatedAt.Time.UnixMilli()
-		},
-		GetCached: func(sub *models.Subscription) utils.Result[*models.Subscription] {
-			if sub.OrganizationID == nil {
-				return utils.FailedResult[*models.Subscription](fmt.Errorf("nil OrganizationID"))
-			}
-			return cache.GetSubscription(*sub.OrganizationID, sub.ExternalID, sub.ID)
-		},
-		SetCache: func(sub *models.Subscription) utils.Result[bool] {
-			return cache.SetSubscription(sub)
-		},
-		Delete: func(sub *models.Subscription) utils.Result[bool] {
-			return cache.DeleteSubscription(sub)
-		},
-	}
+	config := subscriptionsTable.consumerConfig(cache)
 
 	// Debezium payload with null organization_id — should not panic
 	record := &kgo.Record{
