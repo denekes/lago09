@@ -437,7 +437,7 @@ and checked on whole-kit runs; every run prints a `SIZES` line with the measured
 
 | Bucket | Counts | Cap (bytes) |
 |---|---|---|
-| `billing_unit` | `billing-engine-spec/vectors/*.jsonl` plus holdout files not named `ep.*` | 1,400,000 |
+| `billing_unit` | `billing-engine-spec/vectors/*.jsonl` plus holdout files not named `ep.*` | 1,450,000 |
 | `scenarios` | `billing-engine-spec/scenarios/*` (scenario files and `MANIFEST.md`) | 600,000 |
 | `ep_conformance` | `events-processor-spec/conformance/**` | 650,000 |
 | `ep_units` | `events-processor-spec/vectors/*.jsonl` plus holdout `ep.*.jsonl` | 130,000 |
@@ -469,7 +469,7 @@ reimplementation-kit/maintainer-data/holdout`.
 **Manifest.** `scripts/maintainer/make-kit-json.py --write` (run last, after the split) writes:
 
 ```json
-{"kit_version":"1.2.0","kit_schema":1,"proto":1,"pins":{"lago_api":"591ae9005110","events_processor_tree":"83e012866f29"},
+{"kit_version":"1.3.0","kit_schema":1,"proto":1,"pins":{"lago_api":"591ae9005110","events_processor_tree":"83e012866f29"},
  "generated_by":"reimplementation-kit/scripts/maintainer/make-kit-json.py","files":{
 "billing-engine-spec/reference/05-pricing-and-fees.md":"<sha256>",
 "billing-engine-spec/vectors/pricing.models.jsonl":{"sha256":"<sha256>","vectors":106},
@@ -481,7 +481,7 @@ Every file of the three kit skills is listed (one per line, sorted, no timestamp
 maintainer-only files (what `kit-pack.sh --cleanroom` strips: `scripts/maintainer/`, `maintainer-data/`,
 `reference/maintainer-oracle.md`, any file with the MAINTAINER-ONLY header) add `"maintainer": true`. `--check`
 reports ADDED/REMOVED/CHANGED entries and exits 1 when the file is absent or stale. `kitrun.py` reads `kit_version`
-from it (default `1.2.0-dev`); `kit-pack.sh` verifies every listed hash (maintainer entries may be absent from a
+from it (default `1.3.0-dev`); `kit-pack.sh` verifies every listed hash (maintainer entries may be absent from a
 clean-room pack).
 
 ## Provenance (maintainers)
@@ -504,6 +504,8 @@ clean-room pack).
   (outputs `body` and `webhook_type`) follow their op schemas; the catalogue still has one row per op schema (116).
 - Kit 1.2.0 (2026-10-05): the canonical-decimal row of section 4.1 says where NUM-OUT is expected (the range bounds
   that billing-engine-spec BE-PR-58 echoes as JSON numbers); no op or envelope change.
+- Kit 1.3.0 (2026-10-05): the `billing_unit` size cap of section 9.1 is 1,450,000 bytes (was 1,400,000); no op or
+  envelope change.
 - Update triggers: a new op or mode (minor `kit_version`; add its row to section 8), an envelope change
   (`kit_schema`), a pin bump (`maintainer-oracle.md` re-mint procedure), a budget decision (`thresholds.json`
   `kit_budget` and section 9.1 together).

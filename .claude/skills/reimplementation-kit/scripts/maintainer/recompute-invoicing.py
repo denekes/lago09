@@ -103,6 +103,14 @@ class Num:
             r += 1
         return D(repr(r / s))
 
+    def store_col5(self, x):
+        """A binary64 value assigned to a 5-place decimal column (BE-IV-42, BE-CN-7; chapter 07 notation): the float is
+        rounded by round5, converted to decimal at 16 significant digits, then rounded half away to 5 places (compat);
+        from 1e11 up the 16-digit step drops the fifth decimal (102880657510.79861 -> 102880657510.7986)."""
+        if not self.compat:
+            return store5(x)
+        return store5(D(format(float(self.round5_float(x)), ".16g")))
+
 
 def rha(x, places=0):
     return D(x).quantize(D(1).scaleb(-places), rounding=ROUND_HALF_UP)
@@ -118,11 +126,6 @@ def trunc(x, places=0):
 
 def store5(x):
     return D(x).quantize(Q5, rounding=ROUND_HALF_UP)
-
-
-def from_float16(x):
-    """A binary64 value written into a 5-decimal column (16 significant digits, then 5 places)."""
-    return store5(D(format(float(x), ".16g")))
 
 
 # ---------------------------------------------------------------------------------------------------------------- model
@@ -743,7 +746,7 @@ def cn_create(inv, req, automatic=False, premium=True):
         f.cn_items += cents
     credit, refund, offset = (int(req.get(k, 0)) for k in ("credit_amount_cents", "refund_amount_cents", "offset_amount_cents"))
     adj, rows, ptax, rate = cn_taxes(inv, [(f, p) for f, p, _ in items])
-    ptax = from_float16(ptax) if inv.n.compat else store5(ptax)
+    ptax = inv.n.store_col5(ptax)
     if inv.available() == 0:
         ptax -= sum((c["taxes"] - c["ptaxes"] for c in inv.notes), D(0))
     taxes = i(ptax)
@@ -861,7 +864,7 @@ def op_cn_estimate(inp, ctx):
             raise KitError("higher_than_remaining_fee_amount", "amount_cents")
         items.append((f, D(c)))
     adj, rows, ptax, rate = cn_taxes(inv, items)
-    ptax = from_float16(ptax) if inv.n.compat else store5(ptax)
+    ptax = inv.n.store_col5(ptax)
     if sum((p for _, p in items), D(0)) == sum(inv.creditable_fee(f) for f in inv.fees):
         ptax -= sum((c["taxes"] - c["ptaxes"] for c in inv.notes), D(0))
     taxes = i(ptax)
@@ -902,9 +905,9 @@ def op_void(inp, ctx):
             est = op_cn_estimate({"invoice": None, "items": []}, ctx) if False else None
             full = cn_estimate_total(inv, base_items)
             ratio = req_total / float(full)
-            # BE-IV-42: the binary64 item is stored by round5 (BE-IV-14), not by rounding its text: just below a tie
-            # (533 x (14 / 640) = 11.659374999999999) the stored value is 11.65938
-            items = [{"fee_id": f.id, "amount_cents": n.round5_float(c * ratio) if n.compat else store5(D(c) * req_total / D(full))}
+            # BE-IV-42: the binary64 item is stored by the 5-place column rule (round5, then 16 significant digits), not
+            # by rounding its text: 533 x (14 / 640) = 11.659374999999999 -> 11.65938; 102880657510.79861 -> .7986
+            items = [{"fee_id": f.id, "amount_cents": n.store_col5(c * ratio) if n.compat else store5(D(c) * req_total / D(full))}
                      for f, c in base_items]
             note, errs = cn_create(inv, {"items": items, "credit_amount_cents": credit, "refund_amount_cents": refund})
             if errs:
@@ -938,7 +941,7 @@ def op_void(inp, ctx):
 
 def cn_estimate_total(inv, items):
     adj, rows, ptax, rate = cn_taxes(inv, [(f, D(c)) for f, c in items])
-    ptax = from_float16(ptax) if inv.n.compat else store5(ptax)
+    ptax = inv.n.store_col5(ptax)
     total = i(sum((D(c) for _, c in items), D(0)) - adj + ptax)
     taxes = i(ptax)
     sub = i(sum((D(c) for _, c in items), D(0)) - store5(adj))
