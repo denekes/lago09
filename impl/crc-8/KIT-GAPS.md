@@ -6,3 +6,7 @@
 4. **Corrected profile for `jobs_due`.** RBD-79 proposal implemented as: wallet refresh always scheduled unless `LAGO_DISABLE_WALLET_REFRESH` is truthy.
 5. **Env truthiness** (`LAGO_DISABLE_*`, `LAGO_CLICKHOUSE_ENABLED`): not specified; I accept true/1/yes/on, case-insensitive.
 6. **Count-cache key for fees** lists `succeeded_at_from` etc.; the schema and chapter agree, but fee `page` handling follows the invoices rule (removed). Non-scalar values for scalar filters are dropped.
+
+## v1.1
+
+No open questions for webhooks, api, clock. Minor assumption: the `jobs_due` window is `[from, to)` and a fractional-second start keeps its fraction on every tick (BE-CK-2 says "whole second after it"; read in `13-clock-and-async.md`; no vector contradicts it).

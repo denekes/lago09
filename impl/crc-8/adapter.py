@@ -200,32 +200,37 @@ _add('subscription.started subscription.updated subscription.terminated subscrip
      'subscription.usage_threshold_reached', 'subscription')
 _add('invoice.drafted invoice.created invoice.one_off_created invoice.paid_credit_added '
      'invoice.ready_to_finalize invoice.voided invoice.deleted invoice.payment_status_updated '
-     'invoice.payment_overdue invoice.generated invoice.payment_failure invoice.resynced', 'invoice')
+     'invoice.payment_overdue invoice.generated invoice.resynced', 'invoice')
 _add('invoice.payment_dispute_lost', 'payment_dispute_lost')
-_add('fee.created fee.tax_provider_error', 'fee')
+_add('fee.created', 'fee')
 _add('credit_note.created credit_note.generated', 'credit_note')
 _add('credit_note.provider_refund_failure', 'credit_note_payment_provider_refund_error')
 _add('wallet.created wallet.updated wallet.terminated wallet.depleted_ongoing_balance', 'wallet')
-_add('wallet_transaction.created wallet_transaction.updated wallet_transaction.payment_failure',
-     'wallet_transaction')
+_add('wallet_transaction.created wallet_transaction.updated', 'wallet_transaction')
 _add('alert.triggered', 'triggered_alert')
 _add('events.errors', 'events_errors')
 _add('event.error', 'event_error')
-# out-of-scope names (interface only); the kit lists them with wildcards, expansion is a guess (KIT-GAPS)
-for _p in ('accounting', 'crm', 'payment'):
-    for _s in ('created', 'error'):
-        _OBJ['customer.%s_provider_%s' % (_p, _s)] = 'payment_provider_customer_error' if _s == 'error' else 'customer'
-_add('customer.checkout_url_generated customer.tax_provider_error customer.vies_check', 'customer')
+_add('customer.accounting_provider_created customer.crm_provider_created customer.payment_provider_created '
+     'customer.vies_check', 'customer')
+_add('customer.accounting_provider_error', 'accounting_provider_customer_error')
+_add('customer.crm_provider_error', 'crm_provider_customer_error')
+_add('customer.payment_provider_error', 'payment_provider_customer_error')
+_add('customer.checkout_url_generated', 'payment_provider_customer_checkout_url')
+_add('customer.tax_provider_error', 'tax_provider_customer_error')
+_add('fee.tax_provider_error', 'tax_provider_fee_error')
 _add('integration.provider_error', 'provider_error')
+_add('invoice.payment_failure', 'payment_provider_invoice_payment_error')
+_add('payment.succeeded payment.requires_action', 'payment')
 _add('payment_provider.error', 'payment_provider_error')
-_add('payment.requires_action payment.dispute_lost', 'payment')
 _add('payment_receipt.created payment_receipt.generated', 'payment_receipt')
-_add('payment_request.created payment_request.payment_failure', 'payment_request')
+_add('payment_request.created payment_request.payment_status_updated', 'payment_request')
+_add('payment_request.payment_failure', 'payment_provider_payment_request_payment_error')
+_add('wallet_transaction.payment_failure', 'payment_provider_wallet_transaction_payment_error')
 _add('dunning_campaign.finished', 'dunning_campaign')
 _add('feature.created feature.updated feature.deleted', 'feature')
-_add('quote.created quote.updated quote.deleted', 'quote')
-_add('order.created order.updated', 'order')
-_add('order_form.created order_form.updated order_form.signed order_form.expired', 'order_form')
+_add('quote.created quote.approved quote.voided', 'quote')
+_add('order.created order.executed', 'order')
+_add('order_form.created order_form.signed order_form.expired order_form.voided', 'order_form')
 
 EMITTED_OVERRIDE = {'credit_note.provider_refund_failure': 'credit_note.refund_failure'}
 
@@ -548,15 +553,33 @@ def op_termination_alert_due(inp, profile):
 
 
 def _truthy(v):
-    return v is not None and str(v).strip().lower() in ('true', '1', 'yes', 'on')
+    return v == 'true'
+
+
+def _filled(v):
+    return v is not None and str(v).strip() != ''
 
 
 def _period(env, key, default):
-    try:
-        v = int(str(env.get(key, '')).strip())
-        return v if v > 0 else default
-    except ValueError:
+    v = env.get(key)
+    if v is None or str(v).strip() == '':
         return default
+    t = str(v).lstrip(' \t\r\n')
+    i, sign = 0, 1
+    if t[:1] in '+-' and t[:1]:
+        sign = -1 if t[0] == '-' else 1
+        i = 1
+    digits = ''
+    while i < len(t):
+        c = t[i]
+        if c.isascii() and c.isdigit():
+            digits += c
+            i += 1
+        elif c == '_' and digits and i + 1 < len(t) and t[i + 1].isascii() and t[i + 1].isdigit():
+            i += 1
+        else:
+            break
+    return sign * int(digits) if digits else 0
 
 
 _PINNED = [('terminate_ended_subscriptions', 5), ('post_validate_events', 5), ('bill_customers', 10),
@@ -569,38 +592,51 @@ _PINNED = [('terminate_ended_subscriptions', 5), ('post_validate_events', 5), ('
 
 def op_jobs_due(inp, profile):
     t0, t1 = instant(inp['from']), instant(inp['to'])
-    env = inp.get('env') or {}
+    env = {k: (None if v is None else str(v)) for k, v in (inp.get('env') or {}).items()}
     span = (t1 - t0).total_seconds()
     intervals = {'activate_subscriptions': 300, 'refresh_draft_invoices': 300, 'retry_failed_invoices': 900,
                  'process_subscription_activity':
                      _period(env, 'LAGO_SUBSCRIPTION_ACTIVITY_PROCESSING_INTERVAL_SECONDS', 60)}
     if not _truthy(env.get('LAGO_DISABLE_LIFETIME_USAGE_REFRESH')):
         intervals['refresh_lifetime_usages'] = _period(env, 'LAGO_LIFETIME_USAGE_REFRESH_INTERVAL_SECONDS', 300)
-    cache = bool(env.get('LAGO_MEMCACHE_SERVERS') or env.get('LAGO_REDIS_CACHE_URL'))
+    cache = _filled(env.get('LAGO_MEMCACHE_SERVERS')) or _filled(env.get('LAGO_REDIS_CACHE_URL'))
     if not _truthy(env.get('LAGO_DISABLE_WALLET_REFRESH')) and (cache or profile == 'corrected'):
         intervals['refresh_wallets_ongoing_balance'] = \
             _period(env, 'LAGO_WALLET_ONGOING_BALANCE_REFRESH_INTERVAL_SECONDS', 300)
-    if env.get('LAGO_REDIS_STORE_URL') and _truthy(env.get('LAGO_CLICKHOUSE_ENABLED')):
+    if _filled(env.get('LAGO_REDIS_STORE_URL')) and _filled(env.get('LAGO_CLICKHOUSE_ENABLED')):
         intervals['refresh_flagged_subscriptions'] = 10
     runs = {}
     if span > 0:
+        nticks = -(-int(round(span * 1000000)) // 1000000)
         for name, p in intervals.items():
-            runs[name] = -(-int(span * 1000) // (p * 1000))
-    first_min = t0.replace(second=0, microsecond=0)
-    first_hour = first_min.replace(minute=0)
-    pinned = list(_PINNED)
-    if _truthy(env.get('LAGO_DISABLE_EVENTS_VALIDATION')):
-        pinned = [p for p in pinned if p[0] != 'post_validate_events']
-    h = first_hour
+            runs[name] = nticks if p < 1 else -(-nticks // p)
+    dv = env.get('LAGO_DISABLE_EVENTS_VALIDATION')
+    off = dv is not None and dv != '' and dv not in ('0', 'f', 'F', 'false', 'FALSE', 'off', 'OFF')
+    pinned = [(n, m, 3600) for n, m in _PINNED if not (n == 'post_validate_events' and off)]
+    pinned.append(('clean_webhooks', 60, 86400))
+    h = t0.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+    slots = []
     while h < t1:
-        for name, m in pinned:
-            slot = h + timedelta(minutes=m)
-            if first_min <= slot < t1:
-                runs[name] = runs.get(name, 0) + 1
-        slot = h
-        if h.hour == 1 and first_min <= slot < t1:
-            runs['clean_webhooks'] = runs.get('clean_webhooks', 0) + 1
+        slots.append(h)
         h += timedelta(hours=1)
+    for name, m, per in pinned:
+        prev = None
+        for h in slots:
+            w = h + timedelta(minutes=m)
+            if name == 'clean_webhooks':
+                if h.hour != 0:
+                    continue
+                w = h + timedelta(hours=1)
+            if w + timedelta(seconds=60) <= t0 or w >= t1:
+                continue
+            lo = max(w, t0)
+            if prev is not None:
+                lo = max(lo, prev + timedelta(seconds=per))
+            tick = t0 + timedelta(seconds=-(-int(round((lo - t0).total_seconds() * 1000000)) // 1000000))
+            if tick >= t1 or tick >= w + timedelta(seconds=60):
+                continue
+            runs[name] = runs.get(name, 0) + 1
+            prev = tick
     return {'runs': {k: v for k, v in runs.items() if v > 0}}
 
 
