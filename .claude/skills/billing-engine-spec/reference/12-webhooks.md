@@ -33,9 +33,14 @@ used outside conformance runs.
 - **BE-WH-9** Payload envelope, keys in exactly this order: `{"webhook_type": <emitted type>, "object_type": <object type>, "organization_id": <organization id>, <object type>: <serialized object>}` — the object sits under the key named by `object_type`, which is not always the event's resource name (section 3). [vec: webhooks.payload_envelope.001, webhooks.payload_envelope.002]
 - **BE-WH-10** The object is serialised once, when the emission is processed, and the body POSTed is that stored payload (the envelope of BE-WH-9 around it). [vec: webhooks.payload_envelope.001]
 - **BE-WH-27** Delivery bookkeeping: one delivery row per receiving endpoint is created (status `pending`, retries 0, the endpoint URL recorded as a snapshot) and the same stored payload is used for that endpoint's every attempt — a later change of the object never changes a pending webhook. [vec: none (prose only: delivery rows have no unit op; read at the pin and covered by the reference's green delivery specs, see Provenance)]
-- **BE-WH-11** Catalogue lookup: for each configured event name, the emitted type and the payload's object key are those of the table in section 3. Unknown names are not emittable. [vec: webhooks.type_info.*]
+- **BE-WH-11** Catalogue lookup: the configured event names are exactly the 75 names of section 3 (40 in scope, section 3.1; 35 at the chapter 14 boundary, section 3.2). Every configured name is emittable and every emittable name is configured (an emission is requested under its configured name; only `credit_note.provider_refund_failure` is then sent under another `webhook_type`, BE-WH-7); for each, the emitted type and the payload's object key are those of its table row. The object key is the part of the name before the first dot unless the row names another one (16 names do, for example `alert.triggered` → `triggered_alert`, `integration.provider_error` → `provider_error`). Any other name is unknown: it is not emittable and not a valid filter value (BE-WH-5). [vec: webhooks.type_info.*]
 
-## 3. Catalogue (in-scope events)
+## 3. Catalogue (all configured events)
+
+The configured list has exactly 75 names: the 40 of section 3.1 and the 35 of section 3.2. Only `event.error` is
+marked deprecated in it. No in-scope behaviour depends on the order of the list.
+
+### 3.1 In-scope events
 
 Columns: configured name (= emitted `webhook_type` unless noted) → `object_type` key → emitted when (owning chapter).
 
@@ -72,11 +77,36 @@ Columns: configured name (= emitted `webhook_type` unless noted) → `object_typ
 | `events.errors` | `events_errors` | hourly event post-validation (02) |
 | `event.error` (deprecated) | `event_error` | event post-processing error (02) |
 
-Out-of-scope names (interface only, chapter 14): `customer.{accounting,crm,payment}_provider_{created,error}`,
-`customer.checkout_url_generated`, `customer.tax_provider_error`, `customer.vies_check`, `fee.tax_provider_error`,
-`integration.provider_error`, `payment.*`, `payment_provider.error`, `payment_receipt.*`, `payment_request.*`,
-`invoice.payment_failure`, `invoice.resynced`, `wallet_transaction.payment_failure`, `dunning_campaign.finished`,
-`feature.*`, `quote.*`, `order.*`, `order_form.*`. The configured list has 75 names.
+### 3.2 Boundary events (chapter 14)
+
+These names are configured (valid filter values, BE-WH-5) and emitted by features outside the kit; a rebuild that
+does not implement those features never emits them but must still accept them in filters. Every name is emitted
+unchanged.
+
+| Event | object_type | Boundary (chapter 14) |
+|---|---|---|
+| `customer.accounting_provider_created` / `customer.crm_provider_created` / `customer.payment_provider_created` | `customer` | integrations, payment providers (BE-IF-1, BE-IF-5) |
+| `customer.accounting_provider_error` | `accounting_provider_customer_error` | integrations (BE-IF-5) |
+| `customer.crm_provider_error` | `crm_provider_customer_error` | integrations (BE-IF-5) |
+| `customer.payment_provider_error` | `payment_provider_customer_error` | payment providers (BE-IF-1) |
+| `customer.checkout_url_generated` | `payment_provider_customer_checkout_url` | payment providers (BE-IF-1) |
+| `customer.tax_provider_error` | `tax_provider_customer_error` | tax providers (BE-IF-3) |
+| `customer.vies_check` | `customer` | VAT-number checks (BE-IF-4) |
+| `fee.tax_provider_error` | `tax_provider_fee_error` | tax providers (BE-IF-3) |
+| `integration.provider_error` | `provider_error` | integrations (BE-IF-5) |
+| `invoice.payment_failure` | `payment_provider_invoice_payment_error` | payment providers (BE-IF-1) |
+| `invoice.resynced` | `invoice` | integrations (BE-IF-5) |
+| `payment.succeeded` / `payment.requires_action` | `payment` | payment providers (BE-IF-1) |
+| `payment_provider.error` | `payment_provider_error` | payment providers (BE-IF-1) |
+| `payment_receipt.created` / `payment_receipt.generated` | `payment_receipt` | payment providers, documents (BE-IF-1, BE-IF-6) |
+| `payment_request.created` / `payment_request.payment_status_updated` | `payment_request` | dunning (BE-IF-8) |
+| `payment_request.payment_failure` | `payment_provider_payment_request_payment_error` | dunning, payment providers (BE-IF-1, BE-IF-8) |
+| `wallet_transaction.payment_failure` | `payment_provider_wallet_transaction_payment_error` | payment providers (BE-IF-1) |
+| `dunning_campaign.finished` | `dunning_campaign` | dunning (BE-IF-8) |
+| `feature.created` / `feature.updated` / `feature.deleted` | `feature` | entitlements (BE-IF-9) |
+| `quote.created` / `quote.approved` / `quote.voided` | `quote` | product catalogue (BE-IF-9) |
+| `order.created` / `order.executed` | `order` | product catalogue (BE-IF-9) |
+| `order_form.created` / `order_form.signed` / `order_form.expired` / `order_form.voided` | `order_form` | product catalogue (BE-IF-9) |
 
 ## 4. Body bytes
 
@@ -103,7 +133,7 @@ re-serialises a parsed body will generally not reproduce these bytes; signatures
 - **BE-WH-18** Each attempt POSTs to the endpoint's **current** URL (an edited URL applies to pending retries), with open, read and write timeouts of 30 s (deployment setting) and no redirect following and no retry inside the attempt. Deleting an endpoint deletes its delivery rows, so its pending retries die. [vec: webhooks.retry_step.004, webhooks.retry_step.011]
 - **BE-WH-19** Success iff the response status is 200, 201, 202 or 204 (any other status, including 203 and every 3xx, is a failure). On success the row becomes `succeeded` with the status and response body (or `{}` when empty) recorded; the retry counter is unchanged. [vec: webhooks.retry_step.001, webhooks.retry_step.002, webhooks.retry_step.003, webhooks.retry_step.004]
 - **BE-WH-20** On failure (non-success status, timeout, refused, reset or dropped connection, TLS, DNS or unreachable-host error): the status (if any, otherwise left as it was) and the response body or error message are recorded, `retries` is incremented, `last_retried_at` set, and the row becomes `retrying` when `retries_before + 1 < attempts` (attempts = 3 by default, deployment setting) and a new attempt is scheduled, otherwise `failed` with no further attempt. With the default: attempt 1 → retrying; attempt 2 → retrying; attempt 3 → failed (`retries = 3`). An attempt on a row already failed (manual retry) fails again without scheduling. [vec: webhooks.retry_step.003, webhooks.retry_step.005, webhooks.retry_step.006, webhooks.retry_step.007, webhooks.retry_step.010, webhooks.retry_step.011]
-- **BE-WH-21** Back-off: the next attempt waits `r⁴ + u × 0.15 × r⁴ + 2` seconds where `r` is the retry counter after the increment and `u` is uniform in [0, 1): r = 1 → [3, 3.15), r = 2 → [18, 20.4), r = 3 → [83, 95.15), r = 4 → [258, 296.4) (RBD-91). [vec: webhooks.retry_step.005, webhooks.retry_step.006]
+- **BE-WH-21** Back-off: the next attempt waits `(r⁴ + ((u × r⁴) × 0.15)) + 2` seconds (binary floating point, in that order; `r⁴` is an integer) where `r` is the retry counter after the increment and `u` is uniform in [0, 1); the delay is random, so the kit grades only its bounds, as exact decimals `r⁴ + 2` and `1.15 × r⁴ + 2`: r = 1 → [3, 3.15), r = 2 → [18, 20.4), r = 3 → [83, 95.15), r = 4 → [258, 296.4) (RBD-91). [vec: webhooks.retry_step.005, webhooks.retry_step.006]
 - **BE-WH-22** Row statuses: `pending` → `succeeded` | `retrying` → … → `succeeded` | `failed`. A manual retry (administration surface, chapter 14) re-attempts any row except a succeeded one. A failure of the payload storage itself (throttling) is not counted as a delivery failure: the attempt is retried by the job system without incrementing `retries`. [vec: none (prose only: administration surface and storage faults are outside the unit tier)]
 - **BE-WH-23** Delivery rows are cleaned up by a daily clock job at 01:00 UTC (chapter 13 BE-CK-3). [vec: clock.jobs_due.004]
 - **BE-WH-28** The clean-up deletes, in batches of 1,000, the delivery rows whose last update is more than 90 days old; the stored payload and response blobs are left to the object store's own expiry policy. [vec: none (prose only: retention has no unit op; pinned by the reference's green clean-up job spec, see Provenance)]
@@ -135,6 +165,7 @@ re-serialises a parsed body will generally not reproduce these bytes; signatures
 - Floats: `1e+15` but `100000000000000.0`; `0.000000001` but `1e-10` (webhooks.encode.004).
 - The JWT `data` claim is the body as a string, not an object (webhooks.sign.003).
 - A string such as `"{customer.created}"` is accepted as a list; a JSON number or boolean crashes the request (webhooks.normalize_event_types.012, webhooks.normalize_event_types.013).
+- The payload's object key is not always the name's prefix: `alert.triggered` carries `triggered_alert`, and every provider or integration error has a key of its own (webhooks.type_info.005, webhooks.type_info.007, webhooks.type_info.014); the 35 boundary names of section 3.2 are valid filter values even for a rebuild that never emits them.
 
 ## 10. Vectors
 
@@ -147,7 +178,7 @@ re-serialises a parsed body will generally not reproduce these bytes; signatures
 | `webhooks.retry_step` | webhooks.retry_step.001-011 | BE-WH-18..21 |
 | `webhooks.normalize_event_types` | webhooks.normalize_event_types.001-013 | BE-WH-4, BE-WH-5, BE-WH-7 |
 | `webhooks.endpoint_receives` | webhooks.endpoint_receives.001-005 | BE-WH-6, BE-WH-7 |
-| `webhooks.type_info` | webhooks.type_info.001-004 (+001x) | BE-WH-7, BE-WH-11, BE-WH-25 |
+| `webhooks.type_info` | webhooks.type_info.001-021 (+001x) | BE-WH-7, BE-WH-11, BE-WH-25 |
 
 ## Provenance (maintainers)
 
@@ -204,6 +235,21 @@ BE-WH-27 read at `$API/app/services/webhooks/base_service.rb:13-73`; the 90-day 
 `$API/app/serializers/v1/events_validation_errors_serializer.rb:6-11`. The rules whose `[vec: …]` tags overstated what
 their vectors pin (BE-WH-3, BE-WH-10, BE-WH-23, BE-WH-25) were narrowed and the unpinned parts moved to the prose-only
 rules BE-WH-27 to BE-WH-29.
+
+Fix round of 2026-10-05 (database `lago_api_test_fr2g5`, same toolchain): the full configured list was read from
+the endpoint model's list of configured names (75, loaded from `$API/config/webhook_event_types.yml`) and the job's
+name-to-service map (`$API/app/jobs/send_webhook_job.rb:19-95`, 75 entries, the same names) through a scratch op of
+the oracle adapter, with the emitted type and object type of each service; sections 3.1 and 3.2 were checked
+against that output name by name (75 of 75, no mismatch). New vectors `webhooks.type_info.005` to `.021` (the 13
+remaining names whose object key differs from the prefix, and four of the default rule) executed through
+`oracle.sh adapter` (PASS). The back-off order of BE-WH-21 is read at `$API/app/services/webhooks/send_http_service.rb:81-85`;
+it cannot be discriminated through the graded bounds.
+
+Independent verification the same day (database `lago_api_test_v2g5`): the 75 names of sections 3.1 and 3.2,
+expanded from the tables, were sent through the shipped `webhooks.type_info` op (emitted type, object key and
+`configured` as tabled: 75 of 75) together with five unlisted names (`unknown_event_type`: 5 of 5); the configured
+list and the job's name-to-service map were compared name by name (75 each, no difference, `event.error` the only
+deprecated entry); vectors `webhooks.type_info.005` to `.021` re-ran through `oracle.sh adapter` (PASS).
 
 Update triggers: a pin bump (re-run the oracle over `webhooks.jsonl`), a change of the webhook model, endpoint
 model, delivery service, HTTP client or event-type list, a JSON library upgrade (float output), an owner ruling on

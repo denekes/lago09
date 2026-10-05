@@ -97,7 +97,7 @@
         "charges_duration_days": {
           "type": "integer",
           "minimum": 1,
-          "description": "Charges period length in days."
+          "description": "Charges period length in days (the window of the aggregation step). It does not enter the period ratio, which divides days(from, now) by days(from, to) in binary64 (BE-PR-41)."
         },
         "timezone": {
           "$ref": "../common.schema.json#/$defs/timezone",
@@ -111,7 +111,8 @@
       "additionalProperties": true,
       "properties": {
         "period_ratio": {
-          "$ref": "../common.schema.json#/$defs/decimal"
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Binary64 ratio days(from, now) / days(from, to), clamped to [0, 1] (BE-PR-41); projections divide by its shortest round-trip text (BE-PR-39)."
         },
         "projected_units": {
           "$ref": "../common.schema.json#/$defs/decimal"

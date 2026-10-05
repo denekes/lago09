@@ -138,9 +138,10 @@ Each phase lists what to read, what to build, which ops it answers and its gate.
   conformance suite). Production runs memory-cache mode; DB mode is the development fallback; both are graded.
 - Build: the consumer, per-record pipeline, delivery semantics of the chosen profile (compat commit behaviour or the
   corrected ADR-001 dispositions), outputs and refresh flag.
-- Gates: `kitrun.py --impl-cmd "$A" --areas ep` → ≥ 95 %; `events-processor-spec/scripts/run-suite.sh --impl-cmd
-  "<consumer>" --profile both --loose-errors` → corrected: 100 % of decided assertions; compat: ≥ 90 % of DB goldens;
-  startup contract EPC-26..EPC-29 4/4.
+- Gates: `kitrun.py --impl-cmd "$A" --areas ep` → ≥ 95 %; separate runs per profile (`acceptance-and-grading.md`
+  §2.1): `events-processor-spec/scripts/run-suite.sh --impl-cmd "<consumer>" --profile corrected` → 100 % of decided
+  assertions, startup contract EPC-26..EPC-29 4/4; for a migration-compat build also `--profile compat --loose-errors`
+  (the implementation's own compat switch, e.g. through `--impl-env`) → ≥ 90 % of DB goldens.
 
 ### P9 — Scenario tier (CRC-10, stretch)
 

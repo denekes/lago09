@@ -92,13 +92,15 @@
           "type": "array",
           "items": {
             "$ref": "../common.schema.json#/$defs/decimal"
-          }
+          },
+          "description": "Prorated only: [full units of the last-created event]; [0] when there is no event (BE-PR-69)."
         },
         "per_event_prorated": {
           "type": "array",
           "items": {
             "$ref": "../common.schema.json#/$defs/decimal"
-          }
+          },
+          "description": "Prorated only: [prorated units]; [0] when there is no event (BE-PR-69)."
         }
       }
     }
