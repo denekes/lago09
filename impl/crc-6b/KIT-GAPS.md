@@ -26,3 +26,7 @@
 - Q: Coupon create (BE-IV-17): does `expiration_at` in the past fail even when `expiration` is not `time_limit`? Looked: BE-IV-17 ("when given"). Assumption: yes, whenever given.
 - Q: Exactly how `dec16` rounds (half-up vs shortest repr) for the binary64 item rate (BE-CN-6). Looked: chapter 07 reading guide. Assumption: 16 significant digits, half up of the exact binary64 value.
 - Q: Apply-coupon reusability when `applied_before` entries lack a `coupon` key. Looked: BE-IV-18. Assumption: such entries are of the same coupon.
+
+## v1.2
+
+- Question: BE-CN-7 says the note's precise taxes are "stored by rounding its text to 5 places", but `credit_notes.compute.009` (precise tax 15466.66666 × 25 ⁄ 100 = 3866.666665) only passes when the sum is stored with `round5` (BE-IV-14, the x ⊗ 100000 tie rule), not by rounding the text 3866.6666649999997. Where I looked: BE-CN-7, chapter 07 notation paragraph (round5 vs text). Assumption: round5 applies to the binary64 sum of the note's precise taxes.

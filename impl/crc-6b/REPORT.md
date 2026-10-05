@@ -29,3 +29,18 @@ v1.0 code on v1.1 failed 10 vectors (invoice 131/137, credit_notes 37/41). Chang
 - BE-IV-23/25: limited percentage coupons use the decimal path; distribution share divides the exact product (binary64 for unlimited, decimal for limited).
 
 Time spent: about 1 minutes.
+
+## v1.2
+
+Kit 1.2.0, started 2026-10-05 15:13:36 UTC, finished 15:15 UTC (wall clock from `date -u`; roughly 2 minutes).
+
+Final kitrun (areas invoice,credit_notes):
+
+- compat: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=187 passed=187 skipped_ops=0 exit=0` — invoice 142/142 (100 %, core 100 %), credit_notes 45/45 (100 %, core 100 %).
+- corrected: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=187 passed=177 skipped_ops=0 exit=0` — invoice 137 pass + 5 unruled, credit_notes 40 pass + 5 unruled, no failures.
+
+Changes:
+
+- BE-CN-6 / dec16 (`credit_notes.compute.019`): `sig16` now cuts the shortest text after 16 significant digits (ROUND_DOWN) instead of rounding.
+- BE-IV-42 (`invoice.void.009`): void-note items scaled by the ratio are stored with `round5` (BE-IV-14) rather than rounding the text.
+- BE-CN-7 (kept `credit_notes.compute.009` passing after the dec16 change): per-code base is exact, tax is exact product then one binary64 ÷100, note precise taxes stored with `round5`. See KIT-GAPS.md v1.2 for the text-vs-round5 wording question.

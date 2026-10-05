@@ -88,7 +88,7 @@ def ruby_round_float(x, places):
 
 
 def sig16(x):
-    """Store at 16 significant digits."""
+    """dec16 (BE-IV-6 reading guide): cut after 16 significant digits, never rounded."""
     fr = Fraction(x)
     if fr == 0:
         return Fraction(0)
@@ -96,7 +96,7 @@ def sig16(x):
     exp = d.adjusted()
     places = 15 - exp
     q = Decimal(1).scaleb(-places)
-    return Fraction(d.quantize(q, rounding=ROUND_HALF_UP))
+    return Fraction(d.quantize(q, rounding=ROUND_DOWN))
 
 
 def dec_str(x, places=None):
@@ -987,7 +987,7 @@ def note_amounts(inv, items, residue_check):
             adj += share
         for code, rate in f.taxes:
             code_rate[code] = rate
-            b = N(it["precise"]) - share
+            b = (F(it["precise"]) - F(share)) if COMPAT else N(it["precise"]) - share  # BE-CN-7: exact base
             per_code[code] = per_code.get(code, N(0)) + b
     adj_stored = q5(F(adj) if COMPAT else adj)
     adj_cents = rnd(adj)
@@ -995,10 +995,10 @@ def note_amounts(inv, items, residue_check):
     ptax = N(0)
     for code in sorted(per_code):
         base = per_code[code]
-        t = base * N(code_rate[code]) / 100
+        t = (float(F(base) * sig16(F(code_rate[code]))) / 100.0) if COMPAT else base * N(code_rate[code]) / 100  # BE-CN-7: exact product, binary64 /100
         rows.append({"code": code, "amount_cents": rnd(t), "base_amount_cents": rnd(base)})
         ptax += t
-    ptax_stored = q5(sig16(F(ptax) if COMPAT else ptax))
+    ptax_stored = ruby_round_float(ptax, 5) if COMPAT else q5(ptax)  # round5 (BE-IV-14) of the binary64 sum
     # taxes rate
     denom = N(sum_precise) - adj
     if per_code and denom != 0:
@@ -1278,8 +1278,11 @@ def op_void(inp):
             ratio = N(credit_req + refund_req) / N(tmax)
             scaled = []
             for it in items_req:
-                v = F(float(N(it["amount_cents"]) * ratio)) if COMPAT else it["amount_cents"] * ratio
-                scaled.append({"fee_id": it["fee_id"], "amount_cents": q5(v)})
+                if COMPAT:
+                    v = ruby_round_float(float(N(it["amount_cents"]) * ratio), 5)  # BE-IV-42 round5
+                else:
+                    v = q5(it["amount_cents"] * ratio)
+                scaled.append({"fee_id": it["fee_id"], "amount_cents": v})
             n, errors = compute_note(inv, {"items": scaled, "credit_amount_cents": credit_req,
                                            "refund_amount_cents": refund_req}, automatic=True)
             if n is not None:
