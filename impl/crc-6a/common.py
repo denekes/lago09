@@ -47,6 +47,14 @@ def store5(x) -> Decimal:
     return rnd(x, 5)
 
 
+def col5(f: float) -> Decimal:
+    """Column rule for a binary64 stored in a 5-place column: round5, 16 significant digits (nearest), 5 places."""
+    d = Decimal(float_round(float(f), 5))
+    if d != 0:
+        d = d.quantize(Decimal(1).scaleb(d.adjusted() - 15), rounding=ROUND_HALF_UP)
+    return rnd(d, 5)
+
+
 def frnd(f: float) -> int:
     """Round half away from zero the exact binary value of a float to an integer."""
     return int(Decimal(f).quantize(Decimal(1), rounding=ROUND_HALF_UP))

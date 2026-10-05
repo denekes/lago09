@@ -80,3 +80,14 @@ What changed:
 - BE-CN-18 exit order: upgrade combined with refund or offset now answers `server_error` right after the zero-fee/voided exit, before any amount is computed. Fixes `credit_notes.termination.013`, `.014`.
 
 Wall clock: start 2026-10-05 15:13:36 UTC, end 2026-10-05 15:14:24 UTC (`date -u`).
+
+## v1.3
+
+Kit 1.3.0 (verified in kit.json). Started 2026-10-05 15:34:31 UTC, finished Mon Oct  5 15:34:58 UTC 2026 (about a minute of wall-clock).
+
+Final kitrun (areas invoice,credit_notes):
+
+- compat: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=189 passed=189 skipped_ops=0 exit=0` (invoice 143/143, 100 %; credit_notes 46/46, 100 %; core 100 %)
+- corrected: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=189 passed=177 skipped_ops=0 exit=0` (invoice 137 pass + 6 unruled of 143; credit_notes 40 pass + 6 unruled of 46; no failures)
+
+Changes (rule ids BE-IV-42, BE-CN-7, chapter 07 column rule): new `col5` in common.py implements the column rule for a binary64 stored in a 5-place column: `round5`, then the exact binary64 value rounded to nearest at 16 significant digits, then half-away to 5 places. Used for void-note item amounts (BE-IV-42, voiding.py; fixes invoice.void.010) and for a note's precise taxes in compat (BE-CN-7, credit_notes.py). The corrected profile (exact decimals) is unchanged.

@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import credit_notes as cn
 import invoice as iv
-from common import KitError, ZERO, dec, exact, float_round, rint, store5
+from common import KitError, col5, ZERO, dec, exact, float_round, rint, store5
 
 
 def void(inp, ctx):
@@ -33,7 +33,7 @@ def void(inp, ctx):
             items = []
             for fid, a in remaining:
                 v = a * ratio
-                items.append((fid, Decimal(repr(float_round(v, 5))) if isinstance(v, float) else store5(v)))
+                items.append((fid, col5(v) if isinstance(v, float) else store5(v)))
             n = cn.make_note(inv, items, credit, refund, 0, validate=False)
             inv.add(n)
             out["credit_notes"].append(_pub(n))

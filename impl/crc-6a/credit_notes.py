@@ -6,7 +6,7 @@ from decimal import ROUND_DOWN, Decimal
 
 import invoice as iv
 import periods as pr
-from common import cut16, KitError, ZERO, dec, exact, float_round, frnd, rint, rnd, store5, trunc
+from common import col5, cut16, KitError, ZERO, dec, exact, float_round, frnd, rint, rnd, store5, trunc
 
 Q5 = Decimal("0.00001")
 
@@ -108,7 +108,7 @@ def note_core(inv: Inv, items, residue_check=True):
             t = float(base) * float(rates[code]) / 100
         rows.append({"code": code, "amount_cents": rint(t) if ex else frnd(t), "base_amount_cents": rint(base)})
         ptax += t
-    ptax = store5(ptax) if ex else store5(Decimal(format(float(ptax), ".15e")))
+    ptax = store5(ptax) if ex else col5(float(ptax))
     sum_precise = sum((p for _, p, _ in items), ZERO)
     return {"rows": rows, "ptax": ptax, "padj": padj, "adj": adj, "sum_precise": sum_precise, "bases": bases, "rates": rates}
 
