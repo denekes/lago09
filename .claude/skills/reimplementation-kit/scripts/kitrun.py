@@ -45,7 +45,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kitlib  # noqa: E402
 
-KITRUN_VERSION = "1.1.0"
+KITRUN_VERSION = "1.2.0"
 ENVELOPE_REQUIRED = ["kit_schema", "id", "area", "op", "profile", "input", "expected"]
 STDERR_TAIL_BYTES = 4096
 

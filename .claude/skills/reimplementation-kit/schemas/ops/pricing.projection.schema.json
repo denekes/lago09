@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ops/pricing.projection.schema.json",
   "title": "pricing.projection",
-  "description": "Projected usage of a charge for the rest of its period (BE-PR-39..42): period_ratio from the customer-local day count, projected units and amount from the charge model, projected_amount_cents rounded; recurring metrics project the current values.",
+  "description": "Projected usage of a charge for the rest of its period (BE-PR-39..42): period_ratio from the customer-local day count, projected units and amount from the charge model, projected_amount_cents rounded; recurring metrics project the current values. The same binary64 ratio serves every model and every group of a grouped charge (groups are projected one by one and summed). from/to are a billing period, so days(from, to) >= 1; a degenerate window is not reachable and not graded (BE-PR-41).",
   "x-kit": {
     "area": "pricing",
     "op": "projection",

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ops/clock.jobs_due.schema.json",
   "title": "clock.jobs_due",
-  "description": "Clock jobs that enqueue work during [from, to) (BE-CK-2..4, BE-CK-10, BE-CK-12), with the number of runs. A clock process started at `from` evaluates its schedule at `from` and at every whole second after it (ticks). An interval job runs at the first tick and then at the first tick at least one period after its previous run (a period below one second: every tick). A minute-pinned job runs at a tick whose UTC minute (and hour, for a daily job) equals its pin and that is at least one period (1 h, or 1 day) after its previous run: started at 00:05:30, the :05 jobs run at 00:05:30 and 01:05:30. A run counts only when the job's gate lets it enqueue work. `env` lists the deployment settings that change the schedule (absent key = unset = empty text), read as BE-CK-12 states. Profile corrected (RBD-79, proposed): refresh_wallets_ongoing_balance is scheduled whatever the cache settings, unless LAGO_DISABLE_WALLET_REFRESH is exactly `true`.",
+  "description": "Clock jobs that enqueue work during [from, to) (BE-CK-2..4, BE-CK-10, BE-CK-12), with the number of runs. A clock process started at `from` evaluates its schedule at `from` and at every whole-second instant after it (ticks); a tick at `to` is not counted. An interval job runs at the first tick and then at the first tick at least one period after its previous run (a period below one second: every tick). A minute-pinned job runs at a tick whose UTC minute (and hour, for a daily job) equals its pin and that is at least one period (1 h, or 1 day) after its previous run: started at 00:05:30, the :05 jobs run at 00:05:30 and 01:05:30. A run counts only when the job's gate lets it enqueue work. `env` lists the deployment settings that change the schedule (absent key = unset = empty text), read as BE-CK-12 states. Profile corrected (RBD-79, proposed): refresh_wallets_ongoing_balance is scheduled whatever the cache settings, unless LAGO_DISABLE_WALLET_REFRESH is exactly `true`.",
   "x-kit": {
     "area": "clock",
     "op": "jobs_due",
@@ -21,10 +21,12 @@
       ],
       "properties": {
         "from": {
-          "$ref": "../common.schema.json#/$defs/instant"
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Clock start, a whole second in every vector (a fractional start is not graded, BE-CK-2)."
         },
         "to": {
-          "$ref": "../common.schema.json#/$defs/instant"
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Window end, excluded."
         },
         "env": {
           "type": "object",
