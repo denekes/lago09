@@ -71,6 +71,32 @@ def q5(x):
     return round_places(x, 5)
 
 
+def col5(x):
+    """Column rule (ch.07 notation): round5, then 16 significant digits (nearest), then 5 places half away."""
+    from decimal import Decimal, ROUND_HALF_UP, localcontext
+    r = ruby_round_float(x, 5)
+    if r == 0:
+        return r
+    if isinstance(x, float):
+        r = Fraction(repr(_round5_float(x)))  # the binary64 round5 result; its text is what gets cast
+    with localcontext() as c:
+        c.prec = 16
+        c.rounding = ROUND_HALF_UP
+        d = +Decimal(repr(float(r)))
+    return round_places(Fraction(d), 5)
+
+
+def _round5_float(x):
+    s = 10.0 ** 5
+    f = float(rnd(Fraction(x * s)))
+    if f + 0.5 != f:  # above 2^52 the half step is not representable: no correction
+        if x > 0 and (f + 0.5) / s <= x:
+            f += 1
+        elif x < 0 and (f - 0.5) / s >= x:
+            f -= 1
+    return f / s
+
+
 def ruby_round_float(x, places):
     """Float#round(places) as the reference does it (binary64, half away)."""
     if not isinstance(x, float):
@@ -998,7 +1024,7 @@ def note_amounts(inv, items, residue_check):
         t = (float(F(base) * sig16(F(code_rate[code]))) / 100.0) if COMPAT else base * N(code_rate[code]) / 100  # BE-CN-7: exact product, binary64 /100
         rows.append({"code": code, "amount_cents": rnd(t), "base_amount_cents": rnd(base)})
         ptax += t
-    ptax_stored = ruby_round_float(ptax, 5) if COMPAT else q5(ptax)  # round5 (BE-IV-14) of the binary64 sum
+    ptax_stored = col5(ptax) if COMPAT else q5(ptax)  # round5 (BE-IV-14) of the binary64 sum
     # taxes rate
     denom = N(sum_precise) - adj
     if per_code and denom != 0:
@@ -1279,7 +1305,7 @@ def op_void(inp):
             scaled = []
             for it in items_req:
                 if COMPAT:
-                    v = ruby_round_float(float(N(it["amount_cents"]) * ratio), 5)  # BE-IV-42 round5
+                    v = col5(float(N(it["amount_cents"]) * ratio))  # BE-IV-42 round5
                 else:
                     v = q5(it["amount_cents"] * ratio)
                 scaled.append({"fee_id": it["fee_id"], "amount_cents": v})

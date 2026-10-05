@@ -44,3 +44,19 @@ Changes:
 - BE-CN-6 / dec16 (`credit_notes.compute.019`): `sig16` now cuts the shortest text after 16 significant digits (ROUND_DOWN) instead of rounding.
 - BE-IV-42 (`invoice.void.009`): void-note items scaled by the ratio are stored with `round5` (BE-IV-14) rather than rounding the text.
 - BE-CN-7 (kept `credit_notes.compute.009` passing after the dec16 change): per-code base is exact, tax is exact product then one binary64 ÷100, note precise taxes stored with `round5`. See KIT-GAPS.md v1.2 for the text-vs-round5 wording question.
+
+## v1.3
+
+Kit 1.3.0 verified (`kit.json` kit_version 1.3.0). Start 2026-10-05 15:34:32 UTC, end 15:35:21 UTC (about 1 minute wall clock).
+
+Final kitrun (areas invoice,credit_notes):
+
+- compat: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=189 passed=189 skipped_ops=0 exit=0` — credit_notes 46/46 (100.0 %), invoice 143/143 (100.0 %), core 100 % in both.
+- corrected: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=189 passed=177 skipped_ops=0 exit=0` — credit_notes 40/40 + 6 unruled, invoice 137/137 + 6 unruled (all PASS).
+
+Changes (rules BE-IV-42, BE-CN-7, column rule of the chapter 07 notation paragraph):
+- New `col5()` in `adapter.py`: binary64 value -> `round5` (kept as a binary64, its shortest text is what is cast) -> 16 significant digits (nearest) -> 5 places half away. Used for the void-item scaling (BE-IV-42) and the note's precise taxes (BE-CN-7) in compat.
+- `round5` (`_round5_float`): the near-tie correction `(f ± 0.5) / s` is skipped when the half step is not representable (above 2^52 scaled), so a large value is not nudged by one unit; this was needed for `102880657510.79861` -> `102880657510.7986`.
+- Before the change: 2 vectors failed (credit_notes.compute.020, invoice.void.010).
+
+No new gaps; nothing added to KIT-GAPS.md.
