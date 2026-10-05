@@ -8,7 +8,7 @@ description: "Language-neutral behaviour spec of the Lago events-processor for a
 Behaviour specification and conformance suite for re-implementing the Lago events-processor (the Kafka
 consumer that turns raw usage events into enriched, charged-in-advance and dead-letter records plus a Redis
 refresh flag), in any language, without its source. Facts as of events-processor tree `83e012866f29` (the
-reference, "compat" profile) and the kit's corrected profile; kit v1.5.0. **Production runs memory-cache mode
+reference, "compat" profile) and the kit's corrected profile; kit v1.6.0. **Production runs memory-cache mode
 (owner decision OD-1); DB mode is the development and fallback mode; the suite grades both.**
 
 > **Licence.** The Lago events-processor and lago-api are AGPL-3.0. This skill describes behaviour in neutral words,

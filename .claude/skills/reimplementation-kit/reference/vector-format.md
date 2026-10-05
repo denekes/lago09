@@ -469,7 +469,7 @@ reimplementation-kit/maintainer-data/holdout`.
 **Manifest.** `scripts/maintainer/make-kit-json.py --write` (run last, after the split) writes:
 
 ```json
-{"kit_version":"1.5.0","kit_schema":1,"proto":1,"pins":{"lago_api":"591ae9005110","events_processor_tree":"83e012866f29"},
+{"kit_version":"1.6.0","kit_schema":1,"proto":1,"pins":{"lago_api":"591ae9005110","events_processor_tree":"83e012866f29"},
  "generated_by":"reimplementation-kit/scripts/maintainer/make-kit-json.py","files":{
 "billing-engine-spec/reference/05-pricing-and-fees.md":"<sha256>",
 "billing-engine-spec/vectors/pricing.models.jsonl":{"sha256":"<sha256>","vectors":106},
@@ -481,7 +481,7 @@ Every file of the three kit skills is listed (one per line, sorted, no timestamp
 maintainer-only files (what `kit-pack.sh --cleanroom` strips: `scripts/maintainer/`, `maintainer-data/`,
 `reference/maintainer-oracle.md`, any file with the MAINTAINER-ONLY header) add `"maintainer": true`. `--check`
 reports ADDED/REMOVED/CHANGED entries and exits 1 when the file is absent or stale. `kitrun.py` reads `kit_version`
-from it (default `1.5.0-dev`); `kit-pack.sh` verifies every listed hash (maintainer entries may be absent from a
+from it (default `1.6.0-dev`); `kit-pack.sh` verifies every listed hash (maintainer entries may be absent from a
 clean-room pack).
 
 ## Provenance (maintainers)
