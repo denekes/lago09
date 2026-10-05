@@ -302,7 +302,7 @@ def compute(plan, sub, zone, at, current=False, prev=None, profile="compat"):
             end_s = prev.get(key) or prev.get("charges_to_datetime")
             if end_s:
                 c = parse_instant(end_s) + timedelta(seconds=1)
-                if abs(cf - c) <= timedelta(hours=26):
+                if abs(cf - c) < timedelta(hours=26):
                     cf = c
         if started is not None and cf < started:
             cf = started
@@ -719,9 +719,9 @@ def op_create_status(inp, profile):
     now = parse_instant(inp["now"])
     started = sa
     pt = parse_instant(inp.get("previous_terminated_at"))
-    if pt is not None and inp.get("previous_on_termination_invoice", "generate") == "generate" and started < pt:
-        started = pt
     ld, ln = zone.local_date(sa), zone.local_date(now)
+    if ld < ln and pt is not None and inp.get("previous_on_termination_invoice", "generate") == "generate" and started < pt:
+        started = pt
     if ld > ln:
         return {"status": "pending", "started_at": None, "billed_at_creation": False, "invoicing_reasons": [],
                 "webhooks": []}
