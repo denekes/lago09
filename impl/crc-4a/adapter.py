@@ -439,6 +439,40 @@ def proration_ratio(days, dur, ctx):
     return Decimal(repr(days / dur))
 
 
+def p16(P, ctx):
+    """P cut to 16 significant digits of its shortest text (BE-AG-56 island 3); exact profile keeps P."""
+    if ctx.exact or P == D1:
+        return P
+    t = P.normalize()
+    sign, digits, exp = t.as_tuple()
+    if len(digits) <= 16:
+        return P
+    cut = Decimal((sign, digits[:16], exp + len(digits) - 16))
+    return cut
+
+
+def _r64(n):
+    """Round a non-negative integer to 64 significant bits, ties to even."""
+    b = n.bit_length()
+    if b <= 64:
+        return n
+    sh = b - 64
+    q, rem = divmod(n, 1 << sh)
+    half = 1 << (sh - 1)
+    if rem > half or (rem == half and q & 1):
+        q += 1
+    return q << sh
+
+
+def store_convert(v):
+    """Columnar store decimal -> binary64 conversion c(v) (BE-AG-74)."""
+    x = int(abs(v) * (10 ** 26))
+    h, l = x >> 64, x & ((1 << 64) - 1)
+    y = _r64(_r64(_r64(h * ((1 << 64) - 1)) + h) + l)
+    c = float(y) / float(10 ** 26)
+    return -c if v < 0 else c
+
+
 def cache_matches(cached, gdict):
     if cached is None:
         return False
@@ -972,8 +1006,19 @@ def prorated_and_usage(r, gevs, ctx, win, opts, cached, gdict, grouped, bev, eve
             tot = quant(csum * P, 40, ROUND_HALF_UP) if (ctx.exact and not grouped) else csum * P
             ratios = []
             lt = local_ordinal(to, tz)
+            colstore = ctx.ch and not ctx.rel and not ctx.exact
+            if colstore:
+                pf = float(P)
+                cpart = [store_convert(v) * pf for _, v in carried]
+                wpart = []
+                tot = Decimal(0)
             for e, v in wins:
                 dd = lt - local_ordinal(e.ts, tz) + 1
+                if colstore:
+                    f = store_convert(v) * (dd / dur)
+                    wpart.append(f)
+                    ratios.append(Decimal(repr(f)))
+                    continue
                 if ctx.exact and not grouped:
                     term = quant(v * dd / dur, 40, ROUND_HALF_UP)
                     ratios.append(sig_quot(term, 1, 20))
@@ -981,12 +1026,15 @@ def prorated_and_usage(r, gevs, ctx, win, opts, cached, gdict, grouped, bev, eve
                     term = v * sig_quot(dd, dur, 20)
                     ratios.append(term)
                 tot += term
+            if colstore:
+                tot = Decimal(repr(sum(cpart, 0.0))) + Decimal(repr(sum(wpart, 0.0)))
             unpro = csum + sum((v for _, v in wins), D0)
             prorated_val = ceil5(tot)
             r["count"] = Decimal(len(pairs))
-            pe = [csum] if carried else []
+            has_c = bool(carried) and csum != 0
+            pe = [csum] if has_c else []
             pe += [v for _, v in wins]
-            pep = [csum * P] if carried else []
+            pep = [csum * p16(P, ctx)] if has_c else []
             pep += ratios
             r["_per_event"] = pe
             r["_per_event_prorated"] = pep
@@ -1003,7 +1051,7 @@ def prorated_and_usage(r, gevs, ctx, win, opts, cached, gdict, grouped, bev, eve
             if cache is not None:
                 mp = cache["mp"] if cache["mp"] is not None else D0
                 if P < 1:
-                    v = ceil5((U - max(cache["c"], D0)) * P) + mp
+                    v = ceil5((U - max(cache["c"], D0)) * p16(P, ctx)) + mp
                 else:
                     v = U - max(cache["c"], D0) + mp
             else:
@@ -1026,7 +1074,7 @@ def prorated_and_usage(r, gevs, ctx, win, opts, cached, gdict, grouped, bev, eve
             r["aggregation"] = max(T, D0)
         r["current_usage_units"] = max(T, D0)
         if atype == "unique_count_agg":
-            r["count"] = r["aggregation"]
+            r["count"] = T if grouped else r["aggregation"]
     return r
 
 
@@ -1091,7 +1139,7 @@ def op_in_advance_units(inp, profile):
         units, ns = unique_in_advance(newly, act, is_add, cache)
     if prorated:
         days = days_between(ev.ts, win["to"], win["tz"], False)
-        pu = ceil5(units * proration_ratio(days, win["dur"], ctx)) if units != 0 else D0
+        pu = ceil5(units * p16(proration_ratio(days, win["dur"], ctx), ctx)) if units != 0 else D0
         out["full_units_number"] = fmt(units)
         mp0 = cache["mp"] if cache is not None and cache["mp"] is not None else D0
         if cache is None:
