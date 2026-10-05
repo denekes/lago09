@@ -91,3 +91,15 @@ Final kitrun (areas invoice,credit_notes):
 - corrected: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=189 passed=177 skipped_ops=0 exit=0` (invoice 137 pass + 6 unruled of 143; credit_notes 40 pass + 6 unruled of 46; no failures)
 
 Changes (rule ids BE-IV-42, BE-CN-7, chapter 07 column rule): new `col5` in common.py implements the column rule for a binary64 stored in a 5-place column: `round5`, then the exact binary64 value rounded to nearest at 16 significant digits, then half-away to 5 places. Used for void-note item amounts (BE-IV-42, voiding.py; fixes invoice.void.010) and for a note's precise taxes in compat (BE-CN-7, credit_notes.py). The corrected profile (exact decimals) is unchanged.
+
+## v1.5
+
+Kit 1.5.0. Start 2026-10-05 15:58:28 UTC, end Mon Oct  5 15:58:48 UTC 2026.
+
+- compat: SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=193 passed=193 skipped_ops=0 exit=0 (invoice 146/146 = 100 %, credit_notes 47/47 = 100 %, core 100 %)
+- corrected: SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=193 passed=178 skipped_ops=0 exit=0 (invoice 138/138 ruled, credit_notes 40/40 ruled; 15 unruled)
+
+Changes (common.py):
+- BE-IV-14 `round5`: f = round half away of the exact binary64 product x⊗100000 (the old floor(|xs|+0.5) was wrong from 2^52 up); correction `(f ⊕ 0.5) ⊘ 100000 ≤ x` stays a binary64 sum, so an even f from 2^52 is raised and an odd f is kept (invoice.void.011/012).
+- Column rule (chapter 07 notation): the 16-significant-digit step rounds an exact tie to even (invoice.void.013).
+- No new KIT-GAPS.

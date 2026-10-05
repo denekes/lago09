@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, getcontext
+from decimal import ROUND_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, getcontext
 
 getcontext().prec = 80
 
@@ -48,10 +48,10 @@ def store5(x) -> Decimal:
 
 
 def col5(f: float) -> Decimal:
-    """Column rule for a binary64 stored in a 5-place column: round5, 16 significant digits (nearest), 5 places."""
+    """Column rule for a binary64 stored in a 5-place column: round5, 16 significant digits (nearest, tie to even), 5 places."""
     d = Decimal(float_round(float(f), 5))
     if d != 0:
-        d = d.quantize(Decimal(1).scaleb(d.adjusted() - 15), rounding=ROUND_HALF_UP)
+        d = d.quantize(Decimal(1).scaleb(d.adjusted() - 15), rounding=ROUND_HALF_EVEN)
     return rnd(d, 5)
 
 
@@ -64,9 +64,7 @@ def float_round(x: float, nd: int) -> float:
     """Ruby Float#round(nd) (round_half_up variant) for small nd."""
     s = 10.0 ** nd
     xs = x * s
-    f = math.floor(abs(xs) + 0.5)
-    if xs < 0:
-        f = -f
+    f = float(Decimal(xs).quantize(Decimal(1), rounding=ROUND_HALF_UP))
     if x > 0:
         if (f + 0.5) / s <= x:
             f += 1
