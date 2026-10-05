@@ -185,10 +185,15 @@ func searchJSON[T any](cache *Cache, prefix string) utils.Result[[]*T] {
 	var results []*T
 
 	err := cache.db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		prefixBytes := []byte(prefix)
+
+		// Without a prefix, the iterator would prefetch values past the matching keys
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = prefixBytes
+
+		it := txn.NewIterator(opts)
 		defer it.Close()
 
-		prefixBytes := []byte(prefix)
 		for it.Seek(prefixBytes); it.ValidForPrefix(prefixBytes); it.Next() {
 			item := it.Item()
 			err := item.Value(func(val []byte) error {
