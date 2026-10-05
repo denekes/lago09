@@ -53,16 +53,14 @@ def expression_evaluate(inp, profile):
                 if 'event_json' in inp else inp['event']
             if not isinstance(ev, dict):
                 raise X.EvalError('bad event')
-            props = ev.get('properties', {})
-            if not isinstance(props, dict):
-                raise X.EvalError('properties')
+            props = ev.get('properties')
+            if not isinstance(props, dict) or type(ev.get('code')) is not str \
+                    or ev.get('timestamp') is None or isinstance(ev.get('timestamp'), (bool, dict, list)):
+                raise X.EvalError('invalid event')
             for v in props.values():
                 if not isinstance(v, str):
                     raise X.EvalError('invalid property type')
-            e2 = {'code': ev.get('code') if isinstance(ev.get('code'), str) else '', 'properties': props}
-            if 'timestamp' in ev:
-                e2['timestamp'] = ev['timestamp'] if isinstance(ev['timestamp'], str) else \
-                    (_ for _ in ()).throw(X.EvalError('timestamp'))
+            e2 = {'code': ev['code'], 'properties': props, 'timestamp': ev['timestamp']}
             r = X.evaluate(node, e2, True)
         elif mode == 'rails':
             ev = inp.get('event') or {}

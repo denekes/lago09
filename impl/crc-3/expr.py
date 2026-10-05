@@ -355,6 +355,11 @@ def evaluate(node, ev, zero_keep):
             return Num(a.c * b.c, a.s + b.s)
         if op == '/':
             return div(a, b)
+        if op == '-':
+            if b.c == 0:
+                return a
+            if a.c == 0:
+                return Num(-b.c, b.s)
         x, y, s = align(a, b)
         return Num(x + y if op == '+' else x - y, s)
     name, args = node[1], node[2]
@@ -390,7 +395,8 @@ def plain(c, s):
 def num_text(x, zero_keep):
     c, s = x.c, x.s
     if c == 0:
-        return plain(0, max(s, 0)) if zero_keep else '0'
+        if not zero_keep:
+            return '0'
     n = len(str(abs(c)))
     if s - n > 5:
         d = str(abs(c))

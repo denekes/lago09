@@ -18,3 +18,12 @@
 8. **Whitespace around expressions** (leading/trailing spaces) assumed allowed.
 9. **Property-name collision with numeric strings:** `to_value` converts numeric strings on every read, including
    when the bare property is the result (`"1.0"` becomes a number 1.0). Taken from the pseudocode in BE-EX §7.
+
+## v1.1
+
+No open questions block the v1.1 vectors. Residual, all resolved by the new rules:
+
+- Is a hand-built `event` (not `event_json`) on the ep surface subject to the same member checks as the JSON form?
+  Looked at: BE-EX-40. Assumption: yes (code must be a string, timestamp non-null, properties an object of numbers and strings).
+- BE-EV-44: are keys of already-flagged batch events counted as "earlier" keys for later events? Looked at: BE-EV-43/44.
+  Assumption: yes, every earlier event's key counts.

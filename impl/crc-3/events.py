@@ -314,13 +314,19 @@ def validate_batch(inp, profile):
         return {'ok': False, 'http_status': 422, 'error_details': errors}
     existing = inp.get('existing') or []
     if store == 'pg' and profile == 'compat':
+        seen = {(e.get('external_subscription_id'), e.get('transaction_id'))
+                for e in existing if e.get('external_subscription_id') is not None}
         by_tx = {}
         for i, o in enumerate(items):
-            by_tx.setdefault(o['transaction_id'], []).append(i)
-        stored_tx = {e.get('transaction_id') for e in existing}
-        for tx, idxs in by_tx.items():
-            k = max(len(idxs) - 1, 1 if tx in stored_tx else 0)
-            for i in idxs[len(idxs) - k:]:
+            sub = o['external_subscription_id']
+            key = (sub, o['transaction_id'])
+            new = sub is None or key not in seen
+            if sub is not None:
+                seen.add(key)
+            by_tx.setdefault(o['transaction_id'], []).append((i, new))
+        for tx, lst in by_tx.items():
+            flag = lst[1:] if any(n for _, n in lst) else lst
+            for i, _ in flag:
                 errors[str(i)] = {'transaction_id': ['value_already_exist']}
     elif store == 'pg' or profile == 'corrected':
         seen = {(e.get('external_subscription_id'), e.get('transaction_id'))
