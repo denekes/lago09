@@ -17,4 +17,4 @@ Rules for implementers (clean room):
 - Put your code under `impl/<component-id>/` with a `requirements.txt` and an adapter entry point, and a
   `REPORT.md` with your final kitrun / run-suite summary lines.
 
-Pack built by `kit-pack.sh --cleanroom` from kit commit 5c96a62 (kit 1.1.0; previous pack: kit 1.0.0 from 577b18d).
+Pack built by `kit-pack.sh --cleanroom` from kit commit 758480e (kit 1.2.0; previous packs: kit 1.1.0 from 5c96a62, kit 1.0.0 from 577b18d).

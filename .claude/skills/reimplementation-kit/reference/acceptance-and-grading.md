@@ -69,7 +69,8 @@ single configuration meets both thresholds. Rules:
   misunderstanding (K-FMT candidate) or an implementation gap.
 - `SKIP` rows show unimplemented ops; `skipped_ops` in the summary counts them.
 - `warnings` with NUM-OUT mean the adapter returns JSON numbers where decimal strings are expected: harmless for
-  integers, risky for decimals (binary float leakage).
+  integers, risky for decimals (binary float leakage); expected, and not a defect, on the echoed range bounds of
+  billing-engine-spec BE-PR-58.
 
 ## 4. Clean-room acceptance of the kit
 

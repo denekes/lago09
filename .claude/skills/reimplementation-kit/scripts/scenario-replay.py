@@ -63,7 +63,7 @@ sys.path.insert(0, HERE)
 import kitlib  # noqa: E402
 import kitrun  # noqa: E402  (Adapter process handling is shared with the unit-vector runner)
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 SETUP_ORDER = [("taxes", "tax", "/api/v1/taxes", "code"),
                ("billable_metrics", "billable_metric", "/api/v1/billable_metrics", "code"),
                ("add_ons", "add_on", "/api/v1/add_ons", "code"),
