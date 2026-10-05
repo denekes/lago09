@@ -37,4 +37,4 @@ Changes:
 - BE-SP-23: the zone-change 26 h window is strict (`|charges_from - C| < 26 h`; exactly 26 h keeps the computed start) — `periods.boundaries.tzchange.007`.
 - BE-SP-49/50: the clamp of `started_at` to an invoiced termination applies only to the backdated (past) creation path, not a creation dated today — `periods.create_status.010`.
 
-Wall-clock time: start 2026-10-05 14:42:21 UTC, end 2026-10-05 14:43:30 UTC (`date -u`).
+Wall-clock time: start 2026-10-05 14:42:21 UTC, end 2026-10-05 14:42:45 UTC (`date -u`).
