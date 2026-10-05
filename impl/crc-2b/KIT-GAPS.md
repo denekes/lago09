@@ -29,3 +29,12 @@ Entries: question; where I looked; assumption made.
 ## 5. Corrected profile (informational)
 - RBD-41 twin implemented as "first FE events free" in per-transaction mode; RBD-42 twin implemented as the graduated
   adjacency rule with exact decimals. Both only guided by the single twin vector each.
+
+## v1.1
+
+1. Warning `NUM-OUT amount_details.graduated_percentage_ranges[0].to_value: JSON number 0.1` — the details echo the
+   input bound; vectors with a JSON-float bound compare equal either way. Looked in: BE-PR-58, vector-format.md
+   (number forms). Assumption: echo the bound exactly as given (JSON number stays a number); the comparator accepts it.
+2. BE-PR-41 when `days(from, to) <= 0` (degenerate period): not stated. Assumption: ratio 0, projection 0.
+3. BE-PR-87 for the `pricing_unit` op's `pricing_unit_usage` block: rate/precise fields rounded to 15 places by
+   analogy with the fee_money op (the spec names the stored record, not this op's output). Assumption: round.

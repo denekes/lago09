@@ -305,8 +305,11 @@ def model_gp(props, agg, ctx):
             eff = num(to) if (to is not None and units >= num(to)) else units
             u = eff if frm == 0 else eff - frm + (0 if adj else 1)
         elif to is not None and units >= num(to):
-            base = arith("-", to, 1 if frm == 0 else frm_raw)
-            u = arith("+", base, 1)
+            x = 1 if frm == 0 else frm_raw
+            if is_float(to) and (is_float(x) or isinstance(x, int)):
+                u = f2d((float(to) - float(x)) + 1.0)
+            else:
+                u = (dec(to) - dec(x)) + 1
         elif frm == 0:
             u = units
         else:
@@ -650,6 +653,7 @@ def charge_model(inp, ctx):
 def pu_convert(amount, unit_amount, rate, cur, corrected=False):
     """BE-PR-63. Returns (pricing_unit_usage, fiat) with fiat values before the integer cast."""
     e, s = exponent(cur), subunit(cur)
+    rate = q15(rate)
     pu_cents = rnd(amount, 2) * 100
     pu_precise = amount * 100
     pu_ucents = Decimal(trunc(unit_amount * 100))
@@ -659,8 +663,8 @@ def pu_convert(amount, unit_amount, rate, cur, corrected=False):
     else:
         adj = pu_cents * rate / 100
         adj_u = pu_ucents * rate / 100
-    pu = {"amount_cents": int(pu_cents), "precise_amount_cents": pu_precise, "unit_amount_cents": int(pu_ucents),
-          "precise_unit_amount": unit_amount}
+    pu = {"amount_cents": int(pu_cents), "precise_amount_cents": q15(pu_precise), "unit_amount_cents": int(pu_ucents),
+          "precise_unit_amount": q15(unit_amount)}
     fiat = {"amount_cents": rnd(adj, e) * s, "precise_amount_cents": adj * s, "unit_amount_cents": adj_u * s,
             "precise_unit_amount": adj_u}
     return pu, fiat
@@ -699,7 +703,7 @@ def fee_money(inp, ctx):
         out.update({"amount_cents": int(fiat["amount_cents"]), "precise_amount_cents": q15(fiat["precise_amount_cents"]),
                     "unit_amount_cents": trunc(fiat["unit_amount_cents"]),
                     "precise_unit_amount": q15(fiat["precise_unit_amount"])})
-        pu["conversion_rate"] = rate
+        pu["conversion_rate"] = q15(rate)
         out["pricing_unit_usage"] = pu
     else:
         out.update(money_fields(amount, ua, cur))
@@ -932,7 +936,7 @@ def pay_in_advance(inp, ctx):
 
 # ---------------------------------------------------------------- fixed charges
 def fixed_units(inp, ctx):
-    events = [{"units": dec(x["units"]), "ts": parse_instant(x["timestamp"]), "seq": int(x["created_seq"])}
+    events = [{"units": rnd(dec(x["units"]), 10), "ts": parse_instant(x["timestamp"]), "seq": int(x["created_seq"])}
               for x in inp["events"]]
     w = inp["window"]
     frm, to = parse_instant(w["from"]), parse_instant(w["to"])
@@ -997,7 +1001,7 @@ def fixed_charge_fee(inp, ctx):
 def fixed_charge_in_advance(inp, ctx):
     cur = inp.get("currency") or "EUR"
     e, s = exponent(cur), subunit(cur)
-    billed, new = dec(inp["already_billed_units"]), dec(inp["new_units"])
+    billed, new = rnd(dec(inp["already_billed_units"]), 10), rnd(dec(inp["new_units"]), 10)
     delta = new - billed
     if delta <= 0:
         return {"amount_cents": 0, "precise_amount_cents": D0, "unit_amount_cents": 0, "precise_unit_amount": D0,
@@ -1035,7 +1039,8 @@ def projection(inp, ctx):
     elif now < frm:
         ratio = D0
     else:
-        ratio = min(max(Decimal(days_between(frm, now, tzname)) / dur, D0), D1)
+        den = days_between(frm, to, tzname)
+        ratio = D0 if den <= 0 else min(max(Decimal(repr(days_between(frm, now, tzname) / den)), D0), D1)
     if inp.get("recurring"):
         cur_v = inp.get("current") or {"amount_cents": 0, "units": "0"}
         return {"period_ratio": ratio, "projected_units": dec(cur_v.get("units", 0)),
@@ -1229,9 +1234,9 @@ def validate_group_keys(props, errs):
                     break
         if not ok:
             errs.append(("presentation_group_keys", "invalid_type"))
-        elif len(pg) > 2:
-            errs.append(("presentation_group_keys", "too_many_keys"))
         else:
+            if len(pg) > 2:
+                errs.append(("presentation_group_keys", "too_many_keys"))
             vals = [x["value"] for x in pg]
             if len(set(vals)) != len(vals):
                 errs.append(("presentation_group_keys", "value_is_duplicated"))
@@ -1246,12 +1251,12 @@ def validate_properties_core(model, props, kind, metric_agg, premium):
     elif model == "package":
         if not valid_amount(props.get("amount")):
             errs.append(("amount", "invalid_amount"))
-        ps = props.get("package_size")
-        if not (is_int(ps) and ps > 0):
-            errs.append(("package_size", "invalid_package_size"))
         fu = props.get("free_units")
         if not (is_int(fu) and fu >= 0):
             errs.append(("free_units", "invalid_free_units"))
+        ps = props.get("package_size")
+        if not (is_int(ps) and ps > 0):
+            errs.append(("package_size", "invalid_package_size"))
     elif model == "percentage":
         if metric_agg == "latest_agg":
             errs.append(("billable_metric", "invalid_value"))
@@ -1289,10 +1294,17 @@ def validate_properties_core(model, props, kind, metric_agg, premium):
 def errs_to_dict(errs):
     d = {}
     for f, c in errs:
-        d.setdefault(f, [])
-        if c not in d[f]:
-            d[f].append(c)
+        d.setdefault(f, []).append(c)
     return d
+
+
+def record_codes(errs):
+    out = []
+    for codes in errs_to_dict(errs).values():
+        for c in codes:
+            if c not in out:
+                out.append(c)
+    return out
 
 
 def validate_properties(inp, ctx):
@@ -1300,7 +1312,7 @@ def validate_properties(inp, ctx):
                                     inp.get("metric_aggregation_type") or "sum_agg", bool(inp.get("premium")))
     if not errs:
         return {"valid": True}
-    return {"valid": False, "errors": errs_to_dict(errs), "property_messages": [c for _, c in errs]}
+    return {"valid": False, "errors": errs_to_dict(errs), "property_messages": record_codes(errs)}
 
 
 def validate_charge(inp, ctx):
@@ -1357,7 +1369,7 @@ def validate_charge(inp, ctx):
             props = default_properties({"model": model}, ctx)["properties"] or {}
         pe = validate_properties_core(model, props, kind, agg, premium)
         if pe:
-            errs.append(("properties", [c for _, c in pe]))
+            errs.append(("properties", record_codes(pe)))
     if not errs:
         return {"valid": True}
     d = {}
