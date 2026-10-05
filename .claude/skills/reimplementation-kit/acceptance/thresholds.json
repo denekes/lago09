@@ -22,9 +22,14 @@
   },
   "events_processor_suite": {
     "component": "CRC-9",
+    "description": "Graded on separate runs per profile (acceptance-and-grading.md section 2.1): corrected thresholds on run-suite.sh --profile corrected (db, and cache when implemented), the compat threshold on run-suite.sh --profile compat --loose-errors --mode db (migration-compat builds only). An implementation may select its profile with a switch of its own (e.g. an environment variable passed with --impl-env); the same build serves every run. A --profile both run is not a grading run.",
+    "separate_runs_per_profile": true,
+    "profile_switch_allowed": true,
     "corrected_decided_assertions": 1.0,
     "compat_db_goldens_loose_errors": 0.90,
-    "startup_contract_EPC_26_29": 1.0
+    "startup_contract_EPC_26_29": 1.0,
+    "suite_recommended_retry_delay_cap_seconds": 2,
+    "suite_withheld_settle_seconds": 3
   },
   "kit_gates": {
     "description": "validate-vectors.py --gate: evidence mix the kit itself must reach before release.",

@@ -91,7 +91,7 @@ No other envelope keys are allowed. Example (a real kit line, wrapped for readin
 | Kind | Encoding | Rule |
 |---|---|---|
 | Minor-unit money (`*_cents`) | JSON integer | \|x\| < 2^53; the currency is given alongside (`currency`, ISO 4217). |
-| Precise money (`precise_*_cents`) | canonical decimal string | Unrounded value in minor units. |
+| Precise money (`precise_*_cents`) | canonical decimal string | Value in minor units as the reference computes it; fee outputs carry the stored value, rounded half away from zero to 15 decimal places (billing-engine-spec BE-PR-87). |
 | Major-unit amounts, unit amounts, rates, units, credits | canonical decimal string | |
 | Counts, days, offsets, sequence numbers, exponents | JSON integer | |
 | Canonical decimal | string `^-?(0\|[1-9][0-9]*)(\.[0-9]+)?$` | No exponent, no `+`, no leading zeros. Trailing zeros are allowed and are NOT significant unless the compare mode is `text`. |
@@ -124,7 +124,7 @@ The runner compares the adapter's `output` with `expected` recursively. `expecte
 | Expected value | Default mode | PASS when |
 |---|---|---|
 | JSON integer | integer-exact | actual is a JSON number with the same integral value (a non-integer spelling such as `103.0` passes with warning NUM-OUT) |
-| canonical decimal string | `numeric` | actual is a decimal string or JSON number with the same value (`"1.50"` = `"1.5"`); a non-integer JSON number raises warning NUM-OUT (an integer JSON number does not) |
+| canonical decimal string | `numeric` | actual is a decimal string or JSON number with the same value (`"1.50"` = `"1.5"`); a non-integer JSON number raises warning NUM-OUT (an integer JSON number does not); the warning is expected where a rule makes the reference itself answer a JSON number at that path, as for the range bounds echoed in `amount_details` (billing-engine-spec BE-PR-58, `pricing.gp.006`) |
 | JSON float (payload subtrees only) | `numeric` | same value |
 | instant string | `instant` | actual is an instant (any zone) denoting the same point in time, to the nanosecond |
 | any other string | `text` | byte-equal |
@@ -387,8 +387,8 @@ when an op schema has no row here or a row names an op without a schema.
 | `api.count_cache_key` | Key under which index endpoints cache their total count. | billing-engine-spec 11 |
 | `webhooks.normalize_event_types` | Stored form and validity of an endpoint's event-type filter. | billing-engine-spec 12 |
 | `webhooks.endpoint_receives` | Whether an endpoint with a stored filter receives an emitted webhook. | billing-engine-spec 12 |
-| `webhooks.type_info` | Emitted webhook type and object type of a configured event name. | billing-engine-spec 12 |
-| `webhooks.payload_envelope` | Body posted for an emitted webhook. | billing-engine-spec 12 |
+| `webhooks.type_info` | Emitted webhook type and object type of one of the 75 configured event names. | billing-engine-spec 12 |
+| `webhooks.payload_envelope` | Body posted for an emitted webhook (outputs `body`, `webhook_type`). | billing-engine-spec 12 |
 | `webhooks.encode` | Exact bytes of a webhook body for a payload. | billing-engine-spec 12 |
 | `webhooks.sign` | Signature headers of a webhook delivery (HMAC, RS256 JWT). | billing-engine-spec 12 |
 | `webhooks.public_key` | Bodies of the public-key endpoints for an installation key. | billing-engine-spec 12 |
@@ -469,7 +469,7 @@ reimplementation-kit/maintainer-data/holdout`.
 **Manifest.** `scripts/maintainer/make-kit-json.py --write` (run last, after the split) writes:
 
 ```json
-{"kit_version":"1.0.0","kit_schema":1,"proto":1,"pins":{"lago_api":"591ae9005110","events_processor_tree":"83e012866f29"},
+{"kit_version":"1.2.0","kit_schema":1,"proto":1,"pins":{"lago_api":"591ae9005110","events_processor_tree":"83e012866f29"},
  "generated_by":"reimplementation-kit/scripts/maintainer/make-kit-json.py","files":{
 "billing-engine-spec/reference/05-pricing-and-fees.md":"<sha256>",
 "billing-engine-spec/vectors/pricing.models.jsonl":{"sha256":"<sha256>","vectors":106},
@@ -481,7 +481,7 @@ Every file of the three kit skills is listed (one per line, sorted, no timestamp
 maintainer-only files (what `kit-pack.sh --cleanroom` strips: `scripts/maintainer/`, `maintainer-data/`,
 `reference/maintainer-oracle.md`, any file with the MAINTAINER-ONLY header) add `"maintainer": true`. `--check`
 reports ADDED/REMOVED/CHANGED entries and exits 1 when the file is absent or stale. `kitrun.py` reads `kit_version`
-from it (default `1.0.0-dev`); `kit-pack.sh` verifies every listed hash (maintainer entries may be absent from a
+from it (default `1.2.0-dev`); `kit-pack.sh` verifies every listed hash (maintainer entries may be absent from a
 clean-room pack).
 
 ## Provenance (maintainers)
@@ -498,6 +498,12 @@ clean-room pack).
   `--check` → `moves=0`; `validate-vectors.py` 0 errors before and after with unchanged rule coverage; `make-kit-json.py
   --write` then `--check` → `changed=0`; `kit-pack.sh --cleanroom` → manifest 0 problems, forbidden-content 0,
   validator 0 errors inside the pack.
+- Kit 1.1.0 (2026-10-05): the precise-money row of section 3 now says what fee outputs carry (the stored value at 15
+  places, billing-engine-spec BE-PR-87; the 1.0.0 text "unrounded" contradicted the fee vectors); the section 8 rows of
+  `webhooks.type_info` (the 75 configured names, billing-engine-spec 12 BE-WH-11) and `webhooks.payload_envelope`
+  (outputs `body` and `webhook_type`) follow their op schemas; the catalogue still has one row per op schema (116).
+- Kit 1.2.0 (2026-10-05): the canonical-decimal row of section 4.1 says where NUM-OUT is expected (the range bounds
+  that billing-engine-spec BE-PR-58 echoes as JSON numbers); no op or envelope change.
 - Update triggers: a new op or mode (minor `kit_version`; add its row to section 8), an envelope change
   (`kit_schema`), a pin bump (`maintainer-oracle.md` re-mint procedure), a budget decision (`thresholds.json`
   `kit_budget` and section 9.1 together).

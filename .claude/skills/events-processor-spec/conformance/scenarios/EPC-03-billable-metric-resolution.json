@@ -1,9 +1,9 @@
 {
   "name": "EPC-03-billable-metric-resolution",
   "id": "EPC-03",
-  "description": "Unknown, soft-deleted, wrong-organization, empty and case-mismatched codes.",
-  "rules": ["EP-E1", "EP-N1", "EP-I3", "EP-W4"],
-  "rbd": [],
+  "description": "Unknown, soft-deleted, wrong-organization, empty and case-mismatched codes; organization ids that are not canonical UUID text (a later batch follows).",
+  "rules": ["EP-E1", "EP-E2", "EP-E4", "EP-N1", "EP-I3", "EP-W4", "EP-B4", "EP-L1"],
+  "rbd": ["RBD-1"],
   "catalog": ["../fixtures/catalog-base.sql"],
   "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
   "steps": [
@@ -14,7 +14,15 @@
       {"json": {"transaction_id": "bm_unknown_org", "code": "api_calls", "timestamp": "1759320000", "organization_id": "00000000-0000-0000-0000-000000000000"}},
       {"json": {"transaction_id": "bm_empty_code", "code": "", "timestamp": "1759320000"}},
       {"json": {"transaction_id": "bm_case", "code": "API_CALLS", "timestamp": "1759320000"}},
-      {"json": {"transaction_id": "bm_ok_control", "code": "count_calls", "timestamp": "1759320000"}}
+      {"json": {"transaction_id": "bm_ok_control", "code": "count_calls", "timestamp": "1759320000"}},
+      {"json": {"transaction_id": "bm_org_not_uuid", "code": "api_calls", "timestamp": "1759320000", "organization_id": "org-not-a-uuid"}},
+      {"json": {"transaction_id": "bm_org_empty", "code": "api_calls", "timestamp": "1759320000", "organization_id": ""}},
+      {"json": {"transaction_id": "bm_org_not_uuid_13h", "code": "api_calls", "timestamp": "1759320000", "organization_id": "org-not-a-uuid", "ingested_at": "$INGESTED_13H_AGO"}},
+      {"json": {"transaction_id": "bm_org_no_hyphens", "code": "api_calls", "timestamp": "1759320000", "organization_id": "11111111111111111111111111111111", "properties": {"amount": 1}}}
+    ]},
+    {"wait": "quiescent"},
+    {"produce": [
+      {"json": {"transaction_id": "bm_after", "code": "count_calls", "timestamp": "1759320000"}}
     ]},
     {"wait": "quiescent"}
   ]
