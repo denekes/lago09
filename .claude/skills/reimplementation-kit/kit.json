@@ -266,7 +266,7 @@
 "events-processor-spec/vectors/ep.units.jsonl":{"sha256":"3e971d3f581a6b1d5a056ee41a1a88d4938168a2bff46f59ae8ced82187713ca","vectors":155},
 "reimplementation-kit/SKILL.md":"b88c28041042c2d77af71df35dd4694e90415b0352b9bc8cd03e5708ea3826b2",
 "reimplementation-kit/acceptance/thresholds.json":"2d3d5f095cdd85e0554e8a1b8997c982825197c14872e426925747b15d195294",
-"reimplementation-kit/maintainer-data/acceptance-2026-10.md":{"sha256":"d8062fa4628d67f1fa7229eedfb0357d6930e71724665d83377b00bf35f31632","maintainer":true},
+"reimplementation-kit/maintainer-data/acceptance-2026-10.md":{"sha256":"5ddc9aea01c51aec60fffedcd31a54d5df775d44362a95727a7a0c60edec7a93","maintainer":true},
 "reimplementation-kit/maintainer-data/holdout/aggregation.core.jsonl":{"sha256":"fb35bc6c9f41bccfe16d49cd7b6237874d9f346710c5b4de16b51298e708eaae","vectors":21,"maintainer":true},
 "reimplementation-kit/maintainer-data/holdout/aggregation.filters.jsonl":{"sha256":"7a96be5e3aa763facf916808436463c18fa6b6872e35fca2d4287d2ad563b79f","vectors":5,"maintainer":true},
 "reimplementation-kit/maintainer-data/holdout/aggregation.in_advance.jsonl":{"sha256":"6cc9bea059742f10f1c9101a3f86798e0382e08cef9cc9c1d9ec41cf92f6981c","vectors":6,"maintainer":true},

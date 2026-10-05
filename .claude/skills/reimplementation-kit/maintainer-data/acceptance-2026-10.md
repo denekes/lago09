@@ -1,5 +1,5 @@
 <!-- MAINTAINER-ONLY: clean-room acceptance record; never in a clean-room pack (maintainer-data/ is stripped). -->
-# Clean-room acceptance record, kit 1.0.0 → 1.5.0 (2026-10-02 .. 2026-10-05)
+# Clean-room acceptance record, kit 1.0.0 → 1.6.0 (2026-10-02 .. 2026-10-05)
 
 The owner report required by `reference/acceptance-and-grading.md` §6: pass rates per component, the defect list and a
 summary of the gap logs, for the acceptance runs of the re-implementation kit. Pins: lago-api `591ae9005110`,
@@ -7,18 +7,19 @@ events-processor tree `83e012866f29`. Implementer model class: Sonnet-class remo
 
 ## 1. Verdict
 
-**Accepted on kit 1.5.0** (kit commit `0463b25`, clean-room pack `38da401`). Twelve independent implementations of the
+**Accepted on kit 1.6.0** (kit commit `92dcd7a`, clean-room pack `288a8f0`). Twelve independent implementations of the
 nine components, each built in a fresh session from the clean-room pack alone with no access to the Lago source, meet
-every threshold on shipped and holdout vectors in both profiles (§12). Every shipped vector of every area passes in
+every threshold on shipped and holdout vectors in both profiles (§13). Every shipped vector of every area passes in
 both profiles; proposed corrected twins are graded UNRULED. Five holdout vectors still fail in one implementation each.
 All five are classified IMPL, and each implementation stays within its holdout threshold. The events-processor
 implementation passes 100 % of the decided assertions of the corrected suite run. Every exit criterion of §6 is met:
-0 open K-VEC and 0 known open K-SPEC (§13).
+0 open K-VEC and 0 known open K-SPEC (§14).
 
-Acceptance took six implementation runs and five fix rounds (kit 1.1.0 to 1.5.0). The last three rounds dealt with a
+Acceptance took six implementation runs and six fix rounds (kit 1.1.0 to 1.6.0). The last four rounds dealt with a
 single rule: how a binary64 value is stored in a 5-place decimal column. The shipped vectors did not determine that
-rule until probes on the reference above 4.5 × 10^10 settled it. The remaining open items are owner decisions: rulings
-on the proposed corrected twins (OD-21), OD-1b and OD-23 (§14).
+rule until probes on the reference from 2^36 (about 6.87 × 10^10) up settled it. The last point (FR-7) came from the
+transcript audit's review of the code, not from a failing vector, and needed no re-run. The remaining open items are
+owner decisions: rulings on the proposed corrected twins (OD-21), OD-1b and OD-23 (§15).
 
 ## 2. Protocol
 
@@ -56,8 +57,9 @@ on the proposed corrected twins (OD-21), OD-1b and OD-23 (§14).
   2. The pack is rebuilt.
   3. Implementations that are below a threshold, or that fail vectors added for their areas, re-run on the new pack.
 
-  Fix rounds are numbered as in the lead's working notes. FR-1 was the authoring round before acceptance. FR-2 to FR-6
-  produced kit 1.1.0 to 1.5.0; the `SKILL.md` changelog calls these the first to the fifth fix round.
+  Fix rounds are numbered as in the lead's working notes for the acceptance: FR-2 to FR-7 produced kit 1.1.0 to
+  1.6.0, and the `SKILL.md` changelog calls them the first to the sixth fix round. Labels used during authoring, before
+  acceptance, are unrelated.
 
 ## 3. Run 1: kit 1.0.0 (2026-10-02, pack `1b6b96e` from kit commit `577b18d`)
 
@@ -382,9 +384,10 @@ crc-6b made two changes:
 - it moved its 16-digit step from the shortest text to the binary64 value. With the first change alone,
   `invoice.void.010` regressed.
 
-Its v1.4 gap log holds one interpretation note, not a question: the 16-digit step applies to the value, not to its
-shortest text. Class: ANSWERED. The notation paragraph says the `round5` result is "kept at 16 significant digits,
-rounded to nearest", and `invoice.void.010` discriminates the two readings.
+Its v1.4 gap log holds one interpretation note, not a question: the 16-digit step applies to the exact binary64 value,
+not to its shortest text. The lead first classified it ANSWERED, citing the notation paragraph and `invoice.void.010`.
+That was wrong: the run 5–6 audit showed that a shortest-text variant also passes every shipped vector, so the note
+named an open K-SPEC point. FR-7 closed it (§12).
 
 ## 11. Fix round FR-6 → kit 1.5.0 (commit `0463b25`) and run 6 (pack `38da401`)
 
@@ -430,11 +433,71 @@ Run 6 re-ran both, on branches carrying the 1.5.0 pack.
 **Cross-check after run 6.** 230,000 random inputs, 20,000 of them exact ties, gave 0 differences between either
 implementation and the model. All 14 probes pass on both. Neither session logged a gap.
 
-**Audit (runs 5 and 6):** pending at the time of this commit; it is added when the transcript audit of the three sessions completes.
+**Audit (runs 5 and 6): 117 events, 42 tool calls, all Bash.** Run 5 (crc-6b) took 1 min 26 s from prompt to final
+message; in run 6, crc-6a took 43 s and crc-6b 1 min 19 s. Every REPORT.md time is a `date -u` measurement that matches
+the transcript.
 
-## 12. Final standing on kit 1.5.0
+- **Isolation.** No forbidden operations and no denied calls. Each session pushed one commit to its own branch, and
+  each commit touches only `impl/<id>/`.
+- **Reading discipline.** No session read a vector file. The only expected values shown were kitrun diffs of failing
+  vectors:
+  - run 5: `invoice.void.011`, and `.010` after the session's own edit broke it;
+  - run 6, crc-6b: `credit_notes.compute.021`;
+  - run 6, crc-6a: none.
 
-The lead graded each implementation's latest pushed head on 2026-10-05 against kit commit `0463b25`, holdout included.
+  There were two light departures. Two recursive rule-text greps also covered `billing-engine-spec/SKILL.md`, and each
+  printed one line from it. Some diffs came from filtered full runs instead of `--only`.
+- **Code.** General rule changes only: BE-IV-14's binary64 correction, half-away rounding of the product, the column
+  rule's tie to even, and BE-CN-7's exact base. No vector ids, example operands or lookup tables.
+- **Finding: the column rule was still underdetermined.** The text did not say whether the 16-digit step rounds the
+  exact binary64 value or its shortest text. Both implementations chose the exact value. The two readings differ on
+  about 8 % of amounts in [2^36, 10^11) and on 4 % to 5 % above, and a shortest-text variant also passes all 193
+  shipped vectors of the two areas. This started FR-7.
+
+## 12. Fix round FR-7 → kit 1.6.0 (kit commit `92dcd7a`, pack `288a8f0`)
+
+**Classification:** K-SPEC.
+
+- The text did not say which value the 16 digits are taken from.
+- Chapter 07's sentence "below 10^11 this is `round5` alone" was wrong in [2^36, 10^11).
+- The lead's earlier ANSWERED classification of crc-6b's v1.4 note (§10) was a misclassification.
+
+**Probes.** The lead searched void inputs where the two readings differ and ran eight of them, all from 2^36 up,
+through `oracle.sh adapter`. The reference matches the exact-value reading on all eight, for example:
+
+| Void item | Exact-value reading (reference) | Shortest-text reading |
+|---|---|---|
+| 78096345254.9564 | 78096345254.95641 | 78096345254.9564 |
+| 820741212006.6481 | 820741212006.6479 | 820741212006.648 |
+
+As a negative control, the same eight probes with the text reading's values as expected fail on every one.
+
+**Changes.**
+
+- The chapter 07 notation paragraph now says that the 16 digits are those of the exact binary64 value of `round5`'s
+  result, and that "`round5` alone" holds below 2^36 (about 6.87 × 10^10), not below 10^11. BE-IV-42 and BE-CN-7 say
+  the same.
+- 3 vectors added, none changed or removed:
+  - `invoice.void.014`: EXECUTED, `both` (the exact quotient stores the same value);
+  - `invoice.void.015`: EXECUTED, `compat`, RBD-68;
+  - `invoice.void.015x`: the exact twin of `.015`.
+- The maintainer model already rounded the exact value; only its docstring changed.
+
+**Gates on 1.6.0:**
+
+- validator `--gate --rule-coverage`: 0 errors, 0 warnings (1,998 vectors);
+- invoice and credit-note vectors on the oracle, with holdout: 231/231;
+- maintainer model: 0 failing in both profiles (the `invoice.commitment` op is not modelled and is skipped);
+- self-test 7/7 (compat 1529/1529, corrected 1407/1407);
+- provenance 0 broken (2,074 vectors); pack forbidden 0, validator 0 errors inside the pack (1,673 vectors);
+  `kit.json` changed 0; evidence check flagged 0 on the edited chapters.
+
+**Effect on the implementations: none.** crc-6a and crc-6b already round the exact value, pass both new vectors, and
+needed no re-run. An implementation that rounds the shortest text now fails `invoice.void.014` and `invoice.void.015`.
+
+## 13. Final standing on kit 1.6.0
+
+The lead graded each implementation's latest pushed head on 2026-10-05 against the kit 1.6.0 tree, holdout included.
 
 | Impl | Head | Areas | Compat shipped | Compat holdout | Corrected shipped (graded) | Corrected holdout (graded) | Verdict |
 |---|---|---|---|---|---|---|---|
@@ -445,8 +508,8 @@ The lead graded each implementation's latest pushed head on 2026-10-05 against k
 | crc-4a | `16d2405` | aggregation | 206/206 | 46/46 | 171/171 | 40/40 | PASS |
 | crc-4b | `eaf08de` | aggregation | 206/206 | 46/46 | 171/171 | 40/40 | PASS |
 | crc-5 | `cf9179c` | periods | 196/196 | 50/51 | 179/179 | 50/51 | PASS |
-| crc-6a | `1118ecb` | invoice; credit_notes | 146/146; 47/47 | 26/28; 8/8 | 138/138; 40/40 | 26/28; 8/8 | PASS |
-| crc-6b | `47318f2` | invoice; credit_notes | 146/146; 47/47 | 28/28; 8/8 | 138/138; 40/40 | 28/28; 8/8 | PASS |
+| crc-6a | `1118ecb` | invoice; credit_notes | 148/148; 47/47 | 26/28; 8/8 | 139/139; 40/40 | 26/28; 8/8 | PASS |
+| crc-6b | `47318f2` | invoice; credit_notes | 148/148; 47/47 | 28/28; 8/8 | 139/139; 40/40 | 28/28; 8/8 | PASS |
 | crc-7 | `3a5e354` | wallets; progressive; alerts | 78/78; 46/46; 22/22 | 19/19; 11/11; 6/6 | 77/77; 46/46; 18/18 | 19/19; 11/11; 6/6 | PASS |
 | crc-8 | `12066e4` | api; webhooks; clock | 36/36; 54/54; 17/17 | 8/8; 8/8; 2/2 | 34/34; 53/53; 16/16 | 8/8; 8/8; 2/2 | PASS |
 | crc-9 | `7d8c80b` | ep; suite | ep 120/120; suite compat run 30/30 MATCH | — | ep 108/108; suite corrected run 21 PASS, 0 failing, startup EPC-26..29 4/4 | — | PASS |
@@ -473,29 +536,29 @@ implementation is within its holdout threshold.
 - crc-2b frees the first FE (3) events instead, as its own gap log states ("first FE events free");
 - crc-2a passes the vector in both profiles.
 
-The earlier sections of this record listed compat misses only. This one was found when the 1.5.0 re-grade's corrected
-misses were reviewed.
+The earlier sections of this record listed compat misses only. This one was found when the corrected misses of the
+1.5.0 re-grade were reviewed.
 
 **Holdout-versus-shipped gap:** at most 7.1 points (crc-6a invoice), under the 10-point overfitting flag of §4.3.
 
-## 13. Exit criteria (acceptance-and-grading §6)
+## 14. Exit criteria (acceptance-and-grading §6)
 
-| Criterion | Status on kit 1.5.0 |
+| Criterion | Status on kit 1.6.0 |
 |---|---|
-| CRC-1..CRC-9 meet their thresholds on shipped AND holdout sets | met: 12 of 12 implementations, both profiles (§12) |
-| 0 open K-VEC | met: 0. Run 1 found 6, all fixed in 1.1.0; none since. FR-3 to FR-6 added vectors but corrected none |
-| at most 3 open minor K-SPEC, each with a ticket | met: 0 known open. FR-2 left 2 minor items, closed in FR-3; FR-4 to FR-6 closed the column rule; runs 5 and 6 logged no question |
-| events-processor corrected profile: 100 % of decided assertions on the corrected run | met: crc-9 corrected run 21 PASS, 0 failing, startup EPC-26..29 4/4 (1.5.0 re-grade, identical to run 3) |
+| CRC-1..CRC-9 meet their thresholds on shipped AND holdout sets | met: 12 of 12 implementations, both profiles (§13) |
+| 0 open K-VEC | met: 0. Run 1 found 6, all fixed in 1.1.0; none since. FR-3 to FR-7 added vectors but corrected none |
+| at most 3 open minor K-SPEC, each with a ticket | met: 0 known open. FR-2 left 2 minor items, closed in FR-3; FR-4 to FR-7 closed the column rule (FR-7 from the run 5–6 audit) |
+| events-processor corrected profile: 100 % of decided assertions on the corrected run | met: crc-9 corrected run 21 PASS, 0 failing, startup EPC-26..29 4/4 (1.6.0 re-grade, identical to run 3) |
 | a report for the owner: pass rates per component, defect list, gap-log summary | this record |
 
-## 14. Open items (not blocking acceptance)
+## 15. Open items (not blocking acceptance)
 
 - **Owner rulings.**
-  - Every corrected twin (116 billing, 4 `ep`) is `ruling: proposed` and graded UNRULED until the owner rules on the
+  - Every corrected twin (117 billing, 4 `ep`) is `ruling: proposed` and graded UNRULED until the owner rules on the
     rebuild decisions: batch OD-21, items OD-21.1 to OD-21.64, including KQ-52 to KQ-56.
   - OD-1b (the production CDC broker configuration) remains open with the owner.
   - OD-23 (legal review of the kit and of the expression engine's licence; KQ-7, KQ-8) remains open with the owner.
-- **Size budget.** Billing unit vectors use 1,408,197 of 1,450,000 bytes. A further fix round that adds many vectors
+- **Size budget.** Billing unit vectors use 1,411,838 of 1,450,000 bytes. A further fix round that adds many vectors
   needs the `kit_budget` raised (a lead decision, in `acceptance/thresholds.json`) or the vectors compacted.
 - **Architecture coverage.** BE-AG-74's conversion model was verified on x86-64 builds of the columnar store (80-bit
   intermediate arithmetic). Other architectures are not verified.
@@ -506,7 +569,7 @@ misses were reviewed.
 - **Branch hygiene.** `kit-cr/crc-7` carries a generated `.pyc` of the kit's `adapter_ref.py` (run 3). It is harmless
   and is left as committed by the implementer.
 
-## 15. Lessons for the next acceptance run
+## 16. Lessons for the next acceptance run
 
 - **Pin each implementer session to the exact pack commit** (`source_revision` = SHA), not to the branch name. Two
   run-3 sessions received a cached earlier state of their branch.
@@ -522,6 +585,12 @@ misses were reviewed.
   not only on the vectors. Two implementations that pass every vector can still disagree on most inputs in a band, as
   the column rule did between 4.5 × 10^10 and 10^11. That check found the K-SPEC items of FR-5 and FR-6; the gap logs
   did not.
+- **Also compare against a literal reading of the text, not only against the maintainer model.** The model and both
+  implementations agreed on FR-7's point. The audit's literal-reading variant showed that the text and the vectors
+  left it open.
+- **Test a claimed discriminating vector by running the other reading against it.** crc-6b's v1.4 note named the open
+  point exactly, but it was classified ANSWERED on the strength of a vector that did not discriminate the two
+  readings.
 - **Review corrected-profile misses explicitly.** A corrected-only holdout miss (crc-2b) went unlisted for five runs,
   because the run summaries tracked compat rates.
 
@@ -533,11 +602,12 @@ misses were reviewed.
   - crc-9 is also graded with `events-processor-spec/scripts/run-suite.sh`: a corrected run with the default
     configuration, and a compat run with `--impl-env EP_PROFILE=compat --loose-errors`.
   - Dates: 2026-10-02 to 2026-10-05.
-  - The final standing (§12) is a full re-grade of all twelve heads on kit 1.5.0.
+  - The final standing (§13) is a full re-grade of all twelve heads on kit 1.6.0, after a full re-grade on 1.5.0
+    with the same results apart from the three vectors 1.6.0 added.
 - **Kit gates.** The commands are in `SKILL.md` section 11.
   - 1.2.0 (`758480e`): full gate set, including oracle kitrun 1695/1695, scenario replay 76/76 and ep-oracle 120/120.
-  - 1.3.0 (`40904ed`), 1.4.0 (`8eadb23`) and 1.5.0 (`0463b25`): validator, oracle kitrun of the changed areas,
-    maintainer model, self-test, provenance and pack scan.
+  - 1.3.0 (`40904ed`), 1.4.0 (`8eadb23`), 1.5.0 (`0463b25`) and 1.6.0 (`92dcd7a`): validator, oracle kitrun of the
+    changed areas, maintainer model, self-test, provenance and pack scan.
 - **Implementations.** The implementations and their KIT-GAPS and REPORT files are on the branches `kit-cr/<id>`.
 - **Packs.** The packs are on the branch `kit-pack-v1`:
 
@@ -549,4 +619,5 @@ misses were reviewed.
   | 1.3.0 | `f7bc470` |
   | 1.4.0 | `e1647be` |
   | 1.5.0 | `38da401` |
+  | 1.6.0 | `288a8f0` (built from `25175d2`: the release commit `92dcd7a` minus two bytecode caches it had picked up) |
 - **Re-verify:** re-run the grading above for any `kit-cr/<id>` head. The figures here are dated 2026-10-05.
