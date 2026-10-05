@@ -183,9 +183,9 @@ def invoice_number(inp, ctx):
     if not (status == "finalized" and prev in FINALIZING_FROM):
         return {"number": inp.get("number") or f"{prefix}-DRAFT"}
     if inp["numbering"] == "per_customer" or inp["self_billed"]:
-        return {"number": f"{prefix}-{pad3(inp['customer_sequential_id'])}-{pad3(inp['invoice_sequential_id'])}"}
+        return {"number": f"{prefix}-{pad3(inp['customer_sequential_id'])}-{pad3(inp.get('invoice_sequential_id') or 1)}"}
     now = parse_instant(inp["now"]).astimezone(zone(inp["billing_entity_timezone"]))
-    return {"number": f"{prefix}-{now:%Y%m}-{pad3(inp['billing_entity_sequential_id'])}"}
+    return {"number": f"{prefix}-{now:%Y%m}-{pad3(inp.get('billing_entity_sequential_id') or 1)}"}
 
 
 def credit_note_number(inp, ctx):
