@@ -76,9 +76,9 @@ When a subscription of a plan **paid in advance** is terminated (not as a downgr
 subscription fee.
 
 - **BE-CN-15** Unused amount: `sdp ⊗ remaining` (BE-SP-58: `sdp` is the binary64 single-day price of the plan amount recorded on the last subscription fee, else the plan's amount); nothing when ≤ 0; capped at the last subscription fee's `amount_cents`; minus the items of earlier notes on that fee; nothing when ≤ 0. The single item is that amount **truncated** to 5 decimals (e.g. 15466.66666), so its cent amount rounds and the totals are re-rounded (BE-CN-11). [vec: credit_notes.termination.001, credit_notes.termination.002, credit_notes.termination.003]
-- **BE-CN-16** The day counts are those of BE-SP-58/59: remaining days from the end of the termination's local day to the end of the period (one day fewer when terminated by an upgrade, trial-aware), both taken as UTC calendar dates of local day ends; this equals local-date arithmetic whenever the two local day ends have UTC offsets of the same sign (always true except in a zone whose offset changes sign across the period, such as one at −01:00 in winter and +00:00 in summer). [vec: credit_notes.termination.001, credit_notes.termination.003, credit_notes.termination.006]
+- **BE-CN-16** The day counts are those of BE-SP-58/59: remaining days from the end of the termination's local day to the end of the period (one day more when terminated by an upgrade: the end point `F` moves one day earlier, so the termination day itself is credited back, BE-SP-58; trial-aware), both taken as UTC calendar dates of local day ends; this equals local-date arithmetic when both local day ends have negative UTC offsets or both have zero or positive ones (always true except in a zone whose offset crosses UTC during the period, such as one at −01:00 in winter and +00:00 in summer: `periods.termination_credit_days.010`). [vec: credit_notes.termination.001, credit_notes.termination.003, credit_notes.termination.006]
 - **BE-CN-17** Amounts: `T = round(item − adjustment + precise taxes)` with BE-CN-6/7 applied to the single item on the paid invoice. `refund = round(min(paid_share − used, T))`, 0 when `paid_share − used` is not positive, where `paid_share = ((fee precise sub-total + fee precise taxes) ⊘ invoice sub_total_including_taxes) ⊗ invoice total_paid` (0 when that sub-total is 0) and `used` = the same chain as `T` applied to `sdp ⊗ used days` (BE-SP-59): truncated to 5 decimals like the item, then `round(x − adjustment + precise taxes)`. Split: `credit` → (T, 0, 0); `refund` → (T − refund, refund, 0); `offset` → (0, refund, T − refund). The note is then created as an automatic note (BE-CN-1, BE-CN-5..12 apply). [vec: credit_notes.termination.001, credit_notes.termination.002, credit_notes.termination.003, credit_notes.termination.004, credit_notes.termination.005]
-- **BE-CN-18** No termination note when the last subscription fee is 0 or its invoice is voided, or when the three amounts are all 0. Termination by upgrade combined with `refund` or `offset` is not supported: the reference fails with an unhandled error that has no code (kit domain error `server_error`); the zero-fee and voided-invoice cases are checked first, so they still answer "no note" without an error. [vec: credit_notes.termination.007, credit_notes.termination.010, credit_notes.termination.011]
+- **BE-CN-18** No termination note when the last subscription fee is 0 or its invoice is voided, or when the three amounts are all 0. Termination by upgrade combined with `refund` or `offset` is not supported: the reference fails with an unhandled error that has no code (kit domain error `server_error`); the zero-fee and voided-invoice cases are checked first, so they still answer "no note" without an error. [vec: credit_notes.termination.007, credit_notes.termination.010, credit_notes.termination.011, credit_notes.termination.012]
 
 ## 5. After creation
 
@@ -123,7 +123,7 @@ give 31); the termination unused amount `sdp ⊗ days` and the paid share `(fee 
 
 | File | Ops | Vectors |
 |---|---|---|
-| `credit_notes.jsonl` | `credit_notes.compute`, `credit_notes.estimate`, `credit_notes.termination`, `credit_notes.validate` | 52 (four corrected twins) |
+| `credit_notes.jsonl` | `credit_notes.compute`, `credit_notes.estimate`, `credit_notes.termination`, `credit_notes.validate` | 53 (four corrected twins) |
 
 Evidence: every `both`/`compat` vector is EXECUTED through the oracle adapter at the pin (spec-derived values were
 first checked against the reference examples); the four corrected twins (three RBD-106, one RBD-68) are RECOMPUTED
@@ -152,7 +152,8 @@ and `$API/app/services/credit_notes/validate_item_service.rb:5-16`, executed (`c
 `$API/app/services/credit_notes/create_from_termination.rb:22-25` (an unhandled error with no code, answered by the
 oracle module as the kit's `server_error`); `used` goes through the same 5-place truncation as the item (`:149-160`, `:175-177`). The voided-invoice exit
 precedes the unsupported-combination error: upgrade with a refund on a voided invoice gives no note (executed through
-`oracle.sh adapter` on 2026-10-05, database `lago_api_test_v2g4`; kept out of the vectors as a low-value ordering case).
+`oracle.sh adapter` on 2026-10-05, database `lago_api_test_v2g4`; vector `credit_notes.termination.012`, EXECUTED at the
+kit v1.1 integration).
 The paid-share order `(fee ⊘ sub-total) ⊗ paid` differs from `(fee × paid) ⊘ sub-total` on isolated inputs (15, 22, 11)
 but no termination vector reaches such a case. kitrun against the oracle: all `credit_notes` vectors, shipped and
 holdout, PASS (part of the 392/392 run of chapter 07); the model `recompute-invoicing.py` passes them all in both profiles.

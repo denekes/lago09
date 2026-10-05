@@ -1,6 +1,6 @@
 # Processing rules: from one raw record to its outputs
 
-Part of `events-processor-spec` (re-implementation kit v1.0.0). Read when you implement or grade the per-record
+Part of `events-processor-spec` (re-implementation kit v1.1.0). Read when you implement or grade the per-record
 pipeline: decoding, time, metric resolution, the `value` string, expressions, subscription matching, the
 pay-in-advance split and the refresh flag. Behaviour facts: reference events-processor tree `83e012866f29`
 ("compat" profile) and the kit's corrected profile (ADR-001 plus the rebuild decisions RBD-n of
@@ -369,4 +369,7 @@ mode in the independent verification of the same day. Ad-hoc runner probe of tha
 modes): DB mode enriched `{11111111-1111-1111-1111-111111111111}` and `1111-1111-1111-1111-1111-1111-1111-1111` under
 the raw text (record key, `organization_id`, refresh member), lost a fresh `" 11111111-…-111111111111 "` (surrounding
 spaces) like other non-UUID text, and dead-lettered a 13 h old `null` organization id with `organization_id` `""`;
-cache mode dead-lettered all four. Upper-case hex was not probed (the fixture ids are digits only).
+cache mode dead-lettered all four. Upper-case hex was not probed end to end (the fixture ids are digits only); the
+database's uuid input, which accepted the probed spellings, also accepts it (PostgreSQL 16.14 on 2026-10-05:
+`'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE'::uuid` and `'{AAAAAAAABBBB4CCC8DDDEEEEEEEEEEEE}'::uuid` both parse to the
+lower-case canonical text).

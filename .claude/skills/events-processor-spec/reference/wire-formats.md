@@ -1,6 +1,6 @@
 # Wire formats: raw, enriched, in-advance, dead-letter, refresh flag, CDC
 
-Part of `events-processor-spec` (re-implementation kit v1.0.0). Read when you parse the input topic or write any
+Part of `events-processor-spec` (re-implementation kit v1.1.0). Read when you parse the input topic or write any
 output the billing engine and ClickHouse consume. Behaviour facts: reference events-processor tree `83e012866f29`
 (compat profile) plus the corrected profile where stated. Byte-level rendering rules the conformance suite
 compares are in §7.

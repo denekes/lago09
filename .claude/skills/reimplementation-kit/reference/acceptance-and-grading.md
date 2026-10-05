@@ -133,7 +133,7 @@ gap that caused no failure is still a K-SPEC candidate).
 Fix loop: kit fixes are new kit versions (patch for K-VEC/K-FMT, minor for K-SPEC); re-pack; affected components
 re-run; re-implementation only when a K-SPEC changed semantics.
 
-## 6. Exit criteria (kit v1.0 accepted)
+## 6. Exit criteria (a kit version is accepted)
 
 - CRC-1..CRC-9 meet their thresholds on shipped AND holdout sets;
 - 0 open K-VEC; at most 3 open minor K-SPEC, each with a ticket;
