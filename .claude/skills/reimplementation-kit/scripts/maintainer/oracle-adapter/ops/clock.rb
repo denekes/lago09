@@ -104,6 +104,8 @@ KitOracle.op("clock.jobs_due") do |input, ctx|
   from = ctx.instant(input.fetch("from"))
   to = ctx.instant(input.fetch("to"))
   ctx.bad_input!("from must precede to") unless from < to
+  # the test harness ticks at from + k s; production ticks at whole seconds: they agree only for a whole-second start
+  ctx.bad_input!("from must be a whole second (fractional starts are not graded, BE-CK-2)") unless from.subsec.zero?
   ctx.bad_input!("window longer than 6 hours") if to - from > 6.hours
   env_in = input.fetch("env", {})
   ctx.bad_input!("env must be an object") unless env_in.is_a?(Hash)

@@ -341,7 +341,7 @@ and `pricing.projection.010` executed through `oracle.sh adapter` (PASS). Furthe
 graduated-percentage `amount_details` serialised with `to_json` keeps `"to_value":0.1` and `"from_value":0.1` as JSON
 numbers (BE-PR-58); `pricing.fixed_charge_in_advance` with already-billed units 1.00000000005 and new units 3 bills
 units 1.99999999995 (the already-billed sum is not re-rounded, BE-PR-71); `pricing.projection` over a 45-minute
-window across the 2024-10-27 Europe/Berlin clock change (`days(from, to)` = 0) answers ρ = 1 one minute after `from`
+window across the 2024-10-27 Europe/Berlin clock change (`days(from, to)` = 0) answers ρ = 1 ten minutes after `from`
 and fails at `from` (BE-PR-41, not reachable through the API); the current-usage service
 (`Invoices::CustomerUsageService` with projected usage, driven through a one-off probe op that is not shipped) handed the charge model
 10 ⊘ 31 = 0.3225806451612903 for the BE-PR-88 example while the projection service used 0.2903225806451613, and
@@ -360,7 +360,7 @@ replacing the former by 0.123 or 0.5 left every fee field and every projection u
 | BE-PR-33, BE-PR-34 | `$API/app/services/charge_models/dynamic_service.rb:7-35`, `$API/app/services/charge_models/custom_service.rb:7-23` |
 | BE-PR-35..38 | `$API/app/services/charge_models/prorated_graduated_service.rb:11-169` |
 | BE-PR-39..42 | `$API/app/services/charge_models/base_service.rb:69-78`, `$API/app/services/charge_models/graduated_service.rb:36-61`, `$API/app/services/charge_models/package_service.rb:16-26`, `$API/app/services/charge_models/volume_service.rb:15-28`, `$API/app/services/fees/projection_service.rb:28-108`, `$API/app/services/fees/projection_service.rb:157-166` |
-| BE-PR-88 | `$API/app/services/fees/charge_service/sources/charge.rb:44-57` (the UTC-date ratio), `$API/app/services/fees/charge_service.rb:400-407` (handed to the charge model), `$API/app/services/charge_models/base_service.rb:49-52` (used only for projected values), `$API/app/services/fees/charge_service.rb:253-330` (the fee reads no projected value), `$API/app/serializers/v1/customers/projected_usage_serializer.rb:26`, `$API/app/serializers/v1/customers/projected_charge_usage_serializer.rb:86-101` (API projections come from the projection service) |
+| BE-PR-88 | `$API/app/services/fees/charge_service/sources/charge.rb:44-57` (the UTC-date ratio), `$API/app/services/fees/charge_service.rb:400-407` (handed to the charge model), `$API/app/services/charge_models/base_service.rb:49-52` (used only for projected values), `$API/app/services/fees/charge_service.rb:253-346` (the fee reads no projected value), `$API/app/serializers/v1/customers/projected_usage_serializer.rb:26`, `$API/app/serializers/v1/customers/projected_charge_usage_serializer.rb:86-101` (API projections come from the projection service) |
 | BE-PR-43..50 | `$API/app/services/charges/apply_pay_in_advance_charge_model_service.rb:15-157`, `$API/app/services/charges/pay_in_advance/amount_details_calculator.rb:8-62`, `$API/app/services/charge_models/factory.rb:64-83`, `$API/app/services/fees/create_pay_in_advance_service.rb:79-134` |
 | BE-PR-51..58 | `$API/app/services/fees/charge_service.rb:74-136`, `$API/app/services/fees/charge_service.rb:253-355` |
 | BE-PR-59..62 | `$API/app/services/fees/create_true_up_service.rb:16-80`, `$API/app/services/fees/charge_service.rb:43-45`, `$API/app/services/fees/charge_service.rb:385-398`, `$API/app/services/charges/create_service.rb:46-55`, `$API/app/models/charge.rb:152-156` |

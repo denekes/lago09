@@ -14,7 +14,7 @@ kit-pack.sh --cleanroom strips: anything under a `scripts/maintainer/` or `maint
 header. Left out: kit.json itself, `__pycache__/`, `*.pyc`, `.DS_Store`, `*.tmp`. The output is deterministic (no
 timestamp, sorted paths, one file per line), so --check after --write is clean until a file changes.
 
---kit-version   default: the kit_version of the current kit.json, else 1.1.0.
+--kit-version   default: the kit_version of the current kit.json, else 1.2.0.
 --check         compare with the current kit.json; prints ADDED/REMOVED/CHANGED lines; exit 0 when identical, 1 when
                 absent or different.
 --write         write kit.json.
@@ -120,7 +120,7 @@ def main(argv=None):
             old = json.loads(old_text)
         except ValueError:
             old = {}
-    version = args.kit_version or str(old.get("kit_version") or "1.1.0")
+    version = args.kit_version or str(old.get("kit_version") or "1.2.0")
     if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$", version):
         print(f"usage: --kit-version {version!r} is not semver", file=sys.stderr)
         return 2

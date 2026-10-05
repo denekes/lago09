@@ -14,10 +14,12 @@ chapter 01.
 
 Two event stores exist (chapter 02 explains which organization uses which):
 
+<!-- evidence-check: off definitions of the two store variants; evidence = the vectors of sections 1-8 (store pg) and of section 9 (store ch), checked by kitrun against the oracle -->
 - **relational store** (vector input `store: "pg"`): the normative variant. Every rule of sections 1-8 describes it.
 - **columnar store** (`store: "ch"`): reads the rows the events-processor writes (`events-processor-spec`). Section 9
   lists every place where it answers differently. The corrected profile asks a rebuild to give both stores the
   relational semantics (RBD-25..31, proposed).
+<!-- evidence-check: on -->
 
 Reading guide: rules are numbered `BE-AG-n`; every rule line ends with `[vec: …]` naming the vectors that pin it,
 or a prose-only marker with the reason. Vector files: `aggregation.core.jsonl` (selection, formulas, rounding),

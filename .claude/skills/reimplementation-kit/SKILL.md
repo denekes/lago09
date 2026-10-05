@@ -12,8 +12,8 @@ This skill is the entry point of a self-contained kit for rebuilding — in any 
 that behaves like the Lago billing engine (lago-api) and the Lago events-processor, and for proving it with
 golden vectors. The behaviour itself lives in `billing-engine-spec` and `events-processor-spec`; this skill holds
 the method, the vector format, the adapter protocol, the runners and the grading rules. Behaviour facts as of
-lago-api `591ae90` (v1.53.0, 2026-09-08) and events-processor tree `83e012866f29`; kit v1.1.0 (fix round of
-2026-10-05 after the clean-room acceptance run; changes in section 13).
+lago-api `591ae90` (v1.53.0, 2026-09-08) and events-processor tree `83e012866f29`; kit v1.2.0 (fix rounds of
+2026-10-05 after the clean-room acceptance run and the implementers' re-run; changes in section 13).
 
 ## 1. When to use / when NOT to use
 
@@ -76,7 +76,7 @@ Do NOT use it for:
 <!-- evidence-check: on -->
 
 Pins: lago-api `591ae9005110`; events-processor tree `83e012866f29`. Versions: adapter protocol `proto` 1, vector
-envelope `kit_schema` 1, catalogue `kit_version` 1.1.0 (from `kit.json`; kitrun prints `1.1.0-dev` until it exists).
+envelope `kit_schema` 1, catalogue `kit_version` 1.2.0 (from `kit.json`; kitrun prints `1.2.0-dev` until it exists).
 
 ## 4. Rebuild method (summary of `reference/method.md`)
 
@@ -158,21 +158,21 @@ file; counts include the vectors the maintainers keep in the holdout):
 | Files | Area(s) | Vectors | both / compat / corrected | both+compat EXECUTED |
 |---|---|---|---|---|
 | `billing-engine-spec/vectors/domain.{time,money,numbering,catalog}.jsonl` | domain | 153 | 151 / 1 / 1 | 152/152 |
-| `…/events.ingest.jsonl`, `…/expression.jsonl` | events, expression | 193 | 174 / 8 / 11 | 182/182 |
-| `…/aggregation.{core,store_ch,filters,in_advance,prorated}.jsonl` | aggregation | 284 | 211 / 39 / 34 | 250/250 |
-| `…/pricing.{models,in_advance,fees,validation,fixed_charges,misc}.jsonl` | pricing | 355 | 302 / 27 / 26 | 329/329 |
+| `…/events.ingest.jsonl`, `…/expression.jsonl` | events, expression | 194 | 175 / 8 / 11 | 183/183 |
+| `…/aggregation.{core,store_ch,filters,in_advance,prorated}.jsonl` | aggregation | 288 | 211 / 41 / 36 | 252/252 |
+| `…/pricing.{models,in_advance,fees,validation,fixed_charges,misc}.jsonl` | pricing | 357 | 304 / 27 / 26 | 331/331 |
 | `…/periods.{boundaries,billing_days,chains,subscription_fee,lifecycle}.jsonl` | periods | 264 | 230 / 17 / 17 | 247/247 |
-| `…/invoice.{totals,taxes,coupons,lifecycle,commitment}.jsonl`, `…/credit_notes.jsonl` | invoice, credit_notes | 223 | 205 / 9 / 9 | 214/214 |
+| `…/invoice.{totals,taxes,coupons,lifecycle,commitment}.jsonl`, `…/credit_notes.jsonl` | invoice, credit_notes | 233 | 213 / 10 / 10 | 223/223 |
 | `…/wallets.jsonl`, `…/progressive.jsonl`, `…/alerts.jsonl` | wallets, progressive, alerts | 188 | 177 / 5 / 6 | 182/182 |
 | `…/api.jsonl`, `…/webhooks.jsonl`, `…/clock.jsonl` | api, webhooks, clock | 129 | 121 / 4 / 4 | 125/125 |
-| billing unit total | 14 areas | 1,789 | 1,571 / 110 / 108 | 1,681/1,681 |
+| billing unit total | 14 areas | 1,806 | 1,582 / 113 / 111 | 1,695/1,695 |
 | `billing-engine-spec/scenarios/scn.*.json` | scn | 76 (5 `core`) | every scenario replayed twice on the reference | 76/76 |
 | `events-processor-spec/vectors/ep.units.jsonl` | ep | 155 | 77 / 43 / 35 | 117/120 (3 `ep.refresh_member` RECOMPUTED with a note) |
 | `reimplementation-kit/selftest/domain.selftest.jsonl` | domain (runner fixtures) | 23 | 23 / 0 / 0 | 23/23 |
 
 <!-- evidence-check: on -->
 
-Every corrected twin is RECOMPUTED by definition (its `ref` names its RBD); all 108 billing twins and 4 of the 35
+Every corrected twin is RECOMPUTED by definition (its `ref` names its RBD); all 111 billing twins and 4 of the 35
 `ep` twins are `ruling: proposed` and graded UNRULED until the owner rules.
 
 Kit gates (`validate-vectors.py --gate`, `acceptance/thresholds.json` `kit_gates`): billing `both`/`compat` ≥ 95 %
@@ -371,7 +371,30 @@ Author questions answered by a rebuild decision are closed there and have no row
 (RBD-103), the wallet tie order (RBD-104, RBD-105 for the interval anchor), the credit-note offset (RBD-106), the
 grouped prorated phantom day (RBD-31), division by zero (RBD-37) and the simulator's scope and event count (RBD-54).
 
-## 13. Changes in 1.1.0 (2026-10-05)
+## 13. Changes
+
+### 1.2.0 (2026-10-05)
+
+Second fix round, after seven implementers re-ran on the 1.1.0 pack and met every threshold: every question they
+still logged, and the two minor spec items 1.1.0 left open, was classified and the kit side closed, each new
+reference claim executed on the reference first. 17 vectors added (11 `both`, 3 `compat`, 3 corrected twins), none
+changed or removed; an implementation graded on 1.1.0 must be re-run on the areas below.
+
+<!-- evidence-check: off change summary; evidence = the rule and vector ids named per line and the gate runs of section 11 -->
+
+| Area | Changes |
+|---|---|
+| grading, format | NUM-OUT is expected on the range bounds that BE-PR-58 echoes as JSON numbers (`reference/vector-format.md` §4.1, `reference/acceptance-and-grading.md` §3) |
+| expression | the BE-EX-40 member checks also apply to an `event` object on the processor surface (`expression.ep.022`) |
+| aggregation | BE-AG-74 states the columnar store's own decimal→binary64 conversion (3.1 → 3.0999999999999996, 8.3 → 8.3) and its undefined summation order (a part with three or more contributions is not reproducible); `aggregation.store_ch.prorated.005`, `.006` and their corrected twins |
+| pricing | BE-PR-41 covers grouped charges (`pricing.projection.010`) and marks `days(from, to) ≤ 0` not reachable; BE-PR-58 says the NUM-OUT warning on echoed bounds is expected; BE-PR-71 uses the already-billed units as given; BE-PR-87 covers the pricing-unit op record (`pricing.pricing_unit.008`) in both profiles; new BE-PR-88 (period ratio of the current-usage fee path, prose only, not observable) |
+| invoice, credit notes | BE-CN-18 exit order: upgrade with refund or offset answers `server_error` before the creditable-amount exits (`credit_notes.termination.013`..`.015`); `dec16` is a cut of the shortest text after 16 significant digits, never a rounding (`credit_notes.compute.019`, `019x`); BE-IV-17 checks `expiration_at` whatever `expiration` says (`invoice.coupon_create.017`); BE-IV-18 value checks apply whatever the coupon type (`invoice.coupon_create.016`, `invoice.coupon_apply.016`, `.017`); a void item just below a tie at 5 places (`invoice.void.009`); schema descriptions of `invoice.coupon_apply` (`applied_before`), `invoice.coupon_create`, `credit_notes.termination` and `expression.evaluate` (`event`) |
+| clock | BE-CK-2: ticks at whole-second instants, the period counted from the previous run cut to the second, the op window half-open `[from, to)`; a `from` with a fraction of a second is not graded |
+| kit | version 1.2.0; RBD-68 and RBD-96 rows (vectors, BE-AG-74 wording); billing unit vectors 1,789 → 1,806 (section 6); the maintainer model `recompute-invoicing.py` rounds void items with round5 and applies the dec16 cut |
+
+<!-- evidence-check: on -->
+
+### 1.1.0 (2026-10-05)
 
 Fix round after the clean-room acceptance run of 1.0.0: every gap that twelve independent implementations logged
 was classified (vector, format, spec or implementation defect) and the kit defects were fixed, each new reference

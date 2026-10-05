@@ -22,7 +22,7 @@ Reading guide: rules are numbered `BE-CK-n`; every rule line ends with `[vec: �
 
 ## 2. Schedule
 
-- **BE-CK-2** Scheduling semantics: the clock process evaluates its schedule once per second, at its start instant and at every whole second after it (a tick). An **interval job** runs at the first tick and then at the first tick at least one period after its previous run, so its runs are aligned on the process start, not on wall-clock multiples; a period below one second runs it at every tick (BE-CK-12). A **minute-pinned job** runs at a tick whose UTC wall-clock minute (and hour, for a daily job) equals its pin and that is at least one period (one hour, or one day) after its previous run. The tick at which the clock starts counts, and the period is measured from the previous run, not from the pinned minute: a clock started at 00:05:30 runs the :05 jobs at 00:05:30 and next at 01:05:30, not at 01:05:00. A run "counts" only when the job's gate lets it enqueue work. [vec: clock.jobs_due.001, clock.jobs_due.005, clock.jobs_due.006, clock.jobs_due.007, clock.jobs_due.011, clock.jobs_due.012]
+- **BE-CK-2** Scheduling semantics: the clock process evaluates its schedule once per second, at its start instant and then at every whole-second instant after it (a tick: an instant with no fraction of a second; the production process wakes about a millisecond after each whole second, which no rule depends on). An **interval job** runs at the first tick and then at the first tick at least one period after its previous run, the elapsed time being measured from the previous run's instant truncated to the whole second (so a fractional start shortens the first interval by its fraction: a 2-second job started at 00:00:00.5 runs again at 00:00:02), so its runs are aligned on the process start, not on wall-clock multiples; a period below one second runs it at every tick (BE-CK-12). A **minute-pinned job** runs at a tick whose UTC wall-clock minute (and hour, for a daily job) equals its pin and that is at least one period (one hour, or one day) after its previous run. The tick at which the clock starts counts, and the period is measured from the previous run, not from the pinned minute: a clock started at 00:05:30 runs the :05 jobs at 00:05:30 and next at 01:05:30, not at 01:05:00. A run "counts" only when the job's gate lets it enqueue work. The `clock.jobs_due` op counts the ticks of the half-open window `[from, to)`: a tick at `to` is not counted (`clock.jobs_due.001`: the 60-second job runs 30 times from 00:01:00 to 00:31:00). Every vector starts the window on a whole second; a fractional `from` is outside the graded domain. [vec: clock.jobs_due.001, clock.jobs_due.005, clock.jobs_due.006, clock.jobs_due.007, clock.jobs_due.011, clock.jobs_due.012]
 - **BE-CK-3** The schedule of the in-scope jobs is the table below (names as reported by `clock.jobs_due`). Out-of-scope jobs of the same clock (API-key last-used persistence at :15, daily usage analytics at :15, dunning at :45, scheduled orders at :45, order-form expiry at :40, inbound provider-webhook retry every 15 min and clean-up at 01:10, dedicated-worker variants) belong to chapter 14. [vec: clock.jobs_due.001, clock.jobs_due.002, clock.jobs_due.004, clock.jobs_due.005]
 
 | Job | When | Effect (owning chapter) |
@@ -169,6 +169,15 @@ adapter` (PASS); further unshipped `clock.jobs_due` calls showed that the intege
 a single underscore between digits (`1_20` → 120 s, `1_5_0` → 150 s, `2_0` → 20 s) while a doubled, leading or
 post-sign underscore ends the number (`3__0` → 3 s, `_30` and `-_5` → every tick), and that a leading tab or line
 break is skipped like a space; vector `clock.jobs_due.012` executed through `oracle.sh adapter` (PASS).
+
+Fix round of 2026-10-05, second pass (database `lago_api_test_fr3a`): the clock library bundled at the pin (clockwork
+3.0.2) was run for four seconds with a 2-second job and a start at a half second: ticks at the start instant and then
+about 1 ms after each whole second, runs at the start, 1.5 s later and 2 s after that (the due test truncates the
+previous run's instant to the whole second). The oracle's `clock.jobs_due` drives the library's test harness, which
+ticks at `from` + k s and stops at the first tick at or after `to` (half-open window): `[00:00:00, 00:01:00)` gives 1
+run of the 60-second job and `[00:00:00, 00:01:00.2)` gives 2. For a fractional start the harness and the production
+loop disagree (`[00:00:00.5, 00:01:00.2)`: harness 1 run, production rule 2), so vectors start on a whole second and
+the oracle module answers `bad_input` for a fractional `from`.
 
 Update triggers: a pin bump (re-run the oracle over `clock.jsonl`), any change of `clock.rb` or a clock job, an
 owner ruling on RBD-79.
