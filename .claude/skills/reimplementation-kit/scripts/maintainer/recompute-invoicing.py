@@ -76,6 +76,21 @@ class Num:
         """A binary64 value seen as the shortest decimal (compat) or the exact value (corrected)."""
         return D(repr(float(x))) if self.compat else D(x)
 
+    def dec16(self, x):
+        """`dec16` of chapter 07 (compat): the shortest decimal text of the binary64 value cut (truncated, not rounded)
+        to its first 16 significant digits, which is how a binary64 value enters an exact product or sum; corrected:
+        the exact value."""
+        if not self.compat:
+            return D(x)
+        d = D(repr(float(x)))
+        if d == 0:
+            return d
+        return d.quantize(D(1).scaleb(d.adjusted() - 15), rounding=ROUND_DOWN)
+
+    def fdiv16(self, a, b):
+        """A binary64 quotient entering an exact product or sum: dec16(a / b) (compat), exact (corrected)."""
+        return self.dec16(self.fdiv(a, b)) if self.compat else D(a) / D(b)
+
     def round5_float(self, x):
         """Rounding of a binary64 value to 5 places as the reference's float rounding does (compat)."""
         if not self.compat:
@@ -200,7 +215,7 @@ def coupon_amount(n, cp, base):
         if isinstance(base, int):
             v = D(repr(base * float(cp.rate / 100))) if n.compat else D(base) * cp.rate / 100
         else:
-            v = D(base) * (n.fl(cp.rate / 100))
+            v = D(base) * n.dec16(n.fdiv(cp.rate, 100))
         return base if v >= base else i(v)
     if cp.freq in ("recurring", "forever"):
         return base if cp.amount > base else cp.amount
@@ -230,7 +245,7 @@ def apply_coupon(n, inv, cp):
     for f in targets:
         if base != 0:
             if n.compat and not cp.limited:
-                share = n.fdiv(D(amt) * f.sub_excl, base)
+                share = n.fdiv16(D(amt) * f.sub_excl, base)
             else:
                 share = D(amt) * f.sub_excl / D(base)
             f.pc = store5(f.pc + share)
@@ -311,7 +326,7 @@ def run_totals(inp, n):
                 continue
             for f in fees:
                 after_tax = f.sub_excl + f.taxes_amount
-                f.pcn += n.fdiv(D(cr) * (after_tax - f.pcn), remaining)
+                f.pcn += n.fdiv16(D(cr) * (after_tax - f.pcn), remaining)
                 f.pcn = store5(f.pcn)
                 if after_tax < f.pcn:
                     f.pcn = after_tax
@@ -684,7 +699,7 @@ def cn_taxes(inv, items):
     adj = D(0)
     if inv.version >= 3:
         for f, p in items:
-            r = D(0) if f.amount == 0 else n.fdiv(p, f.amount)
+            r = D(0) if f.amount == 0 else n.fdiv16(p, f.amount)
             adj += f.pc * r
     codes = []
     for f, _ in items:
@@ -698,7 +713,7 @@ def cn_taxes(inv, items):
         base = D(0)
         for f, p in items:
             if c in [x[0] for x in f.taxes]:
-                fr = D(0) if f.amount == 0 else n.fdiv(p, f.amount)
+                fr = D(0) if f.amount == 0 else n.fdiv16(p, f.amount)
                 base += p - f.pc * fr
         pt = n.fdiv(base * r, 100)
         rows.append({"code": c, "amount_cents": i(pt), "base_amount_cents": i(base)})
@@ -887,7 +902,9 @@ def op_void(inp, ctx):
             est = op_cn_estimate({"invoice": None, "items": []}, ctx) if False else None
             full = cn_estimate_total(inv, base_items)
             ratio = req_total / float(full)
-            items = [{"fee_id": f.id, "amount_cents": store5(D(repr(c * ratio)) if n.compat else D(c) * req_total / D(full))}
+            # BE-IV-42: the binary64 item is stored by round5 (BE-IV-14), not by rounding its text: just below a tie
+            # (533 x (14 / 640) = 11.659374999999999) the stored value is 11.65938
+            items = [{"fee_id": f.id, "amount_cents": n.round5_float(c * ratio) if n.compat else store5(D(c) * req_total / D(full))}
                      for f, c in base_items]
             note, errs = cn_create(inv, {"items": items, "credit_amount_cents": credit, "refund_amount_cents": refund})
             if errs:
