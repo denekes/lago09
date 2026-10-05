@@ -19,29 +19,26 @@ type enrichmentTestEnv struct {
 }
 
 func setupEnrichmentTestEnv(t *testing.T, useCache bool) *enrichmentTestEnv {
-	var memCache *cache.Cache
-	var apiStore *models.ApiStore
+	var store EnrichmentStore
 	var dataStore DataStore
 	var cleanup func()
 
 	if useCache {
 		ctx := context.Background()
-		memCache, _ = cache.NewCache(cache.CacheConfig{
+		memCache, _ := cache.NewCache(cache.CacheConfig{
 			Context: ctx,
 		})
+		store = NewCacheEnrichmentStore(memCache)
 		dataStore = &CacheDataStore{cache: memCache, t: t}
 		cleanup = func() { memCache.Close() }
 	} else {
 		mockedStore, deleteFunc := tests.SetupMockStore(t)
-		apiStore = models.NewApiStore(mockedStore.DB)
+		store = models.NewApiStore(mockedStore.DB)
 		dataStore = &MockDataStore{mock: mockedStore, t: t}
 		cleanup = deleteFunc
 	}
 
-	processor := &EventEnrichmentService{
-		apiStore: apiStore,
-		memCache: memCache,
-	}
+	processor := NewEventEnrichmentService(store)
 
 	return &enrichmentTestEnv{
 		EventProcessor: processor,

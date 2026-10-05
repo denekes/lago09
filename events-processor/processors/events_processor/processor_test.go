@@ -131,8 +131,7 @@ type ProcessorTestEnv struct {
 
 func setupProcessorTestEnv(t *testing.T, useCache bool) *ProcessorTestEnv {
 	var chargeCache models.Cacher
-	var memCache *cache.Cache
-	var apiStore *models.ApiStore
+	var store EnrichmentStore
 	var dataStore DataStore
 	var cleanup func()
 
@@ -143,20 +142,21 @@ func setupProcessorTestEnv(t *testing.T, useCache bool) *ProcessorTestEnv {
 
 	if useCache {
 		ctx := context.Background()
-		memCache, _ = cache.NewCache(cache.CacheConfig{
+		memCache, _ := cache.NewCache(cache.CacheConfig{
 			Context: ctx,
 		})
+		store = NewCacheEnrichmentStore(memCache)
 		dataStore = &CacheDataStore{cache: memCache, t: t}
 		cleanup = func() { memCache.Close() }
 	} else {
 		mockedStore, deleteFunc := tests.SetupMockStore(t)
-		apiStore = models.NewApiStore(mockedStore.DB)
+		store = models.NewApiStore(mockedStore.DB)
 		dataStore = &MockDataStore{mock: mockedStore, t: t}
 		cleanup = deleteFunc
 	}
 
 	processor := NewEventProcessor(
-		NewEventEnrichmentService(apiStore, memCache),
+		NewEventEnrichmentService(store),
 		testProducers.producerService,
 		flagger,
 	)

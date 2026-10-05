@@ -26,29 +26,15 @@ func NewEventProducerService(enrichedProducer, inAdvanceProducer, deadLetterProd
 	}
 }
 
-func (eps *EventProducerService) ProduceEnrichedEvent(context context.Context, event *models.EnrichedEvent) {
-	msgKey := fmt.Sprintf("%s-%s", event.OrganizationID, event.TransactionID)
-
-	err := eps.produceEvent(context, event, msgKey, eps.enrichedProducer)
-
-	if err != nil {
-		slog.Error("error while marshaling enriched events")
-		utils.CaptureError(err)
-	}
+func (eps *EventProducerService) ProduceEnrichedEvent(ctx context.Context, event *models.EnrichedEvent) {
+	eps.produceEnrichedEvent(ctx, eps.enrichedProducer, event, "error while marshaling enriched events")
 }
 
-func (eps *EventProducerService) ProduceChargedInAdvanceEvent(context context.Context, event *models.EnrichedEvent) {
-	msgKey := fmt.Sprintf("%s-%s", event.OrganizationID, event.TransactionID)
-
-	err := eps.produceEvent(context, event, msgKey, eps.inAdvanceProducer)
-
-	if err != nil {
-		slog.Error("error while marshaling charged in advance events")
-		utils.CaptureError(err)
-	}
+func (eps *EventProducerService) ProduceChargedInAdvanceEvent(ctx context.Context, event *models.EnrichedEvent) {
+	eps.produceEnrichedEvent(ctx, eps.inAdvanceProducer, event, "error while marshaling charged in advance events")
 }
 
-func (eps *EventProducerService) ProduceToDeadLetterQueue(context context.Context, event models.Event, errorResult utils.AnyResult) {
+func (eps *EventProducerService) ProduceToDeadLetterQueue(ctx context.Context, event models.Event, errorResult utils.AnyResult) {
 	failedEvent := models.FailedEvent{
 		Event:               event,
 		InitialErrorMessage: errorResult.ErrorMsg(),
@@ -63,7 +49,7 @@ func (eps *EventProducerService) ProduceToDeadLetterQueue(context context.Contex
 		utils.CaptureError(err)
 	}
 
-	pushed := eps.deadLetterProducer.Produce(context, &kafka.ProducerMessage{
+	pushed := eps.deadLetterProducer.Produce(ctx, &kafka.ProducerMessage{
 		Value: eventJson,
 	})
 
@@ -73,20 +59,22 @@ func (eps *EventProducerService) ProduceToDeadLetterQueue(context context.Contex
 	}
 }
 
-func (eps *EventProducerService) produceEvent(context context.Context, event *models.EnrichedEvent, msgKey string, producer kafka.MessageProducer) error {
+// produceEnrichedEvent sends the event keyed by organization and transaction. When the producer
+// fails to send it, the initial event is pushed to the dead letter queue.
+func (eps *EventProducerService) produceEnrichedEvent(ctx context.Context, producer kafka.MessageProducer, event *models.EnrichedEvent, marshalErrorMessage string) {
 	eventJson, err := json.Marshal(event)
 	if err != nil {
-		return err
+		slog.Error(marshalErrorMessage)
+		utils.CaptureError(err)
+		return
 	}
 
-	pushed := producer.Produce(context, &kafka.ProducerMessage{
-		Key:   []byte(msgKey),
+	pushed := producer.Produce(ctx, &kafka.ProducerMessage{
+		Key:   []byte(fmt.Sprintf("%s-%s", event.OrganizationID, event.TransactionID)),
 		Value: eventJson,
 	})
 
 	if !pushed {
-		eps.ProduceToDeadLetterQueue(context, *event.InitialEvent, utils.FailedBoolResult(fmt.Errorf("failed to push to %s topic", producer.GetTopic())))
+		eps.ProduceToDeadLetterQueue(ctx, *event.InitialEvent, utils.FailedBoolResult(fmt.Errorf("failed to push to %s topic", producer.GetTopic())))
 	}
-
-	return nil
 }
