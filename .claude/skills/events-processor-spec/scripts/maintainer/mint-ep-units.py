@@ -269,6 +269,13 @@ def build_specs():
          notes="The age rule uses the instant; only the dead-letter copy shows the local wall clock.")
     spec("ep.decode.022", "decode", "ingested_at as a JSON integer (epoch seconds) is accepted",
          ["EP-D5"], {"raw_b64": b64('{"transaction_id":"t","ingested_at":1744335427}')}, ["event_json"], twin="same")
+    spec("ep.decode.023", "decode", "field names match ignoring case; the last spelling of a field wins",
+         ["EP-C1", "EP-C4"], {"raw_b64": b64('{"Transaction_Id":"first","TRANSACTION_ID":"tx_ci","CODE":"api_calls",'
+                                             '"Organization_ID":"%s","External_Subscription_Id":"sub_ext_1","Timestamp":"1759320000",'
+                                             '"Properties":{"Amount":"1"},"Source":"http_ruby","Source_Metadata":{"API_POST_PROCESSED":true},'
+                                             '"Ingested_At":"2025-03-03T13:03:30","Precise_Total_Amount_Cents":"1"}' % O1)},
+         ["event_json"], tags=["boundary"], twin="same",
+         notes="Property keys inside properties keep their case; only the recognised field names (and api_post_processed) fold.")
 
     # ---------------- ep.parse_timestamp
     T = [
@@ -295,7 +302,17 @@ def build_specs():
         ("021", '"2025-03-03T13:03:29.123456789Z"', "RFC 3339 with nanoseconds", ["boundary"]),
         ("022", '"1735689600.000"', "explicit .000 milliseconds", []),
         ("023", '"2025-03-01T00:30:00+01:00"', "RFC 3339 offset crossing a UTC day boundary", ["boundary"]),
+        ("024", '"-1.0005"', "negative fraction: emitted toward zero, matching instant floored", ["boundary"]),
+        ("025", '"-0.0005"', "negative value above -1 ms: emitted as negative zero (reference)", ["boundary"]),
+        ("026", '"1e19"', "no range check: a value far beyond year 9999 is accepted", ["boundary"]),
     ]
+    PT_NOTES = {
+        "009": "match_time keeps the zone and sub-millisecond digits the reference compares in DB mode (wall clock).",
+        "023": "match_time keeps the zone and sub-millisecond digits the reference compares in DB mode (wall clock).",
+        "024": "The emitted number truncates toward zero (-1.000); the matching instant is floored (-1.001 s), in both profiles.",
+        "025": "No corrected contract for the sign of a zero emitted timestamp.",
+        "026": "The matching instant of such a value is not part of the contract (op output omitted beyond year 9999).",
+    }
     for n, tj, title, tags in T:
         emitted_rbd = n in ("005",)
         rbd = ["RBD-15"]
@@ -305,12 +322,15 @@ def build_specs():
             rbd = ["RBD-15", "RBD-16"]
         rules = ["EP-D1", "EP-D2", "EP-D3"] + (["EP-D4"] if n in ("009", "023") else [])
         fields = ["emitted_text", "match_instant"] + (["match_time"] if n in ("009", "023") else [])
-        if n == "011":
+        if n in ("011", "026"):
             fields = ["emitted_text"]
+        twin = (lambda e: (lambda inp, ref: twin_parse_timestamp(inp, ref, e)))(emitted_rbd)
+        if n == "025":
+            twin = "none"
         spec("ep.parse_timestamp.%s" % n, "parse_timestamp", title, rules, {"timestamp_json": tj}, fields, rbd=rbd, tags=tags,
-             twin=(lambda e: (lambda inp, ref: twin_parse_timestamp(inp, ref, e)))(emitted_rbd),
+             twin=twin,
              twin_ruling="proposed" if emitted_rbd else "decided", twin_drop=["match_time"],
-             notes="match_time keeps the zone and sub-millisecond digits the reference compares in DB mode (wall clock)." if n in ("009", "023") else None)
+             notes=PT_NOTES.get(n))
 
     # ---------------- ep.value_string
     rows = corpus_rows()

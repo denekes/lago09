@@ -9,7 +9,9 @@
 #   credit_notes.compute      CreditNotes::CreateService (items, coupon adjustment, taxes, last-note tax residue,
 #                             validation, rounding adjustment); earlier notes of the invoice are created the same way
 #   credit_notes.estimate     CreditNotes::EstimateService
-#   credit_notes.termination  CreditNotes::CreateFromTermination (real subscription, plan, dates service, paid share)
+#   credit_notes.termination  CreditNotes::CreateFromTermination (real subscription, plan, dates service, paid share);
+#                             its unhandled "not supported" error (upgrade with refund/offset) is answered as the kit
+#                             domain error `server_error`
 #   credit_notes.validate     CreditNotes::CreateService, reporting its validation errors instead of raising them
 
 module KitOracleCreditNotes
@@ -179,15 +181,19 @@ KitOracle.op("credit_notes.termination") do |input, ctx|
         "applied_coupons" => inv_in["applied_coupons"],
         "plans" => {"plan" => plan_in},
         "subscriptions" => {"plan" => sub_in.merge("status" => "terminated", "terminated_at" => input.fetch("terminated_at"))},
-        "status" => "finalized",
+        "status" => inv_in.fetch("status", "finalized"),
         "payment_status" => inv_in.fetch("payment_status", "pending"),
         "total_paid_amount_cents" => inv_in.fetch("total_paid_amount_cents", 0)
       }.compact
       book, invoice = KitOracleCreditNotes.build_invoice(ctx, totals_in)
       ctx.premium(true) { KitOracleCreditNotes.setup_previous(ctx, book, invoice, input["previous_credit_notes"]) }
       sub = book.subscription("plan").reload
-      r = CreditNotes::CreateFromTermination.call(subscription: sub, upgrade: input.fetch("upgrade", false),
-        on_termination: input.fetch("on_termination", "credit").to_sym)
+      r = begin
+        CreditNotes::CreateFromTermination.call(subscription: sub, upgrade: input.fetch("upgrade", false),
+          on_termination: input.fetch("on_termination", "credit").to_sym)
+      rescue NotImplementedError => e # upgrade with refund/offset: an unhandled error in the reference (BE-CN-18)
+        ctx.domain_error!("server_error", nil, "#{e.class}: #{e.message}")
+      end
       KitOracleCreditNotes.first_error!(ctx, r) unless r.success?
       cn = r.credit_note
       {"credit_note" => cn && KitOracleCreditNotes.cn_out(book, cn.reload)}

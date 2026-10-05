@@ -45,12 +45,16 @@ Retryable lookup errors (connection, query, Redis) do not produce a DLQ record d
 
 ## 2. Decoding (EP-C)
 
-- **EP-C1** [vec: ep.decode.001, ep.decode.005, ep.decode.006, ep.decode.007, ep.decode.008, ep.decode.009, ep.decode.010, ep.decode.011, ep.decode.014, ep.decode.019, EPC-09]
+- **EP-C1** [vec: ep.decode.001, ep.decode.005, ep.decode.006, ep.decode.007, ep.decode.008, ep.decode.009, ep.decode.010, ep.decode.011, ep.decode.014, ep.decode.019, ep.decode.023, EPC-09]
   The record value must be one JSON object. Recognised top-level fields and the JSON types they accept:
   `organization_id`, `external_subscription_id`, `transaction_id`, `code`, `source` (strings; JSON `null` reads as
   the empty string), `precise_total_amount_cents` (string only), `properties` (object or null), `timestamp` (any
   JSON value; validated later, EP-D1), `source_metadata` (object `{"api_post_processed": boolean}` or null),
   `ingested_at` (EP-D5). Any other JSON type for a recognised field makes the record undecodable.
+  Recognised names match IGNORING CASE, in both profiles: `Code`, `CODE` and `code` are the same field, and so are
+  `API_POST_PROCESSED` and `api_post_processed` inside `source_metadata`; keys inside `properties` keep their case.
+  The reference folds case per Unicode simple case folding (the long s `ſ` also matches `s`); only ASCII case
+  differences are part of the contract.
 - **EP-C2** [vec: ep.decode.005, ep.decode.006, ep.decode.007, ep.decode.008, ep.decode.009, ep.decode.010, ep.decode.011, ep.decode.014, EPC-00, EPC-09]
   An undecodable record (invalid JSON, empty value, a JSON array or scalar, a field of the wrong type, an
   unparsable `ingested_at`) produces nothing on any topic. Reference: the record counts as processed and is
@@ -59,9 +63,10 @@ Retryable lookup errors (connection, query, Redis) do not produce a DLQ record d
 - **EP-C3** [vec: ep.decode.004, EPC-09]
   The JSON literal `null` decodes to an event whose fields are all empty; it then fails at EP-D1 and is
   dead-lettered with code `build_enriched_event` and an empty `transaction_id` (not attributable to a sender).
-- **EP-C4** [vec: ep.decode.002, ep.decode.003, EPC-09]
+- **EP-C4** [vec: ep.decode.002, ep.decode.003, ep.decode.023, EPC-09]
   Unknown top-level fields are dropped from every output. A key repeated in the same object keeps its last
-  value.
+  value; spellings that differ only in case are the same key (EP-C1), so the last of them wins
+  (`{"Transaction_Id":"first","TRANSACTION_ID":"tx_ci"}` → `tx_ci`).
 - **EP-C5** [vec: ep.decode.017, ep.decode.018, ep.decode.017x, EPC-07]
   Reference: number literals inside `properties` (and a numeric `timestamp`) are read as IEEE-754 binary64
   and written back in the outputs with the shortest text that reads back to the same binary64 value: integers
@@ -85,17 +90,26 @@ enriched and in-advance records) and the **matching instant** (used only to choo
   float parser also accepts (hexadecimal floats, `NaN`, `Inf`) are not part of the contract (EP-D6).
 - **EP-D2** [vec: ep.parse_timestamp.*, EPC-08]
   Emitted timestamp. String decimal input: the value truncated toward zero to whole milliseconds
-  (`"1741007009.123456"` → `1741007009.123`). JSON number input, reference: passed through untruncated
+  (`"1741007009.123456"` → `1741007009.123`; negative values too: `"-1.0005"` → `-1`; a value strictly between
+  −0.001 and 0, and a negative zero such as `"-0"`, is written `-0` by the reference, and the sign of that zero has
+  no corrected contract). There is no range check: any finite value is accepted (`"1e19"` →
+  `10000000000000000000`). JSON number input, reference: passed through untruncated
   (`1741007009.123456` → `1741007009.123456`); corrected (RBD-18, proposed): truncated to milliseconds like
   strings. RFC 3339 input: the instant in UTC truncated to milliseconds (`"2025-03-03T15:03:29.123456+02:00"` →
   `1741007009.123`). The number is written with the shortest round-trip text, no trailing zeros
-  (`"1735689600.000"` → `1735689600`).
-- **EP-D3** [vec: ep.parse_timestamp.001x, ep.parse_timestamp.018x, ep.parse_timestamp.020x, ep.parse_timestamp.021x, ep.match_subscription.018, ep.match_subscription.019, ep.match_subscription.020, ep.match_subscription.021, EPC-04]
+  (`"1735689600.000"` → `1735689600`), in plain decimal notation below 1e21 and in exponent form from 1e21
+  (`"1e21"` → `1e+21`), the same text form as EP-C5. For values beyond the year 9999 only the acceptance and that
+  notation are part of the contract: the reference truncates to milliseconds in binary64 arithmetic, which alters
+  the digits of such large values (`"1e20"` → `99999999999999980000`).
+- **EP-D3** [vec: ep.parse_timestamp.001x, ep.parse_timestamp.018x, ep.parse_timestamp.020x, ep.parse_timestamp.021x, ep.parse_timestamp.024, ep.match_subscription.018, ep.match_subscription.019, ep.match_subscription.020, ep.match_subscription.021, EPC-04]
   Matching instant, reference: for numeric and decimal-string input the fractional part is computed in
   binary64 arithmetic, scaled to nanoseconds, truncated, then truncated to milliseconds, so about half of all
   millisecond values land 1 ms early (`"1741007009.123"` → `…29.122`, `"1748736000.001"` → `…00.000`); RFC 3339
   input keeps its offset and all sub-millisecond digits. Corrected (RBD-15): the exact decimal value truncated to
-  whole milliseconds, as a UTC instant (`"1741007009.123"` → `…29.123Z`).
+  whole milliseconds, as a UTC instant (`"1741007009.123"` → `…29.123Z`). In both profiles "truncated" means
+  FLOORED toward the past, which differs from the emitted number for negative values: `"-1.0005"` → instant
+  −1.001 s = `1969-12-31T23:59:58.999Z` while the emitted number is `-1` (EP-D2). Instants beyond the year 9999 are
+  not part of the contract (the reference's instant arithmetic overflows beyond about ±9.2e18 s).
 - **EP-D4** [vec: ep.parse_timestamp.009, ep.parse_timestamp.023, ep.match_subscription.016, ep.match_subscription.017, ep.match_subscription.016x, EPC-04]
   Reference DB mode compares the matching instant against subscription bounds by its wall clock in its
   own offset (an RFC 3339 offset is ignored: `"2025-03-01T00:30:00+01:00"` is compared as 2025-03-01 00:30);
@@ -119,11 +133,23 @@ enriched and in-advance records) and the **matching instant** (used only to choo
   case-sensitive, no trimming. Unknown organization, unknown or empty code, a code that exists only in another
   organization, or a soft-deleted metric: DLQ `fetch_billable_metric` ("Error fetching billable metric"),
   non-retryable; `initial_error_message` is `record not found` (DB mode) or `Key not found` (cache mode).
-- **EP-E2** [vec: EPC-15]
-  Any other lookup failure (connection, query, timeout) is retryable (`delivery-and-failures.md` §2).
+- **EP-E2** [vec: EPC-15, EPC-03]
+  Any other lookup failure (connection, query, timeout, a value the database rejects, EP-E4) is retryable
+  (`delivery-and-failures.md` §2).
 - **EP-E3** [vec: EPC-02]
   Billable-metric filters and charge filters are neither read nor applied: `properties` pass through
   unchanged whatever their keys.
+- **EP-E4** [vec: EPC-03]
+  Organization id text. DB mode hands `organization_id` to the database as a UUID value. Any text the database
+  accepts as a UUID (upper case, no hyphens `11111111111111111111111111111111`, braces) finds the organization,
+  and every output carries the text AS RECEIVED (record key, `organization_id`, refresh member). Any other text,
+  `""` included, makes the metric lookup fail with a database type error, not "not found": the reference treats
+  it as a retryable lookup failure (EP-E2), so the record is dead-lettered `fetch_billable_metric` only past the
+  retry horizon (EP-L1) and is otherwise left unprocessed and lost once a later batch commits (EP-B4). Memory-cache
+  mode looks the text up as is: anything but the stored canonical text (lower case, hyphenated) is "not found",
+  dead-lettered at once. Corrected (proposed, RBD-1): an organization id that is not UUID text is a PERMANENT
+  failure (EP-R1), dead-lettered `fetch_billable_metric` at once in both modes, never retried or lost;
+  non-canonical UUID spellings have no corrected contract (senders use the canonical text).
 
 ## 5. The `value` string (EP-F)
 
@@ -300,6 +326,9 @@ machine-readable form (final; optional inputs with their defaults, domain error 
 5. An event whose subscription was created moments ago may not see it in cache mode (CDC lag): it is enriched
    without subscription (EP-H4), so no in-advance record and no refresh flag.
 6. A metric code or external id with surrounding spaces is a different code or id.
+7. An `organization_id` that is not UUID text is silently lost in DB mode when it is fresh and a later batch
+   follows (EP-E4); in cache mode it is dead-lettered at once.
+8. Field names are case-insensitive (EP-C1): `{"CODE": "api_calls"}` is a valid event.
 
 ## Provenance (maintainers)
 
@@ -320,3 +349,19 @@ timestamp, `date_trunc('millisecond', …)` bounds): `$API/app/services/events/c
 `$API/app/services/events/post_process_service.rb:50` @591ae90 (the billing side also excludes `incomplete` subscriptions there, `:46`). Unit vectors are minted by
 `scripts/maintainer/mint-ep-units.py` (expected values from the ep-oracle, i.e. the reference packages; corrected
 twins recomputed from the cited RBD).
+
+Additions of 2026-10-05 (kit v1.1). EP-C1/EP-C4 case-insensitive field names: the raw record is decoded into a
+typed structure by a case-insensitive name matcher (`events-processor/models/event.go:12` with
+`events-processor/processors/events_processor/processor.go:49`); ep-oracle probe and `ep.decode.023` (the long s
+`ſ` was observed to match `source` in the same probe; the dotless `ı` did not match `transaction_id`). EP-D2/EP-D3
+negative and large values: `events-processor/utils/time.go:14` (whole seconds by truncation, the fraction as a
+signed nanosecond count, then a floor to the millisecond) and `:51` (emitted number truncated toward zero);
+ep-oracle `ep.parse_timestamp.024..026` (`"1e19"` and `"-1e19"` both gave the instant
+`292277026304-08-26T15:42:51.145Z`, an overflow). EP-D2 notation and large-value digits, ep-oracle probe of
+2026-10-05 (independent verification): `"1e20"` → `99999999999999980000`, `"9.99e20"` → `999000000000000000000`,
+`"1e21"` → `1e+21`, `"-1e21"` → `-1e+21`, `"-0"` and `"-1e-7"` → `-0`; 9,000 decimal strings with 3 or 4
+fractional digits around 2025 and 2100 all matched exact truncation to milliseconds. EP-E4: DB-mode metric lookup
+`events-processor/models/billable_metrics.go:59` (a non-UUID parameter fails with SQLSTATE 22P02, initial error
+`ERROR: invalid input syntax for type uuid: "org-not-a-uuid" (SQLSTATE 22P02)`), cache lookup
+`events-processor/cache/billable_metrics.go:27`; EPC-03 compat goldens of both modes re-minted with
+`scripts/maintainer/regen-goldens.sh --only EPC-03 --passes 3` (three agreeing passes per mode).

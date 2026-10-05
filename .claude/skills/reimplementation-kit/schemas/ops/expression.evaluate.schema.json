@@ -25,7 +25,7 @@
             "string",
             "null"
           ],
-          "description": "Expression text (preview: null or empty is allowed and rejected by the endpoint)."
+          "description": "Expression text. rails: non-blank (a blank metric expression means \"no expression\" at ingestion, BE-EX-7; it is graded through events.validate, not by this op). preview: null, empty or blank is allowed and rejected by the endpoint. ep: any text (a blank one fails like any unparsable expression)."
         },
         "mode": {
           "enum": [
@@ -42,7 +42,7 @@
         "event_json": {
           "$ref": "../common.schema.json#/$defs/json_text",
           "x-kit-absent": "use `event`",
-          "description": "ep only: exact JSON text of the event object the events-processor hands to the engine: {\"code\":…,\"timestamp\":<number>,\"properties\":{…}} plus other members the engine ignores; numbers spelled as the processor re-encodes them."
+          "description": "ep only: exact JSON text of the event object handed to the engine: {\"code\":<string>,\"timestamp\":<number>,\"properties\":{...}} plus members the engine ignores. The engine reads every number literal of this text exactly (significand and scale as written, BE-EX-40); a missing or null `properties`, a missing or non-string `code` or a missing or null `timestamp` fails the evaluation. Which literal the processor hands over is its own profile-dependent rule (events-processor-spec EP-C5, RBD-14), graded by the ep vectors."
         },
         "now": {
           "$ref": "../common.schema.json#/$defs/instant",

@@ -77,6 +77,7 @@ never queries Postgres per event.
 | RFC 3339 offset | compared as wall clock | compared as instant | instant (RBD-16) |
 | terminated subscriptions | all | ≤ 1 calendar month before snapshot (+ CDC) | owner (RBD-20) |
 | external id with `:` | exact | prefix leak (EP-H8) | exact in both (RBD-99, proposed) |
+| `organization_id` text (EP-E4) | any UUID spelling the database accepts matches; other text = retryable database error (lost when fresh) | exact canonical text, anything else not found (dead letter at once) | not UUID text: PERMANENT in both (RBD-1, proposed) |
 | freshness | read-your-writes | snapshot + CDC lag | — |
 | per-event database load | 2-4 queries | none | — |
 | column gap | n/a | edit resets omitted columns (EP-N4) | proposed: never reset (RBD-21) |

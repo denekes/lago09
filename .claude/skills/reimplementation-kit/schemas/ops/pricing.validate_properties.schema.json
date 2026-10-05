@@ -74,7 +74,7 @@
         },
         "errors": {
           "type": "object",
-          "description": "Field -> list of error codes.",
+          "description": "Field -> list of error codes in check order, one entry per failed check (a code repeats when several ranges fail it; BE-PR-78).",
           "additionalProperties": {
             "type": "array",
             "items": {
@@ -86,7 +86,8 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "The codes the charge record lists under `properties` (what the API returns): fields in the order of their first failure, each repeated code removed, first occurrence kept (BE-PR-78)."
         }
       }
     }

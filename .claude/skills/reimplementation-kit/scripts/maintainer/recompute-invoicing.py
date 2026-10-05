@@ -8,7 +8,8 @@ on every invoice.* and credit_notes.* vector: a vector that the oracle passes an
 that the chapter states wrongly or incompletely (or at a vector defect).
 
 Profiles: `compat` reproduces the binary64 islands the chapters document (RBD-68: invoice tax rate, percentage coupon
-amount, coupon and credit-note shares, available-to-credit); `corrected` uses exact decimals everywhere.
+amount, coupon and credit-note shares, credit-note item rates, void item scaling, available-to-credit; chapter 07
+section 10.1); `corrected` uses exact decimals everywhere. The credit note's tax rate is decimal in both (BE-CN-8).
 
 Usage:
     python3 reimplementation-kit/scripts/kitrun.py --areas invoice,credit_notes \
@@ -37,6 +38,24 @@ import adapter_ref as ar  # noqa: E402
 
 KitError = ar.KitError
 Q5 = D("0.00001")
+
+
+def _currency_codes():
+    """Accepted currency codes (billing-engine-spec appendix-currencies table)."""
+    import re
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "billing-engine-spec", "reference",
+                        "appendix-currencies.md")
+    try:
+        return {m.group(1) for m in re.finditer(r"^\| ([A-Z]{3}) \|", open(path, encoding="utf-8").read(), re.M)}
+    except OSError:
+        return None
+
+
+CURRENCIES = _currency_codes()
+
+
+def known_currency(code):
+    return CURRENCIES is None or code in CURRENCIES
 Q15 = D("0.000000000000001")
 
 
@@ -203,14 +222,17 @@ def apply_coupon(n, inv, cp):
     targets = coupon_targets(cp, inv["fees"])
     if not targets:
         return None
-    base = sum((f.sub_excl for f in targets), D(0)) if cp.limited else inv["sub"]
-    if cp.limited and base == base.to_integral_value():
-        base = int(base)
+    # BE-IV-22/23: a limited coupon's base is a decimal even when whole (exact product, decimal share division); an
+    # unlimited coupon's base is the integer sub-total (binary64 product and share division in compat)
+    base = sum((f.sub_excl for f in targets), D(0)) if cp.limited else int(inv["sub"])
     amt = coupon_amount(n, cp, base)
     credit = int(trunc(amt))
     for f in targets:
         if base != 0:
-            share = n.fdiv(D(amt) * f.sub_excl, base) if n.compat else D(amt) * f.sub_excl / D(base)
+            if n.compat and not cp.limited:
+                share = n.fdiv(D(amt) * f.sub_excl, base)
+            else:
+                share = D(amt) * f.sub_excl / D(base)
             f.pc = store5(f.pc + share)
         if f.amount < f.pc:
             f.pc = D(f.amount)
@@ -422,6 +444,8 @@ def coupon_errors(c):
         return "value_is_out_of_range", "amount_cents"
     if c["coupon_type"] == "fixed_amount" and not c.get("amount_currency"):
         return "value_is_mandatory", "amount_currency"
+    if c.get("amount_currency") and not known_currency(c["amount_currency"]):
+        return "value_is_invalid", "amount_currency"
     if c["coupon_type"] == "percentage" and c.get("percentage_rate") is None:
         return "value_is_mandatory", "percentage_rate"
     if c.get("frequency") == "recurring":
@@ -482,8 +506,15 @@ def op_coupon_apply(inp, ctx):
     ov = inp.get("overrides", {})
     keys = ("amount_cents", "amount_currency", "percentage_rate", "frequency", "frequency_duration")
     applied = {k: ov.get(k, c.get(k)) for k in keys}
-    if applied["frequency"] == "recurring" and applied["frequency_duration"] is None:
-        raise KitError("value_is_mandatory", "frequency_duration")
+    if applied["amount_cents"] is not None and int(applied["amount_cents"]) < 0:
+        raise KitError("value_is_out_of_range", "amount_cents")
+    if applied["amount_currency"] and not known_currency(applied["amount_currency"]):
+        raise KitError("value_is_invalid", "amount_currency")
+    if applied["frequency"] == "recurring":
+        if applied["frequency_duration"] is None:
+            raise KitError("value_is_mandatory", "frequency_duration")
+        if int(applied["frequency_duration"]) <= 0:
+            raise KitError("value_is_out_of_range", "frequency_duration")
     cur = inp.get("customer_currency", "EUR")
     if c["coupon_type"] == "fixed_amount" and not cur:
         cur = applied["amount_currency"]
@@ -661,7 +692,7 @@ def cn_taxes(inv, items):
             if c not in [x[0] for x in codes]:
                 codes.append((c, r))
     rows, ptot = [], D(0)
-    rate = 0.0 if n.compat else D(0)
+    rate = D(0)  # BE-CN-8: decimal in both profiles (unlike the invoice's binary64 rate, BE-IV-14)
     total_items = sum((p for _, p in items), D(0)) - adj
     for c, r in codes:
         base = D(0)
@@ -672,11 +703,8 @@ def cn_taxes(inv, items):
         pt = n.fdiv(base * r, 100)
         rows.append({"code": c, "amount_cents": i(pt), "base_amount_cents": i(base)})
         ptot += pt
-        if n.compat:
-            rate += (0.0 if total_items == 0 else float(base) / float(total_items)) * float(r)
-        else:
-            rate += D(0) if total_items == 0 else base / total_items * r
-    return adj, rows, ptot, n.round5_float(rate)
+        rate += D(0) if total_items == 0 else base / total_items * r
+    return adj, rows, ptot, rate.quantize(Q5, rounding=ROUND_HALF_UP)
 
 
 def cn_create(inv, req, automatic=False, premium=True):
@@ -813,7 +841,7 @@ def op_cn_estimate(inp, ctx):
         f = inv.by_id.get(it["fee_id"])
         if f is None:
             raise KitError("fee_not_found", "base")
-        c = int(it["amount_cents"])
+        c = int(D(str(it["amount_cents"])))  # BE-CN-14: a fraction is truncated toward zero
         if c > inv.creditable_fee(f):
             raise KitError("higher_than_remaining_fee_amount", "amount_cents")
         items.append((f, D(c)))
@@ -859,7 +887,8 @@ def op_void(inp, ctx):
             est = op_cn_estimate({"invoice": None, "items": []}, ctx) if False else None
             full = cn_estimate_total(inv, base_items)
             ratio = req_total / float(full)
-            items = [{"fee_id": f.id, "amount_cents": D(repr(c * ratio))} for f, c in base_items]
+            items = [{"fee_id": f.id, "amount_cents": store5(D(repr(c * ratio)) if n.compat else D(c) * req_total / D(full))}
+                     for f, c in base_items]
             note, errs = cn_create(inv, {"items": items, "credit_amount_cents": credit, "refund_amount_cents": refund})
             if errs:
                 raise KitError(next(iter(errs.values()))[0], next(iter(errs)))
@@ -883,7 +912,8 @@ def op_void(inp, ctx):
     return {"status": "voided", "voidable_before": voidable,
             "credit_notes": [{"credit_amount_cents": x["credit_amount_cents"], "refund_amount_cents": x["refund_amount_cents"],
                               "total_amount_cents": x["total_amount_cents"], "credit_status": x["credit_status"],
-                              "items": [{"fee_id": it["fee_id"], "amount_cents": it["amount_cents"]} for it in x["items"]]}
+                              "items": [{"fee_id": it["fee_id"], "amount_cents": it["amount_cents"],
+                                         "precise_amount_cents": it["precise_amount_cents"]} for it in x["items"]]}
                              for x in out_notes],
             "applied_coupons_after": [{"status": c.status, "frequency_duration_remaining": c.remaining_periods if c.freq == "recurring" else None}
                                       for c in inv.coupon_objs]}
@@ -937,8 +967,10 @@ def op_termination(inp, ctx):
     tz = inp.get("timezone", "UTC")
     plan, sub, iv = inp["plan"], inp["subscription"], inp["invoice"]
     fee_amount = int(iv["subscription_fee_amount_cents"])
-    if fee_amount == 0:
+    if fee_amount == 0 or iv.get("status", "finalized") == "voided":
         return {"credit_note": None}
+    if inp.get("upgrade") and inp.get("on_termination", "credit") in ("refund", "offset"):
+        raise KitError("server_error")
     spec = {"currency": inp.get("currency", "EUR"),
             "fees": [{"id": "sub_fee", "fee_type": "subscription", "amount_cents": fee_amount, "taxes": iv.get("taxes", [])}]
             + list(iv.get("other_fees", [])), "applied_coupons": iv.get("applied_coupons", []),

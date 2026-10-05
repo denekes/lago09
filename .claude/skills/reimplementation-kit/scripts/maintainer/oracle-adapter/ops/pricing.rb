@@ -433,6 +433,9 @@ KitOracle.op("pricing.validate_properties") do |input, ctx|
     errors = valid ? {} : v.result.error.messages.transform_keys(&:to_s)
     chargeable.errors.clear
     chargeable.send(:validate_charge_model_properties, model)
+    # The record's own validation run ends with ActiveRecord's duplicate-error removal (autosave callback), so the
+    # record (and the API) lists each code once; apply the same step so property_messages is the record's list.
+    chargeable.send(:_ensure_no_duplicate_errors) if chargeable.respond_to?(:_ensure_no_duplicate_errors, true)
     {"valid" => valid, "errors" => errors, "property_messages" => chargeable.errors[:properties]}
   end
 end

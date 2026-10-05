@@ -222,14 +222,18 @@ python3 $K/scripts/kitrun.py --impl-cmd "python3 my_adapter.py" --profile correc
 | CRC-6 invoicing | invoice, credit_notes | 95 % | 90 % | 100 % |
 | CRC-7 wallets, progressive billing, alerts | wallets, progressive, alerts | 95 % | 90 % | 100 % |
 | CRC-8 API helpers, webhooks, clock | api, webhooks, clock | 100 % | 98 % | 100 % |
-| CRC-9 events-processor | run-suite + ep | corrected 100 % of decided; compat ≥ 90 % (loose errors); startup 4/4; ep ≥ 95 % | — | — |
+| CRC-9 events-processor | run-suite + ep, one run per profile | corrected run: 100 % of decided, startup 4/4; compat run (loose errors, migration builds): ≥ 90 %; ep ≥ 95 % | — | — |
 | CRC-10 (stretch) | scenarios | ≥ 60 % | — | — |
 
 <!-- evidence-check: on -->
 
 "Conformant" for a profile = every area of the component meets its threshold with CORE 100 % on the shipped set
 and (graded by maintainers) the holdout. Compat is the migration bar; corrected counts only decided vectors.
-Details and the clean-room acceptance protocol: `reference/acceptance-and-grading.md`.
+The events-processor is graded on SEPARATE runs per profile (its compat goldens require the reference's loss
+modes, its corrected assertions forbid them); an implementation may expose a profile switch of its own (for
+example an environment variable passed with `--impl-env`), the same build serving both runs, and may cap its
+retry delays at 2 s under the suite. Details and the clean-room acceptance protocol:
+`reference/acceptance-and-grading.md` (§2.1 for the events-processor runs).
 
 ## 9. Triage a failing vector
 

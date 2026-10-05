@@ -42,6 +42,8 @@ module KitA3Expr
 
     def rails(input, ctx)
       expression = input.fetch("expression")
+      # A blank metric expression means "no expression" at ingestion (BE-EX-7): not an input of mode rails.
+      ctx.bad_input!("mode rails needs a non-blank expression (a blank one means no expression, BE-EX-7)") if expression.blank?
       event = input.fetch("event")
       code = event.fetch("code")
       guard!(ctx, expression, event)

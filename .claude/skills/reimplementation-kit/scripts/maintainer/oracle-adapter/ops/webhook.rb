@@ -161,7 +161,7 @@ KitOracle.op("webhooks.payload_envelope") do |input, ctx|
     wh = Webhook.where(webhook_endpoint_id: ep.id).sole
     begin
       cap = KitApiOps::Webhooks.deliver(wh)
-      {"body" => cap["body"], "webhook_type" => wh.webhook_type, "status" => wh.reload.status}
+      {"body" => cap["body"], "webhook_type" => wh.webhook_type}
     ensure
       KitApiOps::Webhooks.cleanup_blobs(wh)
     end

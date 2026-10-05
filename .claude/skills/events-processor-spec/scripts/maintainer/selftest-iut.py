@@ -202,6 +202,10 @@ def produce(prod, topic, key, value):
 
 
 DONE = {}  # (partition, offset) -> side effects already performed (retry only what failed)
+# kit default dead-letter `event` of an undecodable record (wire-formats.md section 4): the all-empty event
+EMPTY_EVENT = {"code": "", "external_subscription_id": "", "ingested_at": None, "organization_id": "",
+               "precise_total_amount_cents": "", "properties": None, "source_metadata": None, "timestamp": None,
+               "transaction_id": ""}
 
 
 def once(key, step, fn):
@@ -222,7 +226,7 @@ def handle(r, db, prod, raw, key_po=None):
             if k in ev and not isinstance(ev[k], str):
                 raise ValueError("%s is not a string" % k)
     except Exception as e:  # undecodable: DLQ with the raw text, never a silent commit
-        dl = {"event": {}, "raw_event": raw.decode("utf-8", "replace"), "error_code": "decode_event",
+        dl = {"event": EMPTY_EVENT, "raw_event": raw.decode("utf-8", "replace"), "error_code": "decode_event",
               "error_message": "Error decoding event", "initial_error_message": str(e),
               "failed_at": datetime.now(timezone.utc).isoformat()}
         produce(prod, T_DLQ, None, encode(dl))

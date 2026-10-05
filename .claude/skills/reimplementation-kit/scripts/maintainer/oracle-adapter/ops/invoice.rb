@@ -742,7 +742,9 @@ KitOracle.op("invoice.void") do |input, ctx|
           "credit_notes" => invoice.credit_notes.order(:sequential_id).drop(prev_n).map do |c|
             {"credit_amount_cents" => c.credit_amount_cents, "refund_amount_cents" => c.refund_amount_cents,
              "total_amount_cents" => c.total_amount_cents, "credit_status" => c.credit_status,
-             "items" => c.items.order(:created_at).map { |i| {"fee_id" => book.fee_ids[i.fee_id], "amount_cents" => i.amount_cents} }}
+             "items" => c.items.order(:created_at).map do |i|
+               {"fee_id" => book.fee_ids[i.fee_id], "amount_cents" => i.amount_cents, "precise_amount_cents" => i.precise_amount_cents}
+             end}
           end,
           "applied_coupons_after" => book.customer.applied_coupons.order(:created_at).map do |a|
             {"status" => a.status, "frequency_duration_remaining" => a.frequency_duration_remaining}

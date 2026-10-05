@@ -17,6 +17,9 @@
 #                                          matching/ignored filters
 #   aggregation.group_keys                 the event store's grouped count (group values as the store reads them)
 #
+# Metric code: input metric.code (schema default "kit_metric", METRIC_CODE); an event without `code` carries the
+# metric's code (aggregation.aggregate schema).
+#
 # store "pg": events are Event rows (properties as the JSON request parser yields them; created_at = ingestion order).
 # store "ch": events are inserted into ClickHouse events_enriched with the SAME column transform as the production
 # materialized view (toDateTime64(timestamp, 3), JSONExtract(properties, 'Map(String, String)'), value; decimal_value,
@@ -63,7 +66,7 @@ module KitA4
       customer = FactoryBot.create(:customer, organization: org, timezone: tz || "UTC")
       plan = FactoryBot.create(:plan, organization: org, interval: "monthly", amount_cents: 1000)
       bm = BillableMetric.create!(
-        organization: org, code: METRIC_CODE, name: METRIC_CODE, aggregation_type: type,
+        organization: org, code: metric.fetch("code", METRIC_CODE), name: metric.fetch("code", METRIC_CODE), aggregation_type: type,
         field_name: (type == "count_agg") ? nil : metric.fetch("field_name", "value"),
         recurring: metric.fetch("recurring", false),
         rounding_function: metric["rounding_function"], rounding_precision: metric["rounding_precision"],
@@ -158,7 +161,7 @@ module KitA4
         props = props_of(ctx, e)
         ts = ctx.instant(e.fetch("timestamp"))
         seq = e.fetch("ingest_seq", i + 1)
-        attrs = {organization_id: t[:org].id, code: e.fetch("code", METRIC_CODE),
+        attrs = {organization_id: t[:org].id, code: e.fetch("code", t[:metric].code),
                  transaction_id: e.fetch("transaction_id") { "e#{i + 1}" },
                  external_subscription_id: e.fetch("external_subscription_id", sub.external_id),
                  timestamp: ts, properties: props}
