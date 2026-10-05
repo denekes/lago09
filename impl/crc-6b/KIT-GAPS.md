@@ -30,3 +30,7 @@
 ## v1.2
 
 - Question: BE-CN-7 says the note's precise taxes are "stored by rounding its text to 5 places", but `credit_notes.compute.009` (precise tax 15466.66666 × 25 ⁄ 100 = 3866.666665) only passes when the sum is stored with `round5` (BE-IV-14, the x ⊗ 100000 tie rule), not by rounding the text 3866.6666649999997. Where I looked: BE-CN-7, chapter 07 notation paragraph (round5 vs text). Assumption: round5 applies to the binary64 sum of the note's precise taxes.
+
+## v1.4
+
+No open questions. One interpretation: the column rule's "16 significant digits, rounded to nearest" is applied to the exact binary64 value, not its shortest text (looked at: ch.07 lines on the column rule, vector diff for invoice.void.010); assumption kept because it passes all shipped vectors.

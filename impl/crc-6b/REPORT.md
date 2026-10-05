@@ -60,3 +60,17 @@ Changes (rules BE-IV-42, BE-CN-7, column rule of the chapter 07 notation paragra
 - Before the change: 2 vectors failed (credit_notes.compute.020, invoice.void.010).
 
 No new gaps; nothing added to KIT-GAPS.md.
+
+## v1.4
+
+Kit 1.4.0 (kit.json checked). Started 2026-10-05 15:50:57 UTC, finished Mon Oct  5 15:52:07 UTC 2026.
+
+Final kitrun (areas invoice,credit_notes):
+
+- compat: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=190 passed=190 skipped_ops=0 exit=0` (invoice 144/144 = 100.0 %, credit_notes 46/46 = 100.0 %, core 100 % in both)
+- corrected: `SUMMARY kitrun: areas=2 pass=2 fail=0 vectors=190 passed=177 skipped_ops=0 exit=0` (invoice 137 pass + 7 unruled = 100 %, credit_notes 40 pass + 6 unruled = 100 %)
+
+What changed:
+
+- BE-IV-14 `round5`: the correction `(f ⊕ 0.5) ⊘ 100000 ≤ x` is now always evaluated as a binary64 sum. I had skipped it when `f + 0.5 == f` (f ≥ 2^52), so an even f was never raised (invoice.void.011).
+- Column rule (BE-IV-14 / ch.07 storage text): the 16-significant-digit step now rounds the exact binary64 value to nearest instead of its shortest repr text. With the corrected `round5` this keeps invoice.void.010 passing (it regressed to .7987 when only the first fix was applied).

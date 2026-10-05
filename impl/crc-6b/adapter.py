@@ -82,18 +82,18 @@ def col5(x):
     with localcontext() as c:
         c.prec = 16
         c.rounding = ROUND_HALF_UP
-        d = +Decimal(repr(float(r)))
+        d = +Decimal(float(r))  # nearest on the exact binary64 value
     return round_places(Fraction(d), 5)
 
 
 def _round5_float(x):
     s = 10.0 ** 5
     f = float(rnd(Fraction(x * s)))
-    if f + 0.5 != f:  # above 2^52 the half step is not representable: no correction
-        if x > 0 and (f + 0.5) / s <= x:
-            f += 1
-        elif x < 0 and (f - 0.5) / s >= x:
-            f -= 1
+    # binary64 sum (BE-IV-14): from f >= 2^52 f + 0.5 lands on the even neighbour, so an even f is raised
+    if x > 0 and (f + 0.5) / s <= x:
+        f += 1
+    elif x < 0 and (f - 0.5) / s >= x:
+        f -= 1
     return f / s
 
 
