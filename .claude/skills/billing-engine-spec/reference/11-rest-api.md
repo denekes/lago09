@@ -80,7 +80,7 @@ Index endpoints take the query parameters `page` and `per_page`.
 - **BE-API-24** `per_page=0` with at least one matching record is an unhandled failure (HTTP 500); with no record it answers the empty first page of BE-API-22. The corrected profile answers a validation error on `per_page` instead (RBD-86, proposed). [vec: api.pagination_meta.013, api.pagination_meta.013x, api.pagination_meta.014]
 - **BE-API-25** Default order of lists: `created_at` descending, then id ascending; some endpoints override it (subscriptions, events by timestamp; chapter of the resource). Clients must not rely on the order of objects created in the same instant. [vec: none (prose only: equal-instant order is not observable deterministically; scenarios compare such lists as sets)]
 - **BE-API-26** Count cache (invoices list, customer invoices list, fees list): the total count is cached for 30 minutes under `pagination_count/<invoices|fees>/<sha256-hex>`; the hashed text is the request's permitted parameters without `page`, plus `organization_id`, each object turned into its list of `[key, value]` pairs sorted by key (recursively), serialised as compact JSON. On a request the cached value is used only when it is **greater than** `per_page × page`, where both are read from the raw query as integer prefixes (absent `page` → 1, absent `per_page` → 100, no digits → 0) — not the normalised values of BE-API-21, so with `per_page=abc` or `page=0` any positive cached count is used; otherwise the list is recounted and the cache rewritten. A list can therefore report a stale `total_count` (up to 30 minutes old) on any page but the tail. [vec: api.count_cache_key.001, api.count_cache_key.004, api.pagination_meta.010, api.pagination_meta.011]
-- **BE-API-27** The permitted parameters that enter the key: invoices — the scalar filters `amount_from`, `amount_to`, `currency`, `invoice_type`, `issuing_date_from`, `issuing_date_to`, `partially_paid`, `payment_dispute_lost`, `payment_overdue`, `payment_status`, `payment_statuses`, `per_page`, `purchase_order_number`, `search_term`, `self_billed`, `settlements`, `status`, `statuses` and the object `metadata`; array-valued filters (`billing_entity_codes[]`) and unknown keys are **not** part of the key, and the customer of a customer-scoped list is not either, so the organization-wide list and every customer's list with the same query share one cached count. Fees — `fee_type`, `payment_status`, `external_subscription_id`, `external_customer_id`, `billable_metric_code`, `currency`, `event_transaction_id`, `created_at_from/_to`, `failed_at_from/_to`, `succeeded_at_from/_to`, `refunded_at_from/_to`, then `per_page` (null when absent). [vec: api.count_cache_key.002, api.count_cache_key.003, api.count_cache_key.004]
+- **BE-API-27** The permitted parameters that enter the key. A scalar filter enters only when its value is a single text: a list or an object given for it (`statuses[]=draft`, `fee_type[]=charge`) is dropped from the key, so such a request shares the cached count of the same list without that filter. Invoices — the scalar filters `amount_from`, `amount_to`, `currency`, `invoice_type`, `issuing_date_from`, `issuing_date_to`, `partially_paid`, `payment_dispute_lost`, `payment_overdue`, `payment_status`, `payment_statuses`, `per_page`, `purchase_order_number`, `search_term`, `self_billed`, `settlements`, `status`, `statuses` and the object `metadata` (kept whole, nested lists and objects included; a `metadata` that is not an object is dropped); the list filter `billing_entity_codes[]` and unknown keys are **not** part of the key (a `billing_entity_codes` sent as a single text, even an empty one, enters like a scalar filter), and the customer of a customer-scoped list is not either, so the organization-wide list and every customer's list with the same query share one cached count. Fees — the scalar filters `fee_type`, `payment_status`, `external_subscription_id`, `external_customer_id`, `billable_metric_code`, `currency`, `event_transaction_id`, `created_at_from/_to`, `failed_at_from/_to`, `succeeded_at_from/_to`, `refunded_at_from/_to`, then `per_page` as given (its text, null when absent). For both indexes `page` never enters the key (BE-API-26). [vec: api.count_cache_key.002, api.count_cache_key.003, api.count_cache_key.004, api.count_cache_key.005, api.count_cache_key.006]
 
 ## 7. Natural keys instead of idempotency keys
 
@@ -244,7 +244,7 @@ of non-null values. Bracketed groups are present only when the endpoint includes
 - A bare key in the Authorization header (no scheme) is rejected; any scheme word is accepted (api.auth_token.003, api.auth_token.002).
 - `per_page` that is not a number gives 25 per page, not 100 (api.pagination_meta.006); 0 crashes the request when records exist (api.pagination_meta.013).
 - An out-of-range page has a `prev_page` but no `next_page` (api.pagination_meta.004).
-- The invoices count cache ignores the customer and array filters: two different lists can report each other's total (api.count_cache_key.002, api.count_cache_key.003).
+- The invoices count cache ignores the customer and array filters: two different lists can report each other's total (api.count_cache_key.002, api.count_cache_key.003); a scalar filter sent as a list (`statuses[]=draft`) is ignored by the key too (api.count_cache_key.005).
 - The service-level unauthorized message is lower-case `unauthorized`; the authentication one is `Unauthorized` (api.error_body.007, api.error_body.013).
 - Error bodies escape `<`, `>`, `&` like webhook bodies (api.error_body.009).
 - With `per_page=abc` the cache test reads the page size as 0, so any positive cached count is reported (api.pagination_meta.015).
@@ -256,7 +256,7 @@ of non-null values. Bracketed groups are present only when the endpoint includes
 | Op | Vectors | Rules |
 |---|---|---|
 | `api.pagination_meta` | api.pagination_meta.001-015 (+013x) | BE-API-21..24, BE-API-26 |
-| `api.count_cache_key` | api.count_cache_key.001-004 | BE-API-26, BE-API-27 |
+| `api.count_cache_key` | api.count_cache_key.001-006 | BE-API-26, BE-API-27 |
 | `api.error_body` | api.error_body.001-014 | BE-API-2, 4, 8, 13..18 |
 | `api.auth_token` | api.auth_token.001-005 (+002x) | BE-API-3 |
 | `api.authorize` | api.authorize.001-004 | BE-API-6 |
@@ -317,6 +317,15 @@ first nested list), each request in its own rolled-back savepoint, giving the **
 missing `add_on_id` in a plan's fixed charge and a missing billing-entity `code` raise inside the reference: HTTP
 500); the other rows of section 8.1 are read from the permit lists and validations at the pin. New vector
 `api.pagination_meta.015` executed through `oracle.sh adapter` (PASS).
+
+Fix round of 2026-10-05 (database `lago_api_test_fr2g5`, same toolchain): new vectors `api.count_cache_key.005`
+(scalar filters given as lists, nested `metadata`) and `.006` (fees: a list filter, `page` and `per_page`) executed
+through `oracle.sh adapter` (PASS), their keys re-derived independently from the pre-images (SHA-256); further calls
+(not shipped) showed that `statuses[]=draft` and no status filter give the same key and that a `metadata` text value
+is dropped. An independent re-run the same day (database `lago_api_test_v2g5`) reproduced both vectors and showed that
+`billing_entity_codes` given as a single text (`X`, or empty) enters the key while its list form does not. The
+scalar-only rule is the parameter filtering of the permit lists at
+`$API/app/controllers/concerns/invoice_index.rb:7-29` and `$API/app/controllers/api/v1/fees_controller.rb:98-116`.
 
 Update triggers: a pin bump (re-run the oracle over `api.jsonl`), a change of the API base controller, error concern,
 pagination concern or a V1 serializer, an owner ruling on RBD-86/87/88.

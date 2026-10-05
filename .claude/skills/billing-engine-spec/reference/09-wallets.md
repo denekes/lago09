@@ -18,7 +18,8 @@ a prose-only marker with the reason. Vector file: `wallets.jsonl` (ops `wallets.
 `wallets.consumption_order`, `wallets.topup_amount`, `wallets.threshold_top_up`, `wallets.interval_due`,
 `wallets.allocate`, `wallets.ongoing_balance`; schemas in `reimplementation-kit/schemas/ops/wallets.*.schema.json`).
 End-to-end flows: `scn.wallet.*`, `scn.invoice.prepaid.*` (scenario tier). Most wallet features beyond plain prepaid
-credits are gated by the premium licence (RBD-97).
+credits are gated by the premium licence (RBD-97). `⊘` marks a binary64 division (notation of chapter 07, reading
+guide).
 
 <!-- evidence-check: off normative spec; evidence = the vector ids on each line, checked by kitrun against the oracle -->
 
@@ -38,9 +39,9 @@ Status machines (chapter 01, BE-DM-64): wallet active → terminated; transactio
 Notation: `e` = currency exponent (appendix-currencies), `round_e` = round half away from zero to `e` places.
 
 - **BE-WL-1** Credits to money: `amount = round_e(credits × rate_amount)`; `amount_cents = amount × 10^e` (an integer). [vec: wallets.credits.001, wallets.credits.004, wallets.credits.008, wallets.credits.009]
-- **BE-WL-2** Invoiceable credits (paid and granted credits, outbound invoiced amounts) are snapped to whole minor units: the credit count kept is `amount ÷ rate_amount`, so credits that cannot be expressed in whole minor units are rounded away (1034 credits at 0.001 EUR become 1030). The reference performs this division in binary floating point (a "float island", RBD-96: 3.3 credits at 1.5 JPY become 3.3333333333333335). [vec: wallets.credits.001, wallets.credits.004, wallets.credits.009]
+- **BE-WL-2** Invoiceable credits (paid and granted credits, outbound invoiced amounts) are snapped to whole minor units: the credit count kept is `amount ÷ rate_amount`, so credits that cannot be expressed in whole minor units are rounded away (1034 credits at 0.001 EUR become 1030). How the reference divides depends on the currency exponent: for `e = 0` the amount is a whole number and the division is binary64 (a "float island", RBD-96: 3.3 credits at 1.5 JPY become `5 ⊘ 1.5` = 3.3333333333333335); for `e > 0` it is a decimal division (0.333 credits at 3 EUR: amount 1.00, credits 0.33333333333333333333333333333333, 32 digits; vectors compare such quotients at 20 places). [vec: wallets.credits.001, wallets.credits.004, wallets.credits.009, wallets.credits.012, wallets.credits.014]
 - **BE-WL-3** Non-invoiceable conversions (voided credits) keep the requested credit count while the money amount is rounded, so the credit and money balances can diverge (RBD-81). [vec: wallets.credits.002, wallets.top_up.015]
-- **BE-WL-4** Money to credits: the minor-unit amount is first rounded half away from zero to an integer, `amount = that ÷ 10^e`, `credits = amount ÷ rate_amount` (binary floating point). Used when an amount of money is taken from a wallet (prepaid credits, voiding a remaining amount, the min/max top-up limits in credits). [vec: wallets.credits.011, wallets.allocate.012]
+- **BE-WL-4** Money to credits: the minor-unit amount is first rounded half away from zero to an integer, `amount = that ⊘ 10^e` (binary64), then `credits = amount / rate_amount` as a decimal division of the amount's binary64 text (100 cents at rate 3 EUR: 1.0, then 0.33333333333333333333…, not the binary64 0.3333333333333333); the credits are then snapped as invoiceable credits (BE-WL-2), which for `e = 0` recomputes them as the binary64 `amount ⊘ rate_amount` (5 JPY at rate 1.5: 3.3333333333333335, not the decimal 3.33333333333333333333…). Used when an amount of money is taken from a wallet (prepaid credits, voiding a remaining amount, the min/max top-up limits in credits). [vec: wallets.credits.011, wallets.credits.013, wallets.credits.014, wallets.allocate.012]
 - **BE-WL-5** "Rounds to zero": a credit amount floored to 5 decimal places that is positive but converts (BE-WL-1) to 0 minor units. 0 credits, and amounts that floor to 0, do not round to zero. [vec: wallets.credits.005, wallets.credits.007, wallets.credits.008, wallets.credits.010, wallets.top_up.003]
 
 ## 3. Transaction requests (top-up, grant, void)
@@ -62,7 +63,7 @@ A wallet is created traceable when the customer has no active non-traceable wall
 must stay ≥ 0; a non-traceable wallet may go negative through usage.
 
 - **BE-WL-13** Every outbound transaction of a traceable wallet (invoiced or voided) consumes the settled inbound transactions with a positive remaining amount in this order: `priority` ascending, then granted before any other status, then oldest first; each consumption takes `min(remaining, still to consume)`. The invoice's prepaid amount is split into granted and purchased parts from these consumptions when every wallet of the customer is traceable. [vec: wallets.consumption_order.001, wallets.consumption_order.002, wallets.allocate.011, scn.wallet.traceability.001, scn.wallet.traceability.003]
-- **BE-WL-14** An outbound aimed at one inbound transaction consumes only that one; more than its remaining amount → `exceeds_remaining_transaction_amount` (field `amount_cents`). [vec: wallets.consumption_order.004, wallets.consumption_order.005]
+- **BE-WL-14** An outbound aimed at one inbound transaction consumes only that one; more than its remaining amount → `exceeds_remaining_transaction_amount` (field `amount_cents`). The named transaction always exists here: an unknown one is rejected earlier by the request validation (`wallet_transaction_not_found`, BE-WL-6). [vec: wallets.consumption_order.004, wallets.consumption_order.005]
 - **BE-WL-15** More than the total remaining amount → `exceeds_available_amount` (field `amount_cents`); nothing is consumed. [vec: wallets.consumption_order.003]
 - **BE-WL-16** Every decrease (invoice, void) applies the BE-WL-12 arithmetic to the wallet; the remaining amount of inbound transactions never goes below 0. [vec: wallets.top_up.011, wallets.top_up.015]
 
@@ -95,7 +96,7 @@ zone rules); `today` is `now` in the same zone.
 - **BE-WL-28** A rule is due when the anchor matches today: weekly = same ISO weekday; monthly = same day of month, where on the last day of a month every anchor day from today's day to 31 matches; quarterly = the month is the anchor month plus a multiple of 3 (anchor months 3, 6, 9, 12 match those months) and the day rule of monthly; semiannual = anchor month or anchor month + 6, plus the day rule; yearly = same month and day, where Feb 28 of a non-leap year also matches an anchor on Feb 29. [vec: wallets.interval_due.001, wallets.interval_due.003, wallets.interval_due.004, wallets.interval_due.005, wallets.interval_due.007, wallets.interval_due.011, wallets.interval_due.016]
 - **BE-WL-29** Not due: wallet or rule not active; the anchor has not started — the reference compares the anchor's **local wall-clock time** with `now` read as a UTC wall-clock time, so the start shifts by the zone offset on the anchor day (ahead of UTC a rule started in the last offset-hours of its local day is never due that day and its first top-up is skipped; behind UTC it is due up to the offset before its start instant; RBD-105, compat kept; proposed: compare instants); the rule expired (`expiration_at ≤ now`); the wallet was created today (local date, even when the rule has an earlier `started_at`); the wallet already received an inbound interval top-up today (local date). [vec: wallets.interval_due.009, wallets.interval_due.010, wallets.interval_due.013, wallets.interval_due.014, wallets.interval_due.017, wallets.interval_due.017x]
 - **BE-WL-30** A due target rule whose paid and granted amounts are both 0 issues nothing. [vec: wallets.interval_due.015]
-- **BE-WL-31** A due rule issues one top-up request with source `interval` and the BE-WL-20/22/23 amounts computed at sweep time; target rules ignore the paid limits. [vec: wallets.interval_due.001]
+- **BE-WL-31** A due rule issues one top-up request with source `interval` and the BE-WL-20/22/23 amounts computed at sweep time from the wallet's ongoing balance in credits (a wallet at 0 tops a target rule up by its whole target); target rules ignore the paid limits. [vec: wallets.interval_due.001, wallets.interval_due.018]
 
 ## 6. Prepaid credits on an invoice
 
@@ -114,10 +115,10 @@ below are minor units and may be fractional until BE-WL-44.
 The ongoing balance anticipates what the next invoices will consume. It is recomputed for all active wallets of a
 customer together (the allocation of one depends on the others).
 
-- **BE-WL-50** Net usage per fee key (fee type, billable metric, target wallet code, currency): `+ (amount + taxes)` of each current-usage fee of the customer's active subscriptions; `+ (amount + taxes − precise coupons)` of each fee of the customer's draft invoices with a non-zero total; `− (sub_total + taxes)` of each fee of the subscription's progressive-billing invoices already billed in the current period (chapter 10); `− (amount + taxes)` of each current-usage fee of a charge billed in advance (already invoiced at event time). [vec: wallets.ongoing_balance.001, wallets.ongoing_balance.004]
+- **BE-WL-50** Net usage per fee key (fee type, billable metric, target wallet code, currency): `+ (amount + taxes)` of each current-usage fee of the customer's active subscriptions; `+ (amount + taxes − precise coupons)` of each fee of the customer's draft invoices with a non-zero total; `− (sub_total + taxes)` of each fee of the subscription's progressive-billing invoices already billed in the current period (chapter 10); `− (amount + taxes)` of each current-usage fee of a charge billed in advance (already invoiced at event time; this subtraction applies to current-usage fees only, so a draft-invoice or progressive-billing fee of such a charge counts fully). [vec: wallets.ongoing_balance.001, wallets.ongoing_balance.004, wallets.ongoing_balance.011]
 - **BE-WL-51** Budget per currency = `max(0, Σ nets of that currency)`; keys with a net ≤ 0 receive nothing but their negative nets lower the budget. [vec: wallets.ongoing_balance.004, wallets.ongoing_balance.005]
-- **BE-WL-52** Keys with a positive net, largest first, are allocated to the applicable wallets (BE-WL-43 applicability, same currency) in wallet order: `take = min(net remaining, budget)`; a wallet with an active threshold rule takes everything left (its room counts as 0, it may go negative); the last applicable wallet takes everything left; any other wallet takes at most `balance − already allocated to it`. Equal nets are ordered by the text of the key's parts in turn (fee type, metric, target wallet code, currency): fee types compare as text (`charge` before `subscription`), but the metric part is the metric's internal id, so two metrics with equal nets come in an order a rebuild cannot reproduce, and the split across restricted wallets depends on it (RBD-104, compat kept; proposed: the metric's code in place of its internal id). [vec: wallets.ongoing_balance.002, wallets.ongoing_balance.003, wallets.ongoing_balance.005, wallets.ongoing_balance.006, wallets.ongoing_balance.009, wallets.ongoing_balance.010x, scn.wallet.balance.001]
-- **BE-WL-53** Per wallet: `ongoing_usage_balance_cents` = its allocation; `ongoing_balance_cents = balance_cents − allocation`; credit forms = cents ÷ 10^e ÷ `rate_amount` (binary floating point). [vec: wallets.ongoing_balance.001]
+- **BE-WL-52** Keys with a positive net, largest first, are allocated to the applicable wallets (BE-WL-43 applicability, same currency) in wallet order: `take = min(net remaining, budget)`; a wallet with an active threshold rule takes everything left (its room counts as 0, it may go negative); the last applicable wallet takes everything left; any other wallet takes at most `balance − already allocated to it`. Equal nets are ordered by the text of the key's parts in turn (fee type, metric, target wallet code, currency): fee types compare as text (`charge` before `subscription`, the same in both profiles: `wallets.ongoing_balance.009` is `both`), but the metric part is the metric's internal id, so two metrics with equal nets come in an order a rebuild cannot reproduce, and the split across restricted wallets depends on it (RBD-104, compat kept; proposed: the metric's code in place of its internal id). [vec: wallets.ongoing_balance.002, wallets.ongoing_balance.003, wallets.ongoing_balance.005, wallets.ongoing_balance.006, wallets.ongoing_balance.009, wallets.ongoing_balance.010x, scn.wallet.balance.001]
+- **BE-WL-53** Per wallet: `ongoing_usage_balance_cents` = its allocation; `ongoing_balance_cents = balance_cents − allocation`; credit forms = `(cents ⊘ 10^e) / rate_amount` — binary64 to money, then a decimal division by the rate — stored at 5 places. [vec: wallets.ongoing_balance.001]
 - **BE-WL-54** `depleted_ongoing_balance` turns true when the ongoing balance becomes ≤ 0 (webhook `wallet.depleted_ongoing_balance`, chapter 12) and back to false when it becomes > 0. [vec: wallets.ongoing_balance.001, wallets.ongoing_balance.002]
 - **BE-WL-55** After each refresh: the threshold rule check (BE-WL-25, only when the ongoing state changed) and the wallet alerts (chapter 10). Refreshes happen after every wallet decrease and grant, and periodically for customers flagged for refresh; the reference schedules the periodic refresh only when a cache backend is configured (RBD-79, chapter 13). [vec: scn.wallet.balance.001, scn.wallet.alert.001]
 
@@ -147,21 +148,25 @@ customer together (the allocation of one depends on the others).
 
 | File / op | Count | Rules |
 |---|---|---|
-| `wallets.credits` | 11 | BE-WL-1..5 |
+| `wallets.credits` | 14 | BE-WL-1..5 |
 | `wallets.top_up` | 15 | BE-WL-3, BE-WL-5..12 |
 | `wallets.consumption_order` | 6 | BE-WL-13..15 |
 | `wallets.topup_amount` | 14 | BE-WL-20..24 |
 | `wallets.threshold_top_up` | 8 | BE-WL-25..27 |
-| `wallets.interval_due` | 18 (1 corrected twin) | BE-WL-28..31 |
+| `wallets.interval_due` | 19 (1 corrected twin) | BE-WL-28..31 |
 | `wallets.allocate` | 12 | BE-WL-40..44 |
-| `wallets.ongoing_balance` | 10 (1 corrected) | BE-WL-50..54 |
+| `wallets.ongoing_balance` | 11 (1 corrected) | BE-WL-50..54 |
 
 All compat-graded vectors are EXECUTED through the oracle; all are `both` profile except the RBD-105 pair
 (`wallets.interval_due.017` compat, `.017x` corrected) and `wallets.ongoing_balance.010x`, a corrected vector without
 a compat twin because the reference's order of tied metrics is not reproducible. Corrected vectors are graded only
-when the owner rules RBD-104 and RBD-105. The floating-point steps (BE-WL-2, BE-WL-4, BE-WL-53) are
-float islands under RBD-96; vectors avoid values where binary and decimal arithmetic differ beyond the compare
-mode, except `wallets.credits.004` (compared as binary64).
+when the owner rules RBD-104 and RBD-105. The floating-point steps — the credit division of a zero-exponent
+currency (BE-WL-2, also reached by BE-WL-4 through the snap) and the cents-to-money step `cents ⊘ 10^e` (BE-WL-4,
+BE-WL-53) — are float islands under RBD-96; the credit division of other currencies is decimal (`wallets.credits.012`,
+`wallets.credits.013`, compared at 20 places). `wallets.credits.014` (5 JPY at 1.5 → 3.3333333333333335, compared
+exactly) tells the zero-exponent island apart from a decimal division; `wallets.credits.004` is compared as binary64.
+The cents-to-money step has no discriminating input: a whole number of minor units divided by `10^e` reads back as the
+exact decimal. Notation `⊘`: chapter 07 reading guide.
 
 ## Provenance (maintainers)
 
@@ -204,6 +209,20 @@ Executions on the pinned toolchain (ruby-4.0.6, 2026-10-02, a dedicated oracle d
   Probe: the input of `wallets.ongoing_balance.010x` run 12 times through the oracle gave a 100 / b 100 seven times
   and a 200 / b 0 five times; `wallets.ongoing_balance.009` (charge before subscription) gave the same result in 10 of 10 runs. Oracle re-run of
   chapters 09-10: 175/175 compat-graded vectors PASS.
+- Fix round of 2026-10-05 (database `lago_api_test_fr2g4`): the credit conversions of `$API/app/models/wallet_credit.rb:7-36`
+  divide a rounded amount by the rate through the float-division helper, which returns a binary64 only when the amount
+  is a whole number (zero-exponent currencies) and a decimal otherwise — executed: 0.333 credits at 3 EUR and 100 cents
+  at 3 EUR give 0.33333333333333333333333333333333 (`wallets.credits.012`, `.013`) while 3.3 credits at 1.5 JPY give
+  3.3333333333333335 (`wallets.credits.004`); the ongoing credit forms divide `cents ⊘ 10^e` by the rate the same way
+  (`$API/app/services/wallets/balance/refresh_ongoing_usage_service.rb:58-68`). Pay-in-advance subtraction only for
+  current-usage fees: `$API/app/services/customers/refresh_wallets_service.rb:56-59`, executed
+  (`wallets.ongoing_balance.011`). Interval target rule on a wallet at 0 credits: `wallets.interval_due.018`. An unknown
+  inbound transaction named in a consumption is looked up with a raising find in
+  `$API/app/services/wallet_transactions/track_consumption_service.rb:33`; requests reach it only after the validation of
+  BE-WL-6. kitrun of chapters 09-10 against the oracle (shipped and holdout) PASS within the 392/392 run of chapter 07.
+- Independent verification of 2026-10-05 (database `lago_api_test_v2g4`): money to credits for a zero-exponent
+  currency passes through the invoiceable snap of `$API/app/models/wallet_credit.rb:26-32`, whose rounded amount is an
+  integer, so the final division is binary64: 5 JPY at 1.5 → 3.3333333333333335 (`wallets.credits.014`, executed).
 - Update triggers: a pin bump; any change to the wallet credit model, the wallet transaction services, the
   recurring rule model, the threshold and interval top-up services, the prepaid-credit allocation or the ongoing-usage
   allocation.
