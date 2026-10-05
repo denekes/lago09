@@ -41,7 +41,7 @@
   },
   "kit_budget": {
     "description": "validate-vectors.py BUDGET caps in bytes (whole-kit runs). billing_unit = billing-engine-spec/vectors/*.jsonl plus holdout files not named ep.*; scenarios = billing-engine-spec/scenarios/*; ep_conformance = events-processor-spec/conformance/**; ep_units = events-processor-spec/vectors/*.jsonl plus holdout ep.*.jsonl; schemas_meta = reimplementation-kit/schemas/**/*.json + acceptance/* + scenarios/MANIFEST.md; total = their sum plus reimplementation-kit/kit.json (the sha256 manifest counts only here). One scenario: target and max in compact JSON, with a few exceptions up to the exception max.",
-    "billing_unit": 1400000,
+    "billing_unit": 1450000,
     "scenarios": 600000,
     "ep_conformance": 650000,
     "ep_units": 130000,

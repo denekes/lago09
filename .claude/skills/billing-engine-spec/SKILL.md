@@ -11,7 +11,7 @@ description: "Behaviour spec of the in-scope Lago billing engine (lago-api at pi
 Language-neutral specification of the billing core of Lago — catalogue, customers, event ingestion, usage
 aggregation, pricing, billing periods, invoices, taxes, coupons, credit notes, wallets, progressive billing, alerts,
 the REST API v1 surface, webhooks and the clock — written so that a team holding only the kit can build an
-equivalent engine and prove it with the kit's vectors. Facts as of lago-api `591ae9005110`; kit v1.2.0.
+equivalent engine and prove it with the kit's vectors. Facts as of lago-api `591ae9005110`; kit v1.3.0.
 Scope IN: the items above. Scope OUT (interface boundary only, chapter 14): payment providers, tax providers,
 accounting/CRM integrations, e-invoicing, documents and e-mail, dunning, the newer quote/contract features,
 entitlements, GraphQL administration, authentication of members, analytics and data exports.
@@ -218,20 +218,20 @@ both/compat/corrected; every both/compat vector EXECUTED through the oracle at t
 | `invoice.totals.jsonl` | totals | 28 | 28/0/0 |
 | `invoice.taxes.jsonl` | apply_taxes, fee_tax_selection | 23 | 21/1/1 |
 | `invoice.coupons.jsonl` | coupon_amount, coupon_apply, coupon_create, coupon_distribution, coupon_order | 63 | 61/1/1 |
-| `invoice.lifecycle.jsonl` | available_to_credit, final_status, issuing_date, payment_due_date, void | 50 | 46/2/2 |
+| `invoice.lifecycle.jsonl` | available_to_credit, final_status, issuing_date, payment_due_date, void | 52 | 46/3/3 |
 | `invoice.commitment.jsonl` | commitment_true_up | 11 | 9/1/1 |
-| `credit_notes.jsonl` | compute, estimate, termination, validate | 58 | 48/5/5 |
+| `credit_notes.jsonl` | compute, estimate, termination, validate | 60 | 48/6/6 |
 | `wallets.jsonl` | allocate, consumption_order, credits, interval_due, ongoing_balance, threshold_top_up, top_up, topup_amount | 99 | 96/1/2 |
 | `progressive.jsonl` | check_thresholds, lifetime_usage, passed_amount, to_credit | 57 | 57/0/0 |
 | `alerts.jsonl` | crossed, measure | 32 | 24/4/4 |
 | `api.jsonl` | auth_token, authorize, count_cache_key, error_body, pagination_meta | 46 | 42/2/2 |
 | `webhooks.jsonl` | encode, endpoint_receives, normalize_event_types, payload_envelope, public_key, retry_step, sign, type_info | 63 | 61/1/1 |
 | `clock.jsonl` | idempotency_key, jobs_due, termination_alert_due | 20 | 18/1/1 |
-| total | 105 unit ops | 1,806 | 1,582/113/111 |
+| total | 105 unit ops | 1,810 | 1,582/115/113 |
 
 <!-- evidence-check: on -->
 
-Corrected twins (`…x`) are RECOMPUTED from their rebuild decision; all 111 of them are `ruling: proposed` (UNRULED
+Corrected twins (`…x`) are RECOMPUTED from their rebuild decision; all 113 of them are `ruling: proposed` (UNRULED
 until the owner rules). Three test-only vectors carry the kit's test RSA key (tag `test-key`); never use it elsewhere.
 
 Scenario tier: 76 end-to-end scenarios in `scenarios/scn.*.json` (index `scenarios/MANIFEST.md`): a tenant set up
