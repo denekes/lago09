@@ -31,19 +31,15 @@ type MessageProducer interface {
 }
 
 func NewProducer(serverConfig ServerConfig, cfg *ProducerConfig) (*Producer, error) {
-	opts := make([]kgo.Opt, 0)
-	kcl, err := NewKafkaClient(serverConfig, opts)
+	kcl, err := NewKafkaClient(serverConfig, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	logger := slog.New(utils.NewLevelHandler(slog.LevelInfo, slog.Default().Handler())).
-		With("component", "kafka-producer")
-
 	pdr := &Producer{
 		client: kcl,
 		config: *cfg,
-		logger: logger,
+		logger: newLogger("component", "kafka-producer"),
 	}
 
 	return pdr, nil

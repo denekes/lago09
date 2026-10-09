@@ -10,8 +10,6 @@ import (
 )
 
 func TestBuildBillableMetricFilterKey(t *testing.T) {
-	cache := setupTestCache(t)
-
 	testModel := struct {
 		id               string
 		organizationID   string
@@ -23,7 +21,7 @@ func TestBuildBillableMetricFilterKey(t *testing.T) {
 	}
 
 	expectedKey := "bmf:org-123:bm-123:123"
-	key := cache.buildBillableMetricFilterKey(testModel.organizationID, testModel.billableMetricID, testModel.id)
+	key := buildBillableMetricFilterKey(testModel.organizationID, testModel.billableMetricID, testModel.id)
 	assert.Equal(t, expectedKey, key)
 }
 

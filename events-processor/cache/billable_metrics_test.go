@@ -10,8 +10,6 @@ import (
 )
 
 func TestBuildBillableMetricKey(t *testing.T) {
-	cache := setupTestCache(t)
-
 	tests := []struct {
 		name           string
 		organizationID string
@@ -34,7 +32,7 @@ func TestBuildBillableMetricKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			key := cache.buildBillableMetricKey(tt.organizationID, tt.code)
+			key := buildBillableMetricKey(tt.organizationID, tt.code)
 			assert.Equal(t, tt.expectedKey, key)
 		})
 	}

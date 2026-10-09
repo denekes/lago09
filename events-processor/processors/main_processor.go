@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/twmb/franz-go/pkg/kgo"
-
 	"github.com/getlago/lago/events-processor/cache"
 	"github.com/getlago/lago/events-processor/config/database"
 	"github.com/getlago/lago/events-processor/config/kafka"
@@ -18,14 +16,9 @@ import (
 	"github.com/getlago/lago/events-processor/utils"
 )
 
-var (
-	processor   *events_processor.EventProcessor
-	apiStore    *models.ApiStore
-	kafkaConfig kafka.ServerConfig
-)
-
 const (
 	envEnv                                       = "ENV"
+	envDatabaseURL                               = "DATABASE_URL"
 	envLagoEventsProcessorDatabaseMaxConnections = "LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS"
 	envLagoKafkaBootstrapServers                 = "LAGO_KAFKA_BOOTSTRAP_SERVERS"
 	envLagoKafkaConsumerGroup                    = "LAGO_KAFKA_CONSUMER_GROUP"
@@ -52,7 +45,7 @@ type Config struct {
 	Cache          *cache.Cache
 }
 
-func initProducer(ctx context.Context, topicEnv string) (*kafka.Producer, error) {
+func initProducer(ctx context.Context, kafkaConfig kafka.ServerConfig, topicEnv string) (*kafka.Producer, error) {
 	if os.Getenv(topicEnv) == "" {
 		return nil, fmt.Errorf("%s variable is required", topicEnv)
 	}
@@ -99,6 +92,27 @@ func initFlagStore(ctx context.Context, name string) (*models.FlagStore, error) 
 	return models.NewFlagStore(db, name), nil
 }
 
+// initDatabase connects to the API database, used for enrichment lookups when the in memory
+// cache is disabled.
+func initDatabase() *database.DB {
+	maxConns, err := utils.GetEnvAsInt(envLagoEventsProcessorDatabaseMaxConnections, 200)
+	if err != nil {
+		utils.LogAndPanic(err, "Error converting max connections into integer")
+	}
+
+	dbConfig := database.DBConfig{
+		Url:      os.Getenv(envDatabaseURL),
+		MaxConns: int32(maxConns),
+	}
+
+	db, err := database.NewConnection(dbConfig)
+	if err != nil {
+		utils.LogAndPanic(err, "Error connecting to the database")
+	}
+
+	return db
+}
+
 func StartProcessingEvents(ctx context.Context, config *Config) {
 	serverBrokers := utils.ParseBrokersEnv(os.Getenv(envLagoKafkaBootstrapServers))
 	if len(serverBrokers) == 0 {
@@ -106,7 +120,7 @@ func StartProcessingEvents(ctx context.Context, config *Config) {
 		panic("brokers not found")
 	}
 
-	kafkaConfig = kafka.ServerConfig{
+	kafkaConfig := kafka.ServerConfig{
 		ScramAlgorithm: os.Getenv(envLagoKafkaScramAlgorithm),
 		TLS:            utils.GetEnvAsBool(envLagoKafkaTLS, false),
 		Servers:        serverBrokers,
@@ -115,38 +129,29 @@ func StartProcessingEvents(ctx context.Context, config *Config) {
 		Password:       os.Getenv(envLagoKafkaPassword),
 	}
 
-	eventsEnrichedProducer, err := initProducer(ctx, envLagoKafkaEnrichedEventsTopic)
+	eventsEnrichedProducer, err := initProducer(ctx, kafkaConfig, envLagoKafkaEnrichedEventsTopic)
 	if err != nil {
 		utils.LogAndPanic(err, "failed to initialize enriched events producer")
 	}
 
-	eventsInAdvanceProducer, err := initProducer(ctx, envLagoKafkaEventsChargedInAdvanceTopic)
+	eventsInAdvanceProducer, err := initProducer(ctx, kafkaConfig, envLagoKafkaEventsChargedInAdvanceTopic)
 	if err != nil {
 		utils.LogAndPanic(err, "failed to initialize events charged in advance producer")
 	}
 
-	eventsDeadLetterQueue, err := initProducer(ctx, envLagoKafkaEventsDeadLetterTopic)
+	eventsDeadLetterQueue, err := initProducer(ctx, kafkaConfig, envLagoKafkaEventsDeadLetterTopic)
 	if err != nil {
 		utils.LogAndPanic(err, "failed to initialize events dead letter queue producer")
 	}
 
-	if config.Cache == nil {
-		maxConns, err := utils.GetEnvAsInt(envLagoEventsProcessorDatabaseMaxConnections, 200)
-		if err != nil {
-			utils.LogAndPanic(err, "Error converting max connections into integer")
-		}
-
-		dbConfig := database.DBConfig{
-			Url:      os.Getenv("DATABASE_URL"),
-			MaxConns: int32(maxConns),
-		}
-
-		db, err := database.NewConnection(dbConfig)
-		if err != nil {
-			utils.LogAndPanic(err, "Error connecting to the database")
-		}
-		apiStore = models.NewApiStore(db)
+	var store events_processor.EnrichmentStore
+	if config.Cache != nil {
+		store = events_processor.NewCacheEnrichmentStore(config.Cache)
+	} else {
+		db := initDatabase()
 		defer db.Close()
+
+		store = models.NewApiStore(db)
 	}
 
 	flagger, err := initFlagStore(ctx, "subscription_refreshed_v2")
@@ -155,8 +160,8 @@ func StartProcessingEvents(ctx context.Context, config *Config) {
 	}
 	defer flagger.Close()
 
-	processor = events_processor.NewEventProcessor(
-		events_processor.NewEventEnrichmentService(apiStore, config.Cache),
+	processor := events_processor.NewEventProcessor(
+		events_processor.NewEventEnrichmentService(store),
 		events_processor.NewEventProducerService(
 			eventsEnrichedProducer,
 			eventsInAdvanceProducer,
@@ -168,11 +173,9 @@ func StartProcessingEvents(ctx context.Context, config *Config) {
 	cg, err := kafka.NewConsumerGroup(
 		kafkaConfig,
 		&kafka.ConsumerGroupConfig{
-			Topic:         os.Getenv(envLagoKafkaRawEventsTopic),
-			ConsumerGroup: os.Getenv(envLagoKafkaConsumerGroup),
-			ProcessRecords: func(ctx context.Context, records []*kgo.Record) []*kgo.Record {
-				return processor.ProcessEvents(ctx, records)
-			},
+			Topic:          os.Getenv(envLagoKafkaRawEventsTopic),
+			ConsumerGroup:  os.Getenv(envLagoKafkaConsumerGroup),
+			ProcessRecords: processor.ProcessEvents,
 		})
 	if err != nil {
 		utils.LogAndPanic(err, "Error starting the event consumer")

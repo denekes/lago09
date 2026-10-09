@@ -2,12 +2,15 @@ package events_processor
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"gorm.io/gorm"
 
 	"github.com/getlago/lago/events-processor/cache"
@@ -124,39 +127,36 @@ type ProcessorTestEnv struct {
 	EventProcessor *EventProcessor
 	Producers      *testProducerService
 	FlagStore      *tests.MockFlagStore
-	CacheStore     *tests.MockCacheStore
 	DataStore      DataStore
 	Cleanup        func()
 }
 
 func setupProcessorTestEnv(t *testing.T, useCache bool) *ProcessorTestEnv {
-	var chargeCache models.Cacher
-	var memCache *cache.Cache
-	var apiStore *models.ApiStore
+	var store EnrichmentStore
 	var dataStore DataStore
 	var cleanup func()
 
 	testProducers := setupProducers()
-	chargeCache = &tests.MockCacheStore{}
 	flagStore := tests.MockFlagStore{}
 	flagger := NewSubscriptionRefreshService(&flagStore)
 
 	if useCache {
 		ctx := context.Background()
-		memCache, _ = cache.NewCache(cache.CacheConfig{
+		memCache, _ := cache.NewCache(cache.CacheConfig{
 			Context: ctx,
 		})
+		store = NewCacheEnrichmentStore(memCache)
 		dataStore = &CacheDataStore{cache: memCache, t: t}
 		cleanup = func() { memCache.Close() }
 	} else {
 		mockedStore, deleteFunc := tests.SetupMockStore(t)
-		apiStore = models.NewApiStore(mockedStore.DB)
+		store = models.NewApiStore(mockedStore.DB)
 		dataStore = &MockDataStore{mock: mockedStore, t: t}
 		cleanup = deleteFunc
 	}
 
 	processor := NewEventProcessor(
-		NewEventEnrichmentService(apiStore, memCache),
+		NewEventEnrichmentService(store),
 		testProducers.producerService,
 		flagger,
 	)
@@ -165,7 +165,6 @@ func setupProcessorTestEnv(t *testing.T, useCache bool) *ProcessorTestEnv {
 		EventProcessor: processor,
 		Producers:      testProducers,
 		FlagStore:      &flagStore,
-		CacheStore:     chargeCache.(*tests.MockCacheStore),
 		DataStore:      dataStore,
 		Cleanup:        cleanup,
 	}
@@ -472,5 +471,127 @@ func TestProcessEvent(t *testing.T) {
 			assert.Equal(t, 0, testEnv.Producers.inAdvanceProducer.ExecutionCount)
 		})
 
+	}
+}
+
+func TestProcessEvents(t *testing.T) {
+	newRecord := func(t *testing.T, event models.Event) *kgo.Record {
+		value, err := json.Marshal(event)
+		require.NoError(t, err)
+		return &kgo.Record{Value: value}
+	}
+
+	newEvent := func(ingestedAt time.Time) models.Event {
+		return models.Event{
+			OrganizationID:         "1a901a90-1a90-1a90-1a90-1a901a901a90",
+			ExternalSubscriptionID: "sub_id",
+			TransactionID:          "tx_id",
+			Code:                   "api_calls",
+			Timestamp:              1741007009,
+			Source:                 "SQS",
+			IngestedAt:             utils.CustomTime(ingestedAt.UTC().Truncate(time.Second)),
+		}
+	}
+
+	setupBillableMetricAndSubscription := func(testEnv *ProcessorTestEnv, event models.Event) {
+		testEnv.DataStore.SetBillableMetric(&models.BillableMetric{
+			ID:              "bm123",
+			OrganizationID:  event.OrganizationID,
+			Code:            event.Code,
+			AggregationType: models.AggregationTypeCount,
+			UpdatedAt:       utils.NowNullTime(),
+		})
+		testEnv.DataStore.SetSubscription(&models.Subscription{
+			ID:             "sub123",
+			OrganizationID: &event.OrganizationID,
+			ExternalID:     event.ExternalSubscriptionID,
+			PlanID:         "plan_id",
+			StartedAt:      utils.NewNullTime(time.Unix(1700000000, 0)),
+		})
+	}
+
+	tests := []struct {
+		name             string
+		record           func(t *testing.T) *kgo.Record
+		setup            func(testEnv *ProcessorTestEnv)
+		committed        bool
+		deadLettered     bool
+		enrichedProduced bool
+	}{
+		{
+			name:      "commits a record that cannot be unmarshalled",
+			record:    func(t *testing.T) *kgo.Record { return &kgo.Record{Value: []byte("{invalid")} },
+			committed: true,
+		},
+		{
+			name:         "dead letters and commits a non retryable failure",
+			record:       func(t *testing.T) *kgo.Record { return newRecord(t, newEvent(time.Now())) },
+			committed:    true,
+			deadLettered: true,
+		},
+		{
+			name:   "keeps a recent retryable failure uncommitted",
+			record: func(t *testing.T) *kgo.Record { return newRecord(t, newEvent(time.Now())) },
+			setup: func(testEnv *ProcessorTestEnv) {
+				setupBillableMetricAndSubscription(testEnv, newEvent(time.Now()))
+				testEnv.FlagStore.ReturnedError = errors.New("redis unavailable")
+			},
+			committed:        false,
+			enrichedProduced: true,
+		},
+		{
+			name: "dead letters and commits a retryable failure older than the retry window",
+			record: func(t *testing.T) *kgo.Record {
+				return newRecord(t, newEvent(time.Now().Add(-retryWindow-time.Minute)))
+			},
+			setup: func(testEnv *ProcessorTestEnv) {
+				setupBillableMetricAndSubscription(testEnv, newEvent(time.Now()))
+				testEnv.FlagStore.ReturnedError = errors.New("redis unavailable")
+			},
+			committed:        true,
+			deadLettered:     true,
+			enrichedProduced: true,
+		},
+		{
+			name:   "commits a processed record",
+			record: func(t *testing.T) *kgo.Record { return newRecord(t, newEvent(time.Now())) },
+			setup: func(testEnv *ProcessorTestEnv) {
+				setupBillableMetricAndSubscription(testEnv, newEvent(time.Now()))
+			},
+			committed:        true,
+			enrichedProduced: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testEnv := setupProcessorTestEnv(t, true)
+			defer testEnv.Cleanup()
+
+			if tt.setup != nil {
+				tt.setup(testEnv)
+			}
+
+			record := tt.record(t)
+			committed := testEnv.EventProcessor.ProcessEvents(context.Background(), []*kgo.Record{record})
+
+			if tt.committed {
+				assert.Equal(t, []*kgo.Record{record}, committed)
+			} else {
+				assert.Empty(t, committed)
+			}
+
+			expectedDeadLetters := 0
+			if tt.deadLettered {
+				expectedDeadLetters = 1
+			}
+			assert.Equal(t, expectedDeadLetters, testEnv.Producers.deadLetterProducer.ExecutionCount)
+
+			expectedEnriched := 0
+			if tt.enrichedProduced {
+				expectedEnriched = 1
+			}
+			assert.Equal(t, expectedEnriched, testEnv.Producers.enrichedProducer.ExecutionCount)
+		})
 	}
 }

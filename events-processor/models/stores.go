@@ -6,13 +6,13 @@ import (
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 
 	"github.com/getlago/lago/events-processor/config/database"
 	"github.com/getlago/lago/events-processor/config/redis"
 	"github.com/getlago/lago/events-processor/utils"
 )
 
-const EXPIRATION_TIME = 10 * time.Second
 const SUBSCRIPTION_BUCKET_DURATION int64 = 10
 
 type ApiStore struct {
@@ -72,33 +72,14 @@ func (store *FlagStore) Close() error {
 	return store.db.Client.Close()
 }
 
-type Cacher interface {
-	Close() error
-	ExpireKey(ctx context.Context, key string) utils.Result[bool]
-}
+// failedLookupResult wraps the error of a single record lookup. A missing record is an
+// expected outcome: it is neither retried nor reported.
+func failedLookupResult[T any](err error) utils.Result[T] {
+	result := utils.FailedResult[T](err)
 
-type CacheStore struct {
-	db *redis.RedisDB
-}
-
-func NewCacheStore(redis *redis.RedisDB) *CacheStore {
-	return &CacheStore{
-		db: redis,
-	}
-}
-
-func (store *CacheStore) Close() error {
-	return store.db.Client.Close()
-}
-
-// ExpireKey schedules the removal of a cache key. As for FlagStore.Flag, the
-// context must be scoped to the record being processed, not to the process.
-func (store *CacheStore) ExpireKey(ctx context.Context, key string) utils.Result[bool] {
-	// Uses Expire command rather than Del to take clickhouse propagation time into account
-	res := store.db.Client.Expire(ctx, key, EXPIRATION_TIME)
-	if err := res.Err(); err != nil {
-		return utils.FailedBoolResult(err)
+	if err.Error() == gorm.ErrRecordNotFound.Error() {
+		result = result.NonCapturable().NonRetryable()
 	}
 
-	return utils.SuccessResult(true)
+	return result
 }

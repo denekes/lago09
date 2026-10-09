@@ -7,20 +7,17 @@ import (
 
 	"github.com/getlago/lago-expression/expression-go"
 
-	"github.com/getlago/lago/events-processor/cache"
 	"github.com/getlago/lago/events-processor/models"
 	"github.com/getlago/lago/events-processor/utils"
 )
 
 type EventEnrichmentService struct {
-	apiStore *models.ApiStore
-	memCache *cache.Cache
+	store EnrichmentStore
 }
 
-func NewEventEnrichmentService(apiStore *models.ApiStore, memCache *cache.Cache) *EventEnrichmentService {
+func NewEventEnrichmentService(store EnrichmentStore) *EventEnrichmentService {
 	return &EventEnrichmentService{
-		apiStore: apiStore,
-		memCache: memCache,
+		store: store,
 	}
 }
 
@@ -31,13 +28,7 @@ func (s *EventEnrichmentService) EnrichEvent(event *models.Event) utils.Result[*
 	}
 	enrichedEvent := enrichedEventResult.Value()
 
-	var bmResult utils.Result[*models.BillableMetric]
-
-	if s.memCache != nil {
-		bmResult = s.memCache.GetBillableMetric(event.OrganizationID, event.Code)
-	} else {
-		bmResult = s.apiStore.FetchBillableMetric(event.OrganizationID, event.Code)
-	}
+	bmResult := s.store.FetchBillableMetric(event.OrganizationID, event.Code)
 	if bmResult.Failure() {
 		return failedResult(bmResult, "fetch_billable_metric", "Error fetching billable metric")
 	}
@@ -50,12 +41,12 @@ func (s *EventEnrichmentService) EnrichEvent(event *models.Event) utils.Result[*
 		}
 	}
 
-	subResult := s.fetchSubscription(event, enrichedEvent.Time)
+	subResult := s.store.FetchSubscription(event.OrganizationID, event.ExternalSubscriptionID, enrichedEvent.Time)
 
 	// For recurring billable metrics, if no subscription is active at the event
 	// timestamp, fall back on the currently active subscription rather than failing.
 	if subResult.Failure() && !subResult.IsCapturable() && bm != nil && bm.Recurring {
-		subResult = s.fetchSubscription(event, time.Now())
+		subResult = s.store.FetchSubscription(event.OrganizationID, event.ExternalSubscriptionID, time.Now())
 	}
 
 	if subResult.Failure() {
@@ -66,12 +57,8 @@ func (s *EventEnrichmentService) EnrichEvent(event *models.Event) utils.Result[*
 		subResult = utils.SuccessResult[*models.Subscription](nil)
 	}
 
-	sub := subResult.Value()
-	if sub != nil {
-		enrichSubResult := s.enrichWithSubscription(enrichedEvent, sub)
-		if enrichSubResult.Failure() {
-			return enrichSubResult
-		}
+	if sub := subResult.Value(); sub != nil {
+		enrichWithSubscription(enrichedEvent, sub)
 	}
 
 	return utils.SuccessResult(enrichedEvent)
@@ -83,18 +70,7 @@ func (s *EventEnrichmentService) HasPayInAdvanceCharge(enrichedEvent *models.Enr
 		return utils.SuccessResult(false)
 	}
 
-	if s.memCache != nil {
-		return s.memCache.HasPayInAdvanceCharge(enrichedEvent.OrganizationID, enrichedEvent.PlanID, enrichedEvent.BillableMetric.ID)
-	}
-
-	return s.apiStore.HasPayInAdvanceCharge(enrichedEvent.OrganizationID, enrichedEvent.PlanID, enrichedEvent.BillableMetric.ID)
-}
-
-func (s *EventEnrichmentService) fetchSubscription(event *models.Event, timestamp time.Time) utils.Result[*models.Subscription] {
-	if s.memCache != nil {
-		return s.memCache.SearchSubscriptions(event.OrganizationID, event.ExternalSubscriptionID, timestamp)
-	}
-	return s.apiStore.FetchSubscription(event.OrganizationID, event.ExternalSubscriptionID, timestamp)
+	return s.store.HasPayInAdvanceCharge(enrichedEvent.OrganizationID, enrichedEvent.PlanID, enrichedEvent.BillableMetric.ID)
 }
 
 func (s *EventEnrichmentService) enrichWithBillableMetric(enrichedEvent *models.EnrichedEvent, bm *models.BillableMetric) utils.Result[*models.EnrichedEvent] {
@@ -141,10 +117,8 @@ func (s *EventEnrichmentService) evaluateExpression(ev *models.EnrichedEvent, bm
 	return utils.SuccessResult(true)
 }
 
-func (s *EventEnrichmentService) enrichWithSubscription(enrichedEvent *models.EnrichedEvent, sub *models.Subscription) utils.Result[*models.EnrichedEvent] {
+func enrichWithSubscription(enrichedEvent *models.EnrichedEvent, sub *models.Subscription) {
 	enrichedEvent.Subscription = sub
 	enrichedEvent.SubscriptionID = sub.ID
 	enrichedEvent.PlanID = sub.PlanID
-
-	return utils.SuccessResult(enrichedEvent)
 }
