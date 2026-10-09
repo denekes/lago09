@@ -1,0 +1,55 @@
+{
+  "kit_schema": 1,
+  "description": "Pass-rate thresholds per area used by kitrun.py (RATE = PASS / (TOTAL - UNRULED); SKIP counts as not passed). 'shipped' applies to the vectors in the pack, 'holdout' to the maintainer-held 20 % sample, 'core' to vectors tagged core (always shipped). Thresholds apply to both run profiles; under --profile corrected, vectors with ruling 'proposed' are UNRULED and never count. Component ids refer to acceptance-and-grading.md.",
+  "default": {"shipped": 0.95, "holdout": 0.90, "core": 1.0},
+  "areas": {
+    "domain":       {"shipped": 1.00, "holdout": 0.98, "core": 1.0, "component": "CRC-1"},
+    "pricing":      {"shipped": 0.98, "holdout": 0.95, "core": 1.0, "component": "CRC-2"},
+    "expression":   {"shipped": 0.98, "holdout": 0.95, "core": 1.0, "component": "CRC-3"},
+    "events":       {"shipped": 0.98, "holdout": 0.95, "core": 1.0, "component": "CRC-3"},
+    "aggregation":  {"shipped": 0.95, "holdout": 0.90, "core": 1.0, "component": "CRC-4"},
+    "periods":      {"shipped": 0.98, "holdout": 0.95, "core": 1.0, "component": "CRC-5"},
+    "invoice":      {"shipped": 0.95, "holdout": 0.90, "core": 1.0, "component": "CRC-6"},
+    "credit_notes": {"shipped": 0.95, "holdout": 0.90, "core": 1.0, "component": "CRC-6"},
+    "wallets":      {"shipped": 0.95, "holdout": 0.90, "core": 1.0, "component": "CRC-7"},
+    "progressive":  {"shipped": 0.95, "holdout": 0.90, "core": 1.0, "component": "CRC-7"},
+    "alerts":       {"shipped": 0.95, "holdout": 0.90, "core": 1.0, "component": "CRC-7"},
+    "api":          {"shipped": 1.00, "holdout": 0.98, "core": 1.0, "component": "CRC-8"},
+    "webhooks":     {"shipped": 1.00, "holdout": 0.98, "core": 1.0, "component": "CRC-8"},
+    "clock":        {"shipped": 1.00, "holdout": 0.98, "core": 1.0, "component": "CRC-8"},
+    "ep":           {"shipped": 0.95, "holdout": 0.90, "core": 1.0, "component": "CRC-9"},
+    "scn":          {"shipped": 0.60, "holdout": 0.60, "core": 1.0, "component": "CRC-10 (stretch)"}
+  },
+  "events_processor_suite": {
+    "component": "CRC-9",
+    "description": "Graded on separate runs per profile (acceptance-and-grading.md section 2.1): corrected thresholds on run-suite.sh --profile corrected (db, and cache when implemented), the compat threshold on run-suite.sh --profile compat --loose-errors --mode db (migration-compat builds only). An implementation may select its profile with a switch of its own (e.g. an environment variable passed with --impl-env); the same build serves every run. A --profile both run is not a grading run.",
+    "separate_runs_per_profile": true,
+    "profile_switch_allowed": true,
+    "corrected_decided_assertions": 1.0,
+    "compat_db_goldens_loose_errors": 0.90,
+    "startup_contract_EPC_26_29": 1.0,
+    "suite_recommended_retry_delay_cap_seconds": 2,
+    "suite_withheld_settle_seconds": 3
+  },
+  "kit_gates": {
+    "description": "validate-vectors.py --gate: evidence mix the kit itself must reach before release.",
+    "billing_unit_both_or_compat_executed_min": 0.95,
+    "billing_unit_both_or_compat_recomputed_max": 0.05,
+    "billing_unit_extracted_max": 0,
+    "scenarios_executed_min": 1.0,
+    "ep_executed_min": 0.95
+  },
+  "kit_budget": {
+    "description": "validate-vectors.py BUDGET caps in bytes (whole-kit runs). billing_unit = billing-engine-spec/vectors/*.jsonl plus holdout files not named ep.*; scenarios = billing-engine-spec/scenarios/*; ep_conformance = events-processor-spec/conformance/**; ep_units = events-processor-spec/vectors/*.jsonl plus holdout ep.*.jsonl; schemas_meta = reimplementation-kit/schemas/**/*.json + acceptance/* + scenarios/MANIFEST.md; total = their sum plus reimplementation-kit/kit.json (the sha256 manifest counts only here). One scenario: target and max in compact JSON, with a few exceptions up to the exception max.",
+    "billing_unit": 1450000,
+    "scenarios": 600000,
+    "ep_conformance": 650000,
+    "ep_units": 130000,
+    "schemas_meta": 420000,
+    "total": 3000000,
+    "scenario_target_bytes": 12000,
+    "scenario_max_bytes": 16000,
+    "scenario_exception_max_bytes": 24000,
+    "scenario_exceptions_max": 5
+  }
+}

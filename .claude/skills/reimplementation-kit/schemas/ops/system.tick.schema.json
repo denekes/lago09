@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/system.tick.schema.json",
+  "title": "system.tick",
+  "description": "Run the named clock jobs (scenario-tier.md section 6) at the current clock, in order, draining follow-up work after each.",
+  "x-kit": {
+    "area": "system",
+    "op": "tick",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "reimplementation-kit reference/scenario-tier.md (scenario tier)",
+    "stateful": true
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "jobs"
+      ],
+      "properties": {
+        "jobs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "billing",
+              "usage_update",
+              "refresh_drafts",
+              "finalize_drafts",
+              "wallet_refresh",
+              "overdue",
+              "terminate_ended",
+              "activate_subscriptions",
+              "terminate_coupons",
+              "terminate_wallets",
+              "interval_topups",
+              "termination_alerts",
+              "lifetime_usage",
+              "subscription_activity"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": true
+    }
+  }
+}

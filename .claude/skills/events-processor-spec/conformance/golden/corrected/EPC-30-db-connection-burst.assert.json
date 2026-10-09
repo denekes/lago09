@@ -1,0 +1,4 @@
+[
+ {"kind": "all_done", "why": "pool exhaustion is back-pressure (SYSTEMIC pause), never silent loss", "rbd": ["RBD-10"], "ruling": "decided"},
+ {"kind": "no_dup", "why": "no redelivery is needed without a restart", "rbd": ["RBD-10"], "ruling": "decided"}
+]

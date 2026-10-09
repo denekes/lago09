@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.fixed_charge_in_advance.schema.json",
+  "title": "pricing.fixed_charge_in_advance",
+  "description": "Pay-in-advance fee after a fixed-charge unit change (BE-PR-71): delta = new_units - already billed units; delta <= 0 gives a zero fee; otherwise the model prices delta x coefficient, coefficient = (UTC date of fixed_charges_to - UTC date of timestamp + 1) / duration when prorated.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "fixed_charge_in_advance",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model",
+        "properties",
+        "already_billed_units",
+        "new_units",
+        "timestamp",
+        "fixed_charges_from",
+        "fixed_charges_to",
+        "fixed_charges_duration_days"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "enum": [
+            "standard",
+            "graduated",
+            "volume"
+          ],
+          "description": "Fixed-charge model."
+        },
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Fixed-charge properties."
+        },
+        "prorated": {
+          "type": "boolean",
+          "description": "Charge is prorated.",
+          "default": false
+        },
+        "currency": {
+          "$ref": "../common.schema.json#/$defs/currency",
+          "default": "EUR",
+          "description": "Plan currency (ISO 4217)."
+        },
+        "already_billed_units": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Units already billed in this fixed-charges period: the sum of the units stored on the fixed charge's earlier fees of the period, used as given (not re-rounded). Every stored value derives from 10-place units, so more than 10 decimal places is not reachable (BE-PR-71)."
+        },
+        "new_units": {
+          "$ref": "../common.schema.json#/$defs/decimal",
+          "description": "Units of the new unit event; stored with 10 decimal places, half away from zero, before use (BE-PR-87; 1.00000000005 -> 1.0000000001)."
+        },
+        "timestamp": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Unit event timestamp."
+        },
+        "fixed_charges_from": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Period start."
+        },
+        "fixed_charges_to": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Period end."
+        },
+        "fixed_charges_duration_days": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Period length in days."
+        },
+        "timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone",
+          "description": "Customer time zone (the reference counts days on UTC dates and ignores it; the corrected profile uses it).",
+          "default": "UTC"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "precise_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "unit_amount_cents": {
+          "$ref": "../common.schema.json#/$defs/cents"
+        },
+        "precise_unit_amount": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "total_aggregated_units": {
+          "$ref": "../common.schema.json#/$defs/decimal"
+        },
+        "events_count": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

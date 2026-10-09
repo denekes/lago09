@@ -1,0 +1,29 @@
+{
+  "name": "EPC-09-undecodable-records",
+  "id": "EPC-09",
+  "description": "Records that do not decode into the event shape, plus shape edge cases that do decode.",
+  "rules": ["EP-C1", "EP-C2", "EP-C3", "EP-C4", "EP-D5", "EP-I3", "EP-P6", "EP-R5"],
+  "rbd": ["RBD-4"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"raw": "{not json", "label": "u_bad_json"},
+      {"raw": "", "label": "u_empty_value"},
+      {"raw": "[1,2]", "label": "u_array"},
+      {"raw": "null", "label": "u_null_literal"},
+      {"json": {"transaction_id": "u_ptac_number", "code": "api_calls", "timestamp": "1759320000", "precise_total_amount_cents": 100, "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "u_ptac_string", "code": "api_calls", "timestamp": "1759320000", "precise_total_amount_cents": "100.5", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "u_props_array", "code": "api_calls", "timestamp": "1759320000", "properties": [1, 2], "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "u_ingested_bad", "code": "count_calls", "timestamp": "1759320000", "ingested_at": "yesterday", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "u_ingested_epoch", "code": "count_calls", "timestamp": "1759320000", "ingested_at": "1744335427", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "u_ingested_ms", "code": "count_calls", "timestamp": "1759320000", "ingested_at": "2025-03-03T13:03:30.456", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": 123, "code": "count_calls", "timestamp": "1759320000"}, "label": "u_tx_number"},
+      {"json": {"transaction_id": "u_source_metadata_string", "code": "count_calls", "timestamp": "1759320000", "source_metadata": "x", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "u_extra_fields", "code": "count_calls", "timestamp": "1759320000", "external_subscription_id": "no_such_sub", "external_customer_id": "cust_1", "foo": {"bar": 1}}},
+      {"raw": "{\"transaction_id\":\"u_dup_first\",\"transaction_id\":\"u_dup_last\",\"code\":\"count_calls\",\"organization_id\":\"11111111-1111-1111-1111-111111111111\",\"external_subscription_id\":\"no_such_sub\",\"timestamp\":\"1759320000\",\"properties\":{},\"ingested_at\":\"2025-03-03T13:03:30\"}", "label": "u_dup_last"},
+      {"json": {"transaction_id": "u_after", "code": "count_calls", "timestamp": "1759320000", "external_subscription_id": "no_such_sub"}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

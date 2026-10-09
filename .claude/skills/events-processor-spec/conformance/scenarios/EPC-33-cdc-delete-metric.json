@@ -1,0 +1,22 @@
+{
+  "name": "EPC-33-cdc-delete-metric",
+  "id": "EPC-33",
+  "description": "Memory-cache mode: soft-deleting a billable metric through CDC (deleted_at set, same id) removes it from the cache.",
+  "rules": ["EP-N6"],
+  "rbd": [],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "modes": ["cache"],
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "before_delete", "code": "count_calls", "timestamp": "1759320000"}}
+    ]},
+    {"wait": "quiescent"},
+    {"cdc": {"table": "billable_metrics", "row": {"id": "aaaaaaaa-0000-0000-0000-000000000002", "organization_id": "11111111-1111-1111-1111-111111111111", "code": "count_calls", "aggregation_type": 0, "field_name": null, "expression": null, "created_at": "$NOW_US", "updated_at": "$NOW_US", "deleted_at": "$NOW_US", "__deleted": "false", "__table": "billable_metrics", "__lsn": 3}}},
+    {"wait_cdc_applied": "billable_metrics"},
+    {"produce": [
+      {"json": {"transaction_id": "after_delete", "code": "count_calls", "timestamp": "1759320000"}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

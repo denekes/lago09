@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/expression.evaluate.schema.json",
+  "title": "expression.evaluate",
+  "description": "Evaluate a metric expression against one event on one of three surfaces (mode): rails = event ingestion by the billing API (value stored into properties[field_name]); ep = the events-processor (expression result stored as text); preview = the expression test endpoint POST /api/v1/billable_metrics/evaluate_expression. See BE-EX for the language and the per-surface input conversions.",
+  "x-kit": {
+    "area": "expression",
+    "op": "evaluate",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/03-expression-language.md (BE-EX)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expression",
+        "mode"
+      ],
+      "properties": {
+        "expression": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Expression text. rails: non-blank (a blank metric expression means \"no expression\" at ingestion, BE-EX-7; it is graded through events.validate, not by this op). preview: null, empty or blank is allowed and rejected by the endpoint. ep: any text (a blank one fails like any unparsable expression)."
+        },
+        "mode": {
+          "enum": [
+            "rails",
+            "ep",
+            "preview"
+          ]
+        },
+        "event": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "x-kit-absent": "mode ep with event_json, or mode preview without an event",
+          "description": "rails: the submitted event {code, timestamp?, properties?} as sent to POST /api/v1/events (timestamp as in BE-EV; absent = now). preview: the `event` member sent to the preview endpoint {code?, timestamp?, properties?}. ep: the event object handed to the engine, equivalent to event_json holding its JSON text: the member checks of BE-EX-40 apply alike. Prefer event_json when a number literal's digits or scale matter, since an object carries numbers, not their text."
+        },
+        "event_json": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "x-kit-absent": "use `event`",
+          "description": "ep only: exact JSON text of the event object handed to the engine: {\"code\":<string>,\"timestamp\":<number>,\"properties\":{...}} plus members the engine ignores. The engine reads every number literal of this text exactly (significand and scale as written, BE-EX-40); a missing or null `properties`, a missing or non-string `code` or a missing or null `timestamp` fails the evaluation. Which literal the processor hands over is its own profile-dependent rule (events-processor-spec EP-C5, RBD-14), graded by the ep vectors."
+        },
+        "now": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "default": "2026-01-01T00:00:00Z",
+          "description": "Wall clock (whole seconds) for a missing timestamp (rails, preview)."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "The result: a canonical decimal for a number (compared numerically), the text for a string."
+        },
+        "type": {
+          "enum": [
+            "number",
+            "string"
+          ],
+          "description": "rails and preview: the result kind (not observable in mode ep)."
+        },
+        "text": {
+          "type": "string",
+          "description": "Exact text of the result where it lands: rails = the text stored in properties[field_name]; ep = the text the engine returns (stored by the processor); preview = the `value` string of the response body. Compared as text."
+        }
+      }
+    }
+  }
+}

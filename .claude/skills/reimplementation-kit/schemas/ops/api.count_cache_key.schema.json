@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/api.count_cache_key.schema.json",
+  "title": "api.count_cache_key",
+  "description": "Key under which the invoices, customer-invoices and fees index endpoints cache their total count (BE-API-26, BE-API-27). Steps: (1) keep the endpoint's permitted parameters. Invoices: the scalar filters amount_from, amount_to, currency, invoice_type, issuing_date_from, issuing_date_to, partially_paid, payment_dispute_lost, payment_overdue, payment_status, payment_statuses, per_page, purchase_order_number, search_term, self_billed, settlements, status, statuses, plus the object `metadata` kept whole (nested values included; a non-object metadata is dropped). Fees: the scalar filters fee_type, payment_status, external_subscription_id, external_customer_id, billable_metric_code, currency, event_transaction_id and the created/failed/succeeded/refunded _from/_to bounds, plus `per_page` as given (null when absent). A scalar filter enters only when its value is a single text: a list or object given for it is dropped; unknown keys and the list filter billing_entity_codes[] are dropped (billing_entity_codes sent as a single text, even empty, enters like a scalar filter). (2) `page` never enters the key. (3) add `organization_id`. (4) turn every object into the list of its [key, value] pairs sorted by key (recursively) and serialise as compact JSON (`preimage`). key = 'pagination_count/<invoices|fees>/' + lowercase hex SHA-256 of the pre-image. The customer-scoped invoices list uses the invoices key and does not include the customer.",
+  "x-kit": {
+    "area": "api",
+    "op": "count_cache_key",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/11-rest-api.md (BE-API)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "organization_id"
+      ],
+      "properties": {
+        "index": {
+          "enum": [
+            "invoices",
+            "customer_invoices",
+            "fees"
+          ],
+          "description": "Which index endpoint."
+        },
+        "organization_id": {
+          "type": "string",
+          "description": "Organization identifier (any string; the reference uses its UUID)."
+        },
+        "customer_external_id": {
+          "type": "string",
+          "x-kit-absent": "not a customer-scoped list",
+          "description": "Path parameter of the customer-scoped invoices list."
+        },
+        "query": {
+          "type": "object",
+          "default": {},
+          "description": "Query parameters as parsed from the URL: string values, arrays of strings (`k[]=v`), objects (`metadata[k]=v`).",
+          "additionalProperties": true
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "preimage": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "description": "Exact JSON text that was hashed."
+        }
+      }
+    }
+  }
+}

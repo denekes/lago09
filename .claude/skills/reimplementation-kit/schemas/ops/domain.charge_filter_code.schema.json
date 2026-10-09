@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.charge_filter_code.schema.json",
+  "title": "domain.charge_filter_code",
+  "description": "Generated code of a charge filter (BE-DM-56, BE-DM-57). canonical = keys sorted, each rendered `key:` + its values sorted and joined with `+`, joined with `|`. base_code = slug(canonical) truncated to 200 characters + `_` + first 8 hex digits of SHA-256(canonical as UTF-8). slug: normalise to NFC, transliterate to ASCII with the fixed table of BE-DM-59 (U+00C0-U+017E except U+00F7, plus U+01EA-U+01ED and U+1E9E; every other non-ASCII character becomes `?`), replace every run of characters other than ASCII letters, digits, `-` and `_` by `_`, collapse repeated `_`, drop a leading and a trailing `_`, lower-case. code = base_code if not taken, else base_code + `_2`, `_3`, ... (first free).",
+  "x-kit": {
+    "area": "domain",
+    "op": "charge_filter_code",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "description": "Filter values by key."
+        },
+        "taken": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Codes already used by filters of the same charge."
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "base_code": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

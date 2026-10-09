@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/pricing.filter_properties.schema.json",
+  "title": "pricing.filter_properties",
+  "description": "Property slicing and renaming applied before storage (BE-PR-82): keep only the keys allowed for the model, rename grouped_by to pricing_group_keys, drop empty group keys, parse custom_properties.",
+  "x-kit": {
+    "area": "pricing",
+    "op": "filter_properties",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/05-pricing-and-fees.md (BE-PR)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "model",
+        "properties"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "enum": [
+            "standard",
+            "graduated",
+            "graduated_percentage",
+            "package",
+            "percentage",
+            "volume",
+            "dynamic",
+            "custom"
+          ],
+          "description": "Charge model."
+        },
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "description": "Properties as received."
+        },
+        "kind": {
+          "enum": [
+            "charge",
+            "fixed_charge"
+          ],
+          "description": "charge or fixed_charge.",
+          "default": "charge"
+        },
+        "metric_aggregation_type": {
+          "enum": [
+            "count_agg",
+            "sum_agg",
+            "max_agg",
+            "unique_count_agg",
+            "weighted_sum_agg",
+            "latest_agg",
+            "custom_agg"
+          ],
+          "description": "Aggregation type of the metric (custom_agg keeps custom_properties).",
+          "default": "sum_agg"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "properties": {
+          "$ref": "../common.schema.json#/$defs/payload"
+        }
+      }
+    }
+  }
+}

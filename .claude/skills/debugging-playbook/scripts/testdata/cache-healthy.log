@@ -1,0 +1,53 @@
+# cache-healthy.log - REAL output, LAGO_USE_MEMORY_CACHE=true against a scratch database with the smoke fixture schema
+# (diagnostics-and-tooling smoke-binary.sh cache, 9 smoke events), captured 2026-10-02 (code 5308258).
+# DEBUG and franz-go (component=kafka) lines removed, i.e. what production's INFO level shows minus the client.
+{"time":"2026-10-02T09:07:31.07106243Z","level":"INFO","msg":"Starting snapshot load","service":"post_process","pkg":"cache","model":"charge_filter_values"}
+{"time":"2026-10-02T09:07:31.071120744Z","level":"INFO","msg":"Starting snapshot load","service":"post_process","pkg":"cache","model":"charge_filters"}
+{"time":"2026-10-02T09:07:31.071248488Z","level":"INFO","msg":"Starting snapshot load","service":"post_process","pkg":"cache","model":"billable_metrics"}
+{"time":"2026-10-02T09:07:31.071473953Z","level":"INFO","msg":"Starting snapshot load","service":"post_process","pkg":"cache","model":"subscriptions"}
+{"time":"2026-10-02T09:07:31.07162114Z","level":"INFO","msg":"Starting snapshot load","service":"post_process","pkg":"cache","model":"billable_metric_filters"}
+{"time":"2026-10-02T09:07:31.071831465Z","level":"INFO","msg":"Starting snapshot load","service":"post_process","pkg":"cache","model":"charges"}
+{"time":"2026-10-02T09:07:31.072759762Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"charge_filter_values","count":0,"duration_ms":1,"rows_per_sec":0}
+{"time":"2026-10-02T09:07:31.072835087Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"charge_filter_values"}
+{"time":"2026-10-02T09:07:31.072840866Z","level":"INFO","msg":"Completed snapshot load","service":"post_process","pkg":"cache","model":"charge_filter_values","count":0,"duration_ms":1}
+{"time":"2026-10-02T09:07:31.086430151Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"charges","count":2,"duration_ms":14,"rows_per_sec":137.20822157151986}
+{"time":"2026-10-02T09:07:31.086453975Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"charges"}
+{"time":"2026-10-02T09:07:31.086596989Z","level":"INFO","msg":"Completed snapshot load","service":"post_process","pkg":"cache","model":"charges","count":2,"duration_ms":14}
+{"time":"2026-10-02T09:07:31.092431447Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"charge_filters","count":0,"duration_ms":20,"rows_per_sec":0}
+{"time":"2026-10-02T09:07:31.09245175Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"charge_filters"}
+{"time":"2026-10-02T09:07:31.092458448Z","level":"INFO","msg":"Completed snapshot load","service":"post_process","pkg":"cache","model":"charge_filters","count":0,"duration_ms":21}
+{"time":"2026-10-02T09:07:31.09383222Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"billable_metric_filters","count":0,"duration_ms":22,"rows_per_sec":0}
+{"time":"2026-10-02T09:07:31.093847862Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"billable_metric_filters"}
+{"time":"2026-10-02T09:07:31.093852972Z","level":"INFO","msg":"Completed snapshot load","service":"post_process","pkg":"cache","model":"billable_metric_filters","count":0,"duration_ms":22}
+{"time":"2026-10-02T09:07:31.094296188Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"billable_metrics","count":3,"duration_ms":23,"rows_per_sec":130.41405811380844}
+{"time":"2026-10-02T09:07:31.094305384Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"billable_metrics"}
+{"time":"2026-10-02T09:07:31.094419637Z","level":"INFO","msg":"Completed snapshot load","service":"post_process","pkg":"cache","model":"billable_metrics","count":3,"duration_ms":23}
+{"time":"2026-10-02T09:07:31.095051493Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"subscriptions","count":1,"duration_ms":23,"rows_per_sec":42.495379689843226}
+{"time":"2026-10-02T09:07:31.095064691Z","level":"INFO","msg":"completed streaming query","service":"post_process","table":"subscriptions"}
+{"time":"2026-10-02T09:07:31.095138494Z","level":"INFO","msg":"Completed snapshot load","service":"post_process","pkg":"cache","model":"subscriptions","count":1,"duration_ms":23}
+{"time":"2026-10-02T09:07:31.095866278Z","level":"INFO","msg":"Starting consumer","service":"post_process","pkg":"cache","model":"billable_metrics","topic":"lago_proc_cdc.public.billable_metrics","group_id":"lago_evp_billable_metrics_92dc23a7-003d-45d4-b5d3-ea5966adec26"}
+{"time":"2026-10-02T09:07:31.098429363Z","level":"INFO","msg":"Starting consumer","service":"post_process","pkg":"cache","model":"subscriptions","topic":"lago_proc_cdc.public.subscriptions","group_id":"lago_evp_subscriptions_0454b903-f9a4-4be5-a3cb-6bc442a4a320"}
+{"time":"2026-10-02T09:07:31.09892528Z","level":"INFO","msg":"Starting consumer","service":"post_process","pkg":"cache","model":"charges","topic":"lago_proc_cdc.public.charges","group_id":"lago_evp_charges_9d0f019c-ebf8-4974-b4e9-3f3ed7624c13"}
+{"time":"2026-10-02T09:07:31.099115884Z","level":"INFO","msg":"Starting consumer","service":"post_process","pkg":"cache","model":"billable_metric_filters","topic":"lago_proc_cdc.public.billable_metric_filters","group_id":"lago_evp_billable_metric_filters_62fc1f08-ce7a-44da-a91b-c01ff3b62aa0"}
+{"time":"2026-10-02T09:07:31.099301802Z","level":"INFO","msg":"Starting consumer","service":"post_process","pkg":"cache","model":"charge_filters","topic":"lago_proc_cdc.public.charge_filters","group_id":"lago_evp_charge_filters_2c6f126e-42d8-4c9b-89ac-40192c9f7b91"}
+{"time":"2026-10-02T09:07:31.099453856Z","level":"INFO","msg":"Starting consumer","service":"post_process","pkg":"cache","model":"charge_filter_values","topic":"lago_proc_cdc.public.charge_filter_values","group_id":"lago_evp_charge_filter_values_474b698d-00e9-4b92-adb7-e211faf00ab7"}
+{"time":"2026-10-02T09:07:31.108077689Z","level":"INFO","msg":"Starting event consumer","service":"post_process"}
+{"time":"2026-10-02T09:07:31.109639014Z","level":"INFO","msg":"Starting consume for topic events-raw partition 0\n","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T09:07:31.111135058Z","level":"ERROR","msg":"Error fetching billable metric","service":"post_process","error_code":"fetch_billable_metric","error":"Key not found"}
+{"time":"2026-10-02T09:07:31.111289685Z","level":"ERROR","msg":"Error while converting event to enriched event","service":"post_process","error_code":"build_enriched_event","error":"strconv.ParseFloat: parsing \"2025-03-06 12:00:00\": invalid syntax"}
+{"time":"2026-10-02T09:07:31.111533033Z","level":"ERROR","msg":"Error unmarshalling message","service":"post_process","error":"invalid character 'n' looking for beginning of object key string"}
+{"time":"2026-10-02T09:07:31.111770094Z","level":"ERROR","msg":"Error evaluating custom expression","service":"post_process","error_code":"evaluate_expression","error":"failed to evaluate expr: event.properties.a * 2 with json: {\"organization_id\":\"11111111-1111-1111-1111-111111111111\",\"external_subscription_id\":\"sub_ext_1\",\"subscription_id\":\"\",\"plan_id\":\"\",\"transaction_id\":\"tx_E\",\"code\":\"expr_metric\",\"aggregation_type\":\"sum\",\"properties\":{\"a\":2,\"flag\":true},\"precise_total_amount_cents\":\"\",\"value\":null,\"timestamp\":1759320000}"}
+{"time":"2026-10-02T09:07:31.142898167Z","level":"INFO","msg":"Received shutdown signal","service":"post_process","signal":"terminated"}
+{"time":"2026-10-02T09:07:31.142945509Z","level":"INFO","msg":"Gracefully shutting down consumer group","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T09:07:31.142958069Z","level":"INFO","msg":"Context canceled during fetch","service":"post_process","pkg":"cache","model":"billable_metrics"}
+{"time":"2026-10-02T09:07:31.142980672Z","level":"INFO","msg":"Shuting down partion consumer","service":"post_process","kafka-topic-consumer":"events-raw","topic":"events-raw","partition":0}
+{"time":"2026-10-02T09:07:31.143004452Z","level":"INFO","msg":"partition consumer quit","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T09:07:31.14300625Z","level":"INFO","msg":"Context canceled during fetch","service":"post_process","pkg":"cache","model":"billable_metric_filters"}
+{"time":"2026-10-02T09:07:31.14300916Z","level":"INFO","msg":"Closing consume for topic events-raw partition 0\n","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T09:07:31.143028978Z","level":"INFO","msg":"Context canceled during fetch","service":"post_process","pkg":"cache","model":"charges"}
+{"time":"2026-10-02T09:07:31.14305529Z","level":"INFO","msg":"Context canceled during fetch","service":"post_process","pkg":"cache","model":"subscriptions"}
+{"time":"2026-10-02T09:07:31.143144564Z","level":"INFO","msg":"waiting for work to finish topic events-raw partition 0\n","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T09:07:31.143244335Z","level":"INFO","msg":"Context canceled during fetch","service":"post_process","pkg":"cache","model":"charge_filter_values"}
+{"time":"2026-10-02T09:07:31.143540375Z","level":"INFO","msg":"Context canceled during fetch","service":"post_process","pkg":"cache","model":"charge_filters"}
+{"time":"2026-10-02T09:07:31.144064438Z","level":"INFO","msg":"Consumer group shutdown is complete","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T09:07:31.144072313Z","level":"INFO","msg":"Event processor stopped","service":"post_process"}

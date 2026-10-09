@@ -1,0 +1,48 @@
+{
+  "kit_schema": 1,
+  "id": "scn.wallet.balance.001",
+  "area": "scn",
+  "title": "wallet balance and ongoing balance with pay-in-advance charges and taxes",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-WL-52","BE-WL-55"],
+  "rbd": ["RBD-79"],
+  "tags": ["premium"],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/wallets/balance_spec.rb:181","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2026-09-15T10:00:01Z",
+    "organization": {"invoice_grace_period":10,"premium_integrations":["progressive_billing"],"document_number_prefix":"ORG-0001"},
+    "premium": true,
+    "store": "pg",
+    "taxes": [{"name":"VAT","code":"tax_1","rate":10.0,"applied_to_organization":true}],
+    "billable_metrics": [{"name":"metric_1","code":"metric_1","aggregation_type":"sum_agg","field_name":"total"}],
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":100,"amount_currency":"EUR","pay_in_advance":false,"charges":[{"code":"charge_1","billable_metric_id":"{{bm:metric_1}}","charge_model":"standard","pay_in_advance":true,"properties":{"amount":"1"}}]}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/wallets","body":{"wallet":{"external_customer_id":"cust_1","rate_amount":"1","name":"Wallet1","currency":"EUR","granted_credits":"100","invoice_requires_successful_payment":false,"transaction_metadata":[],"applies_to":{}}}},
+    {"at":"2022-12-01T00:00:00Z","op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1"}}},
+    {"at":"2022-12-06T00:00:00Z","op":"api","method":"POST","path":"/api/v1/events","body":{"event":{"transaction_id":"tx_1","code":"metric_1","external_subscription_id":"cust_1","properties":{"total":50,"filter":null}}}},
+    {"op":"tick","jobs":["usage_update"]},
+    {"op":"tick","jobs":["lifetime_usage","wallet_refresh"]},
+    {"at":"2023-01-01T00:00:00Z","op":"tick","jobs":["billing"]},
+    {"op":"tick","jobs":["lifetime_usage","wallet_refresh"]}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"succeeded","number":"ORG-0001-001-001","issuing_date":"2022-12-06","payment_due_date":"2022-12-06","currency":"EUR","fees_amount_cents":5000,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":5500,"taxes_amount_cents":500,"sub_total_excluding_taxes_amount_cents":5000,"sub_total_including_taxes_amount_cents":5500,"total_amount_cents":0,"total_due_amount_cents":0,"billing_periods":[{"subscription_from_datetime":"2022-12-01T00:00:00Z","subscription_to_datetime":"2022-12-01T00:00:00Z","charges_from_datetime":"2022-12-01T00:00:00Z","charges_to_datetime":"2022-12-01T00:00:00Z","invoicing_reason":"in_advance_charge"}],"fees":[{"item":{"type":"charge","code":"metric_1"},"pay_in_advance":true,"amount_cents":5000,"units":"50.0","events_count":1,"taxes_amount_cents":500,"taxes_rate":10.0,"from_date":"2022-12-01T00:00:00+00:00","to_date":"2022-12-31T23:59:59+00:00"}],"applied_taxes":[{"tax_code":"tax_1","tax_rate":10.0,"amount_cents":500,"fees_amount_cents":5000}]},
+      {"invoice_type":"subscription","status":"draft","payment_status":"pending","number":"ORG-0001-DRAFT","issuing_date":"2023-01-11","payment_due_date":"2023-01-11","currency":"EUR","fees_amount_cents":100,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":10,"sub_total_excluding_taxes_amount_cents":100,"sub_total_including_taxes_amount_cents":110,"total_amount_cents":110,"total_due_amount_cents":110,"billing_periods":[{"subscription_from_datetime":"2022-12-01T00:00:00Z","subscription_to_datetime":"2022-12-31T23:59:59Z","charges_from_datetime":"2022-12-01T00:00:00Z","charges_to_datetime":"2022-12-31T23:59:59Z","invoicing_reason":"subscription_periodic"}],"fees":[{"item":{"type":"subscription"},"amount_cents":100,"units":"1.0","taxes_amount_cents":10,"taxes_rate":10.0,"from_date":"2022-12-01T00:00:00+00:00","to_date":"2022-12-31T23:59:59+00:00"}],"applied_taxes":[{"tax_code":"tax_1","tax_rate":10.0,"amount_cents":10,"fees_amount_cents":100}]}
+    ],
+    "credit_notes": [],
+    "wallets": [
+      {"status":"active","currency":"EUR","code":"wallet1","priority":50,"rate_amount":"1.0","credits_balance":"45.0","balance_cents":4500,"consumed_credits":"55.0","ongoing_balance_cents":4390,"ongoing_usage_balance_cents":110,"credits_ongoing_balance":"43.9","credits_ongoing_usage_balance":"1.1"}
+    ],
+    "wallet_transactions": [
+      {"status":"settled","transaction_status":"invoiced","transaction_type":"outbound","source":"manual","amount":"55.0","credit_amount":"55.0","priority":50},
+      {"status":"settled","transaction_status":"granted","transaction_type":"inbound","source":"manual","amount":"100.0","credit_amount":"100.0","priority":50}
+    ],
+    "fees": []
+  },
+  "compare": {"invoices":{"mode":"set"},"wallet_transactions":{"mode":"set"}}
+}

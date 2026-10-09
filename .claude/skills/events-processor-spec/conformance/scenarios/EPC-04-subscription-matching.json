@@ -1,0 +1,32 @@
+{
+  "name": "EPC-04-subscription-matching",
+  "id": "EPC-04",
+  "description": "Subscription window, ordering, boundaries, recurring fallback, status, external-id exactness, timestamp precision.",
+  "rules": ["EP-D3", "EP-D4", "EP-H1", "EP-H2", "EP-H3", "EP-H4", "EP-H5", "EP-H6", "EP-H7"],
+  "rbd": ["RBD-15", "RBD-16", "RBD-17", "RBD-19", "RBD-20"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "sm_unknown", "code": "count_calls", "timestamp": "1759320000", "external_subscription_id": "no_such_sub"}},
+      {"json": {"transaction_id": "sm_term_before", "code": "count_calls", "external_subscription_id": "sub_ext_term", "timestamp": "1748735999"}},
+      {"json": {"transaction_id": "sm_term_at_ms", "code": "count_calls", "external_subscription_id": "sub_ext_term", "timestamp": "1748736000.000"}},
+      {"json": {"transaction_id": "sm_term_after", "code": "count_calls", "external_subscription_id": "sub_ext_term", "timestamp": "1748736000.001"}},
+      {"json": {"transaction_id": "sm_multi_before", "code": "api_calls", "external_subscription_id": "sub_ext_multi", "timestamp": "1739577600", "properties": {"amount": 1}}},
+      {"json": {"transaction_id": "sm_multi_at", "code": "api_calls", "external_subscription_id": "sub_ext_multi", "timestamp": "1740787200", "properties": {"amount": 1}}},
+      {"json": {"transaction_id": "sm_future", "code": "count_calls", "timestamp": "1759320000", "external_subscription_id": "sub_ext_future"}},
+      {"json": {"transaction_id": "sm_started_ms", "code": "count_calls", "timestamp": "1735689600.000"}},
+      {"json": {"transaction_id": "sm_before_start", "code": "count_calls", "timestamp": "1735689599.999"}},
+      {"json": {"transaction_id": "sm_recurring_fallback", "code": "seats", "external_subscription_id": "sub_ext_late", "timestamp": "1736899200", "properties": {"seats": 4}}},
+      {"json": {"transaction_id": "sm_nonrecurring_nofallback", "code": "api_calls", "external_subscription_id": "sub_ext_late", "timestamp": "1736899200", "properties": {"amount": 1}}},
+      {"json": {"transaction_id": "sm_incomplete", "code": "count_calls", "timestamp": "1759320000", "external_subscription_id": "sub_ext_incomplete"}},
+      {"json": {"transaction_id": "sm_acme", "code": "count_calls", "timestamp": "1759320000", "external_subscription_id": "acme"}},
+      {"json": {"transaction_id": "sm_acme_eu", "code": "count_calls", "timestamp": "1759320000", "external_subscription_id": "acme:eu"}},
+      {"json": {"transaction_id": "sm_ts_offset", "code": "count_calls", "external_subscription_id": "sub_ext_multi", "timestamp": "2025-02-28T23:30:00-01:00"}},
+      {"json": {"transaction_id": "sm_ms_exact_str", "code": "count_calls", "external_subscription_id": "sub_ext_ms", "timestamp": "1741007009.123"}},
+      {"json": {"transaction_id": "sm_ms_exact_rfc", "code": "count_calls", "external_subscription_id": "sub_ext_ms", "timestamp": "2025-03-03T13:03:29.123Z"}},
+      {"json": {"transaction_id": "sm_ms_exact_num", "code": "count_calls", "external_subscription_id": "sub_ext_ms", "timestamp": 1741007009.123}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

@@ -1,0 +1,158 @@
+package events_processor
+
+// TEMPLATE from .claude/skills/validation-and-qa (checked by scripts/templates-check.sh).
+// Copy to events-processor/processors/events_processor/<feature>_test.go, rename the Test
+// functions and the cases, keep the shape:
+//   - one table of cases, run in BOTH data modes (memory cache and DB/sqlmock), nested
+//     under t.Run(mode.name) so the -v output names the mode;
+//   - every subtest builds its own env: no shared mutable state, so `-run Parent/Child` works;
+//   - DB mode: register sqlmock expectations in the order the code issues the queries
+//     (billable_metrics -> subscriptions -> charges) and assert they were all consumed;
+//   - no time.Sleep: processEvent returns only after its producer goroutines finished
+//     (`defer errgroup.Wait()` in processor.go).
+// If assertQueriesConsumed / templateModes already exist in the package, do not copy them twice.
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/getlago/lago/events-processor/models"
+	"github.com/getlago/lago/events-processor/utils"
+)
+
+var templateModes = []struct {
+	name     string
+	useCache bool
+}{
+	{"WithCache", true},
+	{"WithoutCache", false},
+}
+
+// assertQueriesConsumed fails when a DB-mode sqlmock expectation was registered but never
+// executed. tests.SetupMockStore does not check this itself (known harness defect).
+func assertQueriesConsumed(t *testing.T, ds DataStore) {
+	t.Helper()
+	if m, ok := ds.(*MockDataStore); ok {
+		require.NoError(t, m.mock.SQLMock.ExpectationsWereMet())
+	}
+}
+
+func TestTemplateEnrichEvent_Value(t *testing.T) {
+	cases := []struct {
+		name        string
+		aggregation models.AggregationType
+		fieldName   string
+		properties  map[string]any
+		wantValue   string
+	}{
+		{"count gives 1", models.AggregationTypeCount, "", nil, "1"},
+		{"sum copies the property as a string", models.AggregationTypeSum, "api_requests", map[string]any{"api_requests": "12.0"}, "12.0"},
+	}
+
+	for _, mode := range templateModes {
+		t.Run(mode.name, func(t *testing.T) {
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					env := setupEnrichmentTestEnv(t, mode.useCache)
+					defer env.Cleanup()
+
+					event := models.Event{
+						OrganizationID:         "1a901a90-1a90-1a90-1a90-1a901a901a90",
+						ExternalSubscriptionID: "sub_id",
+						Code:                   "api_calls",
+						Timestamp:              1741007009,
+						Properties:             tc.properties,
+						Source:                 "SQS",
+					}
+
+					// Query order in DB mode: billable_metrics, then subscriptions.
+					env.DataStore.SetBillableMetric(&models.BillableMetric{
+						ID:              "bm123",
+						OrganizationID:  event.OrganizationID,
+						Code:            event.Code,
+						AggregationType: tc.aggregation,
+						FieldName:       tc.fieldName,
+						CreatedAt:       utils.NowNullTime(),
+						UpdatedAt:       utils.NowNullTime(),
+					})
+					env.DataStore.SetSubscription(&models.Subscription{
+						ID:             "sub123",
+						OrganizationID: &event.OrganizationID,
+						ExternalID:     event.ExternalSubscriptionID,
+						PlanID:         "plan123",
+						StartedAt:      utils.NewNullTime(time.Unix(1700000000, 0)),
+					})
+
+					result := env.EventProcessor.EnrichEvent(&event)
+
+					require.Truef(t, result.Success(), "enrich failed: %s", result.ErrorMsg())
+					assert.Equal(t, tc.wantValue, *result.Value().Value)
+					assert.Equal(t, "sub123", result.Value().SubscriptionID)
+					assertQueriesConsumed(t, env.DataStore)
+				})
+			}
+		})
+	}
+}
+
+func TestTemplateProcessEvent_Producers(t *testing.T) {
+	for _, mode := range templateModes {
+		t.Run(mode.name, func(t *testing.T) {
+			t.Run("in-advance charge produces enriched and in-advance and flags a refresh", func(t *testing.T) {
+				env := setupProcessorTestEnv(t, mode.useCache)
+				defer env.Cleanup()
+
+				event := models.Event{
+					OrganizationID:         "1a901a90-1a90-1a90-1a90-1a901a901a90",
+					ExternalSubscriptionID: "sub_id",
+					Code:                   "api_calls",
+					Timestamp:              1741007009,
+					Properties:             map[string]any{"api_requests": "3"},
+					Source:                 "SQS",
+				}
+
+				// Query order in DB mode: billable_metrics, subscriptions, charges.
+				bm := &models.BillableMetric{
+					ID:              "bm123",
+					OrganizationID:  event.OrganizationID,
+					Code:            event.Code,
+					AggregationType: models.AggregationTypeSum,
+					FieldName:       "api_requests",
+					CreatedAt:       utils.NowNullTime(),
+					UpdatedAt:       utils.NowNullTime(),
+				}
+				env.DataStore.SetBillableMetric(bm)
+				env.DataStore.SetSubscription(&models.Subscription{
+					ID:             "sub123",
+					OrganizationID: &event.OrganizationID,
+					ExternalID:     event.ExternalSubscriptionID,
+					PlanID:         "plan123",
+					StartedAt:      utils.NewNullTime(time.Unix(1700000000, 0)),
+				})
+				env.DataStore.SetCharge(&models.Charge{
+					ID:               "ch123",
+					OrganizationID:   event.OrganizationID,
+					PlanID:           "plan123",
+					BillableMetricID: bm.ID,
+					PayInAdvance:     true,
+					UpdatedAt:        utils.NowNullTime(),
+				})
+
+				result := env.EventProcessor.processEvent(context.Background(), &event)
+
+				require.Truef(t, result.Success(), "processEvent failed: %s", result.ErrorMsg())
+				// No sleep needed: processEvent waited for the producer goroutines.
+				assert.Equal(t, 1, env.Producers.enrichedProducer.ExecutionCount)
+				assert.Equal(t, 1, env.Producers.inAdvanceProducer.ExecutionCount)
+				assert.Equal(t, 0, env.Producers.deadLetterProducer.ExecutionCount)
+				assert.Equal(t, 1, env.FlagStore.ExecutionCount)
+				assert.Equal(t, event.OrganizationID+":sub123", env.FlagStore.Key)
+				assertQueriesConsumed(t, env.DataStore)
+			})
+		})
+	}
+}

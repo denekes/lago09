@@ -1,0 +1,22 @@
+{
+  "name": "EPC-31-cdc-charge-update-column-gap",
+  "id": "EPC-31",
+  "description": "Memory-cache mode: a charge update arrives through CDC shaped by the reference deployment's CDC column list (no pay_in_advance column). The cached charge is replaced whole, so pay_in_advance reads false.",
+  "rules": ["EP-N3", "EP-N4", "EP-A8", "EP-W6"],
+  "rbd": ["RBD-21"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "modes": ["cache"],
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "before_cdc", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}}}
+    ]},
+    {"wait": "quiescent"},
+    {"cdc": {"table": "charges", "row": {"id": "cccccccc-0000-0000-0000-000000000001", "organization_id": "11111111-1111-1111-1111-111111111111", "plan_id": "22222222-2222-2222-2222-222222222222", "billable_metric_id": "aaaaaaaa-0000-0000-0000-000000000001", "created_at": "$NOW_US", "updated_at": "$NOW_US", "deleted_at": null, "properties": "{}", "__deleted": "false", "__table": "charges", "__lsn": 1}}},
+    {"wait_cdc_applied": "charges"},
+    {"produce": [
+      {"json": {"transaction_id": "after_cdc", "code": "api_calls", "timestamp": "1759320000", "properties": {"amount": 1}}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

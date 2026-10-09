@@ -1,0 +1,47 @@
+{
+  "kit_schema": 1,
+  "id": "scn.subscription.downgrade.001",
+  "area": "scn",
+  "title": "downgrade takes effect at the period end (fixed charges in arrears)",
+  "profile": "both",
+  "ruling": "decided",
+  "pair": null,
+  "rules": ["BE-IV-2","BE-SP-35","BE-SP-53"],
+  "rbd": ["RBD-60"],
+  "tags": [],
+  "evidence": {"kind":"EXECUTED","by":"replay-on-lago","ref":"$API/spec/scenarios/subscriptions/downgrade_spec.rb:386","pin":"591ae9005110","runtime":"ruby-4.0.6 (pinned)","executed_at":"2026-10-02"},
+  "setup": {
+    "at": "2023-07-19T12:12:00Z",
+    "organization": {"document_number_prefix":"ORG-0001"},
+    "premium": false,
+    "store": "pg",
+    "add_ons": [{"name":"add_on_1","code":"add_on_1","amount_cents":200,"amount_currency":"EUR"},{"name":"add_on_2","code":"add_on_2","amount_cents":200,"amount_currency":"EUR"},{"name":"add_on_3","code":"add_on_3","amount_cents":200,"amount_currency":"EUR"}],
+    "plans": [{"name":"plan_1","code":"plan_1","interval":"monthly","amount_cents":10000,"amount_currency":"EUR","pay_in_advance":false,"fixed_charges":[{"code":"fixed_charge_1","add_on_id":"{{add_on:add_on_1}}","charge_model":"standard","units":"10.0","properties":{"amount":"1"}},{"code":"fixed_charge_2","add_on_id":"{{add_on:add_on_2}}","charge_model":"standard","units":"5.0","properties":{"amount":"3"}}]},{"name":"plan_2","code":"plan_2","interval":"monthly","amount_cents":1000,"amount_currency":"EUR","pay_in_advance":false,"fixed_charges":[{"code":"fixed_charge_3","add_on_id":"{{add_on:add_on_2}}","charge_model":"standard","units":"10.0","properties":{"amount":"10"}},{"code":"fixed_charge_4","add_on_id":"{{add_on:add_on_3}}","charge_model":"standard","units":"1.0","properties":{"units":1,"amount":"20"}}]}],
+    "customers": [{"external_id":"cust_1","currency":"EUR"}]
+  },
+  "steps": [
+    {"op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_1","billing_time":"calendar"}}},
+    {"at":"2023-08-01T00:00:00Z","op":"tick","jobs":["billing"]},
+    {"at":"2023-08-21T23:59:59Z","op":"api","method":"POST","path":"/api/v1/subscriptions","body":{"subscription":{"external_customer_id":"cust_1","external_id":"cust_1","plan_code":"plan_2","billing_time":"calendar"}}},
+    {"at":"2023-09-01T00:00:00Z","op":"snapshot","expect":{"subscriptions":[{"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_1","status":"active","billing_time":"calendar","subscription_at":"2023-07-19T12:12:00Z","started_at":"2023-07-19T12:12:00.000Z","next_plan_code":"plan_2","downgrade_plan_date":"2023-10-01"},{"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_2","status":"pending","billing_time":"calendar","subscription_at":"2023-07-19T12:12:00Z","previous_plan_code":"plan_1"}]},"compare":{"subscriptions":{"mode":"set"}},"note":"the downgrade waits for the period end: the successor is pending"},
+    {"op":"tick","jobs":["billing"]},
+    {"at":"2023-10-01T00:00:00Z","op":"snapshot","expect":{"subscriptions":[{"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_1","status":"terminated","billing_time":"calendar","subscription_at":"2023-07-19T12:12:00Z","started_at":"2023-07-19T12:12:00.000Z","terminated_at":"2023-09-01T00:00:00Z","next_plan_code":"plan_2","downgrade_plan_date":"2023-09-01"},{"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_2","status":"active","billing_time":"calendar","subscription_at":"2023-07-19T12:12:00Z","started_at":"2023-09-01T00:00:00.000Z","previous_plan_code":"plan_1"}]},"compare":{"subscriptions":{"mode":"set"}},"note":"the period-end run rotated the subscriptions"},
+    {"op":"tick","jobs":["billing"]}
+  ],
+  "expect": {
+    "invoices": [
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-001","issuing_date":"2023-08-01","payment_due_date":"2023-08-01","currency":"EUR","fees_amount_cents":6694,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":6694,"sub_total_including_taxes_amount_cents":6694,"total_amount_cents":6694,"total_due_amount_cents":6694,"billing_periods":[{"external_subscription_id":"cust_1","subscription_from_datetime":"2023-07-19T00:00:00Z","subscription_to_datetime":"2023-07-31T23:59:59Z","charges_from_datetime":"2023-07-19T12:12:00Z","charges_to_datetime":"2023-07-31T23:59:59Z","invoicing_reason":"subscription_periodic"}],"fees":[{"item":{"type":"subscription"},"external_subscription_id":"cust_1","amount_cents":4194,"units":"1.0","taxes_amount_cents":0,"from_date":"2023-07-19T00:00:00+00:00","to_date":"2023-07-31T23:59:59+00:00"},{"item":{"type":"fixed_charge","code":"add_on_2"},"external_subscription_id":"cust_1","amount_cents":1500,"units":"5.0","taxes_amount_cents":0,"from_date":"2023-07-19T12:12:00+00:00","to_date":"2023-07-31T23:59:59+00:00"},{"item":{"type":"fixed_charge","code":"add_on_1"},"external_subscription_id":"cust_1","amount_cents":1000,"units":"10.0","taxes_amount_cents":0,"from_date":"2023-07-19T12:12:00+00:00","to_date":"2023-07-31T23:59:59+00:00"}]},
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-002","issuing_date":"2023-09-01","payment_due_date":"2023-09-01","currency":"EUR","fees_amount_cents":12500,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":12500,"sub_total_including_taxes_amount_cents":12500,"total_amount_cents":12500,"total_due_amount_cents":12500,"billing_periods":[{"external_subscription_id":"cust_1","subscription_from_datetime":"2023-08-01T00:00:00Z","subscription_to_datetime":"2023-08-31T23:59:59Z","charges_from_datetime":"2023-08-01T00:00:00Z","charges_to_datetime":"2023-08-31T23:59:59Z","invoicing_reason":"subscription_terminating"}],"fees":[{"item":{"type":"subscription"},"external_subscription_id":"cust_1","amount_cents":10000,"units":"1.0","taxes_amount_cents":0,"from_date":"2023-08-01T00:00:00+00:00","to_date":"2023-08-31T23:59:59+00:00"},{"item":{"type":"fixed_charge","code":"add_on_2"},"external_subscription_id":"cust_1","amount_cents":1500,"units":"5.0","taxes_amount_cents":0,"from_date":"2023-08-01T00:00:00+00:00","to_date":"2023-08-31T23:59:59+00:00"},{"item":{"type":"fixed_charge","code":"add_on_1"},"external_subscription_id":"cust_1","amount_cents":1000,"units":"10.0","taxes_amount_cents":0,"from_date":"2023-08-01T00:00:00+00:00","to_date":"2023-08-31T23:59:59+00:00"}]},
+      {"invoice_type":"subscription","status":"finalized","payment_status":"pending","number":"ORG-0001-001-003","issuing_date":"2023-10-01","payment_due_date":"2023-10-01","currency":"EUR","fees_amount_cents":13000,"coupons_amount_cents":0,"progressive_billing_credit_amount_cents":0,"credit_notes_amount_cents":0,"prepaid_credit_amount_cents":0,"taxes_amount_cents":0,"sub_total_excluding_taxes_amount_cents":13000,"sub_total_including_taxes_amount_cents":13000,"total_amount_cents":13000,"total_due_amount_cents":13000,"billing_periods":[{"external_subscription_id":"cust_1","subscription_from_datetime":"2023-09-01T00:00:00Z","subscription_to_datetime":"2023-09-30T23:59:59Z","charges_from_datetime":"2023-09-01T00:00:00Z","charges_to_datetime":"2023-09-30T23:59:59Z","invoicing_reason":"subscription_periodic"}],"fees":[{"item":{"type":"subscription"},"external_subscription_id":"cust_1","amount_cents":1000,"units":"1.0","taxes_amount_cents":0,"from_date":"2023-09-01T00:00:00+00:00","to_date":"2023-09-30T23:59:59+00:00"},{"item":{"type":"fixed_charge","code":"add_on_2"},"external_subscription_id":"cust_1","amount_cents":10000,"units":"10.0","taxes_amount_cents":0,"from_date":"2023-09-01T00:00:00+00:00","to_date":"2023-09-30T23:59:59+00:00"},{"item":{"type":"fixed_charge","code":"add_on_3"},"external_subscription_id":"cust_1","amount_cents":2000,"units":"1.0","taxes_amount_cents":0,"from_date":"2023-09-01T00:00:00+00:00","to_date":"2023-09-30T23:59:59+00:00"}]}
+    ],
+    "credit_notes": [],
+    "wallets": [],
+    "wallet_transactions": [],
+    "fees": [],
+    "subscriptions": [
+      {"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_1","status":"terminated","billing_time":"calendar","subscription_at":"2023-07-19T12:12:00Z","started_at":"2023-07-19T12:12:00.000Z","terminated_at":"2023-09-01T00:00:00Z","next_plan_code":"plan_2","downgrade_plan_date":"2023-09-01"},
+      {"external_id":"cust_1","external_customer_id":"cust_1","plan_code":"plan_2","status":"active","billing_time":"calendar","subscription_at":"2023-07-19T12:12:00Z","started_at":"2023-09-01T00:00:00.000Z","previous_plan_code":"plan_1"}
+    ]
+  },
+  "compare": {"invoices":{"mode":"set"},"invoices[*].fees":{"mode":"set"},"subscriptions":{"mode":"set"}}
+}

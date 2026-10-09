@@ -1,0 +1,99 @@
+package kafka
+
+// TEMPLATE from .claude/skills/validation-and-qa (checked by scripts/templates-check.sh).
+// Copy to events-processor/config/kafka/<client_or_producer>_option_test.go, rename, keep the shape:
+//   - for Kafka CLIENT OPTION plumbing (ServerConfig fields, the []kgo.Opt passed to
+//     NewKafkaClient, a new ProducerConfig field mapped to a kgo option): no broker and no kfake.
+//     kgo.NewClient validates the options and returns without dialing, so an unreachable seed
+//     (127.0.0.1:1) is enough; assert the effective value with client.OptValue(kgo.<Option>);
+//   - one table: default (option absent), explicit value, zero value, out-of-range value
+//     (kgo.NewClient rejects it: the error must reach the caller, not panic);
+//   - close every client (t.Cleanup) so no background goroutine outlives the test;
+//   - kfake (diagnostics-and-tooling) is only for DELIVERY semantics: commit, retry, DLQ,
+//     rebalance (change-control N7). Adding kfake to events-processor/go.mod is itself a C5 change.
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl"
+)
+
+// templateUnreachableSeed is never dialed by these tests: NewClient does not connect.
+var templateUnreachableSeed = []string{"127.0.0.1:1"}
+
+func TestTemplateNewKafkaClient_Options(t *testing.T) {
+	cases := []struct {
+		name       string
+		extra      []kgo.Opt
+		wantLinger time.Duration
+		wantErr    string
+	}{
+		{name: "default: option absent keeps the franz-go default", wantLinger: 10 * time.Millisecond},
+		{name: "explicit value is applied", extra: []kgo.Opt{kgo.ProducerLinger(50 * time.Millisecond)}, wantLinger: 50 * time.Millisecond},
+		{name: "zero value is applied, not replaced by the default", extra: []kgo.Opt{kgo.ProducerLinger(0)}, wantLinger: 0},
+		{name: "out-of-range value is an error", extra: []kgo.Opt{kgo.ProducerBatchMaxBytes(100)}, wantErr: "max record batch bytes"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, err := NewKafkaClient(ServerConfig{Servers: templateUnreachableSeed}, tc.extra)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				assert.Nil(t, client)
+				return
+			}
+			require.NoError(t, err)
+			t.Cleanup(client.Close)
+
+			assert.Equal(t, templateUnreachableSeed, client.OptValue(kgo.SeedBrokers))
+			assert.Equal(t, tc.wantLinger, client.OptValue(kgo.ProducerLinger))
+		})
+	}
+}
+
+func TestTemplateNewKafkaClient_ServerConfig(t *testing.T) {
+	t.Run("TLS true turns on TLS dialing", func(t *testing.T) {
+		client, err := NewKafkaClient(ServerConfig{Servers: templateUnreachableSeed, TLS: true}, nil)
+		require.NoError(t, err)
+		t.Cleanup(client.Close)
+
+		assert.Equal(t, true, client.OptValue(kgo.DialTLS))
+	})
+
+	t.Run("TLS false dials in plaintext", func(t *testing.T) {
+		client, err := NewKafkaClient(ServerConfig{Servers: templateUnreachableSeed}, nil)
+		require.NoError(t, err)
+		t.Cleanup(client.Close)
+
+		assert.Equal(t, false, client.OptValue(kgo.DialTLS))
+	})
+
+	t.Run("SCRAM-SHA-512 sets one SASL mechanism", func(t *testing.T) {
+		client, err := NewKafkaClient(ServerConfig{
+			Servers: templateUnreachableSeed, ScramAlgorithm: Scram512, UserName: "u", Password: "p",
+		}, nil)
+		require.NoError(t, err)
+		t.Cleanup(client.Close)
+
+		mechanisms, ok := client.OptValue(kgo.SASL).([]sasl.Mechanism)
+		require.True(t, ok)
+		require.Len(t, mechanisms, 1)
+		assert.Equal(t, "SCRAM-SHA-512", mechanisms[0].Name())
+	})
+}
+
+func TestTemplateNewProducer_Config(t *testing.T) {
+	producer, err := NewProducer(ServerConfig{Servers: templateUnreachableSeed}, &ProducerConfig{Topic: "template_topic"})
+	require.NoError(t, err)
+	t.Cleanup(producer.client.Close)
+
+	assert.Equal(t, "template_topic", producer.GetTopic())
+	// A new ProducerConfig field that maps to a kgo option is asserted the same way, e.g.
+	// assert.Equal(t, want, producer.client.OptValue(kgo.ProducerLinger)).
+	assert.Equal(t, 10*time.Millisecond, producer.client.OptValue(kgo.ProducerLinger))
+}

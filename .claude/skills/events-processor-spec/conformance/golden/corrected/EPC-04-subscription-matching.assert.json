@@ -1,0 +1,7 @@
+[
+ {"kind": "subscription", "tx": "sm_ms_exact_str", "want": "bbbbbbbb-0000-0000-0000-000000000010", "why": "an event in the started_at millisecond matches (no binary-float rounding of the event time)", "rbd": ["RBD-15"], "ruling": "decided"},
+ {"kind": "subscription", "tx": "sm_ms_exact_num", "want": "bbbbbbbb-0000-0000-0000-000000000010", "why": "the same instant sent as a JSON number matches too", "rbd": ["RBD-15"], "ruling": "decided"},
+ {"kind": "subscription", "tx": "sm_ts_offset", "want": "bbbbbbbb-0000-0000-0000-000000000004", "why": "an RFC3339 offset is compared as a UTC instant (00:30Z lies in the open subscription 004, inside the cache window)", "rbd": ["RBD-16"], "ruling": "decided"},
+ {"kind": "subscription", "tx": "sm_started_ms", "want": "bbbbbbbb-0000-0000-0000-000000000001", "why": "started_at is truncated to the millisecond before comparing, in both modes", "rbd": ["RBD-17"], "ruling": "decided"},
+ {"kind": "subscription", "tx": "sm_term_after", "want": "", "why": "an event 1 ms after the terminated_at millisecond does not match", "rbd": ["RBD-15"], "ruling": "decided"}
+]

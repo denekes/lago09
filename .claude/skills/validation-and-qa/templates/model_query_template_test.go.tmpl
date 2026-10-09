@@ -1,0 +1,75 @@
+package models
+
+// TEMPLATE from .claude/skills/validation-and-qa (checked by scripts/templates-check.sh).
+// Copy to events-processor/models/<table>_test.go, rename, keep the shape:
+//   - the EXACT SQL the code emits is pinned with regexp.QuoteMeta and anchored with ^...$
+//     (sqlmock's default matcher collapses whitespace and does an UNANCHORED regexp match);
+//     the pin is intentional: it is how change-control N4 (explicit columns, deleted_at IS NULL,
+//     organization_id) stays enforced. A diff in this string is a behaviour change (class C3);
+//   - WithArgs pins the bound parameters, including gorm's LIMIT argument;
+//   - every case ends with mock.ExpectationsWereMet() (the shared helper does not check it);
+//   - error classification is asserted: not-found => NonRetryable+NonCapturable,
+//     any other DB error => Retryable+Capturable (utils.FailedResult defaults).
+// To discover the SQL for a new query: write the test with a wrong pin, run it, and copy the
+// `actual sql` from the sqlmock error into the pin after reading it.
+
+import (
+	"errors"
+	"regexp"
+	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+var templateHasPayInAdvanceChargeQuery = "^" + regexp.QuoteMeta(
+	`SELECT id FROM "charges"
+	WHERE organization_id = $1 AND plan_id = $2 AND billable_metric_id = $3
+	AND pay_in_advance IS TRUE AND deleted_at IS NULL
+	LIMIT $4`,
+) + "$"
+
+func TestTemplateHasPayInAdvanceCharge(t *testing.T) {
+	const orgID, planID, bmID = "1a901a90-1a90-1a90-1a90-1a901a901a90", "plan123", "bm123"
+	dbErr := errors.New("database connection failed")
+
+	cases := []struct {
+		name          string
+		rows          *sqlmock.Rows
+		err           error
+		wantSuccess   bool
+		wantValue     bool
+		wantRetryable bool
+	}{
+		{name: "a pay-in-advance charge exists", rows: sqlmock.NewRows([]string{"id"}).AddRow("ch123"), wantSuccess: true, wantValue: true},
+		{name: "no pay-in-advance charge", rows: sqlmock.NewRows([]string{"id"}), wantSuccess: true, wantValue: false},
+		{name: "database error is retryable", err: dbErr, wantSuccess: false, wantRetryable: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store, mock, cleanup := setupApiStore(t)
+			defer cleanup()
+
+			expectation := mock.ExpectQuery(templateHasPayInAdvanceChargeQuery).WithArgs(orgID, planID, bmID, 1)
+			if tc.err != nil {
+				expectation.WillReturnError(tc.err)
+			} else {
+				expectation.WillReturnRows(tc.rows)
+			}
+
+			result := store.HasPayInAdvanceCharge(orgID, planID, bmID)
+
+			require.NoError(t, mock.ExpectationsWereMet())
+			require.Equal(t, tc.wantSuccess, result.Success())
+			if tc.wantSuccess {
+				assert.Equal(t, tc.wantValue, result.Value())
+				return
+			}
+			assert.Equal(t, tc.err, result.Error())
+			assert.Equal(t, tc.wantRetryable, result.IsRetryable())
+			assert.Equal(t, tc.wantRetryable, result.IsCapturable())
+		})
+	}
+}

@@ -1,0 +1,22 @@
+# epc08-time-formats.log - REAL output of the reference events-processor binary (tree 83e012866f29, = code 5308258)
+# in DB mode under events-processor-spec EPC-08 (21 timestamp shapes), kit verification pass p1-db of 2026-10-02.
+# t_nan and t_inf (timestamp strings "NaN", "Inf") produce the two 'error while marshaling enriched events' lines:
+# nothing produced, no DLQ, committed. franz-go INFO lines removed; nothing else changed.
+{"time":"2026-10-02T11:28:48.601857367Z","level":"INFO","msg":"Starting event consumer","service":"post_process"}
+{"time":"2026-10-02T11:28:48.603825164Z","level":"INFO","msg":"Starting consume for topic events-raw partition 0\n","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T11:28:48.694142856Z","level":"ERROR","msg":"Error while converting event to enriched event","service":"post_process","error_code":"build_enriched_event","error":"strconv.ParseFloat: parsing \"2025-03-03 13:03:29\": invalid syntax"}
+{"time":"2026-10-02T11:28:48.700011242Z","level":"ERROR","msg":"Error while converting event to enriched event","service":"post_process","error_code":"build_enriched_event","error":"strconv.ParseFloat: parsing \"\": invalid syntax"}
+{"time":"2026-10-02T11:28:48.700087742Z","level":"ERROR","msg":"Error while converting event to enriched event","service":"post_process","error_code":"build_enriched_event","error":"Unsupported timestamp type: <nil>"}
+{"time":"2026-10-02T11:28:48.701230041Z","level":"ERROR","msg":"Error while converting event to enriched event","service":"post_process","error_code":"build_enriched_event","error":"Unsupported timestamp type: bool"}
+{"time":"2026-10-02T11:28:48.701560342Z","level":"ERROR","msg":"Error while converting event to enriched event","service":"post_process","error_code":"build_enriched_event","error":"Unsupported timestamp type: <nil>"}
+{"time":"2026-10-02T11:28:48.701724049Z","level":"ERROR","msg":"Error while converting event to enriched event","service":"post_process","error_code":"build_enriched_event","error":"Unsupported timestamp type: map[string]interface {}"}
+{"time":"2026-10-02T11:28:48.731516245Z","level":"ERROR","msg":"error while marshaling enriched events","service":"post_process"}
+{"time":"2026-10-02T11:28:48.743119513Z","level":"ERROR","msg":"error while marshaling enriched events","service":"post_process"}
+{"time":"2026-10-02T11:28:49.838795158Z","level":"INFO","msg":"Received shutdown signal","service":"post_process","signal":"terminated"}
+{"time":"2026-10-02T11:28:49.838856692Z","level":"INFO","msg":"Gracefully shutting down consumer group","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T11:28:49.838869615Z","level":"INFO","msg":"Shuting down partion consumer","service":"post_process","kafka-topic-consumer":"events-raw","topic":"events-raw","partition":0}
+{"time":"2026-10-02T11:28:49.838884212Z","level":"INFO","msg":"partition consumer quit","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T11:28:49.838887601Z","level":"INFO","msg":"Closing consume for topic events-raw partition 0\n","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T11:28:49.839022607Z","level":"INFO","msg":"waiting for work to finish topic events-raw partition 0\n","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T11:28:49.839381568Z","level":"INFO","msg":"Consumer group shutdown is complete","service":"post_process","kafka-topic-consumer":"events-raw"}
+{"time":"2026-10-02T11:28:49.839397015Z","level":"INFO","msg":"Event processor stopped","service":"post_process"}

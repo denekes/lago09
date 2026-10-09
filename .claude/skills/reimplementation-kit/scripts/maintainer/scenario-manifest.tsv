@@ -1,0 +1,99 @@
+# MAINTAINER-ONLY: needs lago-api at pin 591ae9005110 (pinned-checkout.sh api) and the oracle toolchain; excluded from clean-room packs.
+# scenario-manifest.tsv — the curated scenario tier: which recorded example of the reference's own scenario specs becomes
+# which kit scenario (input of convert-scenarios.py). Columns (tab-separated): kit_id, source example id (rspec id at the
+# pin, or "authored" for a scenario written in kit form), title, rules, rbd, tags, options (JSON, see
+# convert-scenarios.py), notes. '-' = empty.
+# Re-mint: KIT_SCENARIO_RECORD_DIR=<dir> oracle.sh run -j 1 -r scenario-recorder.rb <the spec files below> (recorder v4:
+#          kit clock, per-step states);
+#          convert-scenarios.py --records <dir> --manifest scenario-manifest.tsv --out <skills>/billing-engine-spec/scenarios;
+#          authored rows: scenario-replay.py --scenarios <those files> --dump <d> (on the oracle), then
+#          convert-scenarios.py --fill <d> --manifest scenario-manifest.tsv --out <skills>/billing-engine-spec/scenarios;
+#          convert-scenarios.py --index <skills>/billing-engine-spec/scenarios; replay-on-lago.sh (all must be ACCEPTED).
+# Authored rows (2026-10-02): rules that no source example isolates — BE-SP-62 / RBD-59 (plan amount edit cancels a
+#   pending downgrade), BE-SP-65 (charge selection on upgrade and termination), BE-SP-66 (fixed-charge selection on the
+#   starting and the termination invoice); expectations come from the replay on the reference (evidence ref "derived").
+# Rejected at curation (2026-10-02; reasons recorded so they are not retried blindly):
+#   identical-filter examples (charge filters with empty values are refused over REST; equal creation instants tie),
+#   invoice_numbering per-billing-entity (numbers depend on the finalization order of simultaneous drafts),
+#   credit_note_rounding [1:4:1] (direct model update), invoices_spec [1:22:3] (noise request bodies, ambiguous draft binds), events_targeting_wallets and
+#   wallet_traceability [1:1:4:1] (factory wallets / transaction priorities set on models), create_event_spec (factory
+#   subscription), pay_in_advance_charges_spec (factory events), cascade_filters [1:8] (wall-clock seconds drift with recorder v3; may convert with v4),
+#   wallets/topup_rule_with_limits (factory plan + wall clock), advance_charges (fees paid through model updates),
+#   credit_note_spec [1:3:2:1] (metrics of another organization), several billing entities per customer set,
+#   void_invoice_spec [1:3:1] (orders two credit notes created in one step by creation time: fails on the frozen kit clock).
+scn.alert.usage.001	spec/scenarios/usage_monitoring/subscription_alerts_spec.rb[1:5:1]	lifetime usage alert over two periods	BE-AL-12	RBD-77,RBD-78	-	-	-
+scn.commitment.advance.001	spec/scenarios/commitments/minimum/in_advance_spec.rb[1:1:1:1:2:3:1]	minimum commitment of the previous period billed on the next in-advance invoice	BE-IV-3	RBD-52	-	-	-
+scn.commitment.arrears.001	spec/scenarios/commitments/minimum/in_arrears_spec.rb[1:1:1:1:1:3:1]	minimum commitment not reached: true-up fee on an arrears invoice	BE-IV-3	RBD-52	-	-	-
+scn.commitment.termination.001	spec/scenarios/commitments/minimum/on_termination_spec.rb[1:1]	minimum commitment over a terminated period (March and April)	BE-IV-3	RBD-52	-	-	-
+scn.credit_note.termination.001	spec/scenarios/credit_notes/credit_note_rounding_spec.rb[1:1:1]	termination credit note of a paid in-advance fee with tax: rounding of unused days	BE-CN-11,BE-CN-15,BE-CN-16,BE-CN-17	RBD-75	-	-	-
+scn.credit_note.termination.004	spec/scenarios/terminate_pay_in_advance_spec.rb[1:1]	terminating a pay-in-advance subscription: credit note and final invoice	BE-CN-15,BE-CN-16,BE-SP-55	RBD-63	core	{"keep":{"subscriptions":true}}	-
+scn.fixed_charge.override.001	spec/scenarios/fixed_charges/subscription_units_override_spec.rb[1:4]	fixed charge units overridden through the subscription: delta billed from the highest paid value	BE-PR-67,BE-PR-68	-	-	-	-
+scn.fixed_charge.units.001	spec/scenarios/fixed_charges/pay_in_advance_units_change_spec.rb[1:1:3:2]	fixed charge units raised mid-period: delta invoice in advance	BE-PR-67,BE-PR-71	-	-	-	-
+scn.fixed_charge.upgrade_prorated.001	spec/scenarios/subscriptions/upgrade_spec.rb[1:2:1:1:3:1]	upgrade mid-period: the prorated in-advance fixed charge already paid is deducted from the new one	BE-PR-72,BE-PR-70,BE-SP-52	-	-	{"keep":{"subscriptions":true}}	-
+scn.invoice.coupons.001	spec/scenarios/coupons_breakdown_spec.rb[1:1:1]	three limited and unlimited coupons split over the fees of two subscriptions with two tax rates	BE-DM-27,BE-DM-28,BE-IV-11,BE-IV-19,BE-IV-22,BE-IV-25	RBD-68,RBD-69	-	{"keep": {"fee_keys": ["item", "external_subscription_id", "amount_cents", "units", "taxes_amount_cents", "taxes_rate", "precise_coupons_amount_cents"]}}	-
+scn.invoice.filters_grouped.001	spec/scenarios/invoices/filters_and_grouped_by_spec.rb[1:1]	invoice fees per charge filter and per grouping key	BE-AG-31,BE-AG-36,BE-PR-51	-	-	-	-
+scn.invoice.leap.001	spec/scenarios/invoices/invoices_spec.rb[1:6:1]	invoice boundaries across a leap February	BE-DM-15	RBD-64	-	-	-
+scn.invoice.lifecycle.002	spec/scenarios/customers/update_invoice_grace_period_spec.rb[1:1]	changing a customer's grace period moves the finalization of its draft invoice	BE-IV-6,BE-IV-33,BE-IV-37,BE-IV-39	RBD-71	-	{"snapshots":{"0":{"parts":["invoices"],"keep":{"invoice_keys":["invoice_type","status","total_amount_cents"],"invoice_parts":["customer"]},"note":"the grace period keeps the invoice draft"}}}	-
+scn.invoice.lifecycle.003	spec/scenarios/invoices/invoices_spec.rb[1:7:1]	upgrade without grace period: termination and start invoices with their invoicing reasons	BE-IV-2,BE-SP-52	RBD-61	-	{"keep":{"subscriptions":true}}	-
+scn.invoice.lifecycle.005	spec/scenarios/invoices/invoices_spec.rb[1:18:1]	pay-in-advance subscription terminated: fees billed correctly	BE-SP-55	RBD-63	-	{"keep":{"subscriptions":true}}	-
+scn.invoice.numbering.001	spec/scenarios/invoices/invoice_numbering_spec.rb[1:3:1]	per-customer invoice numbers with a grace period are assigned at finalization	BE-DM-37,BE-DM-40,BE-DM-42,BE-IV-1,BE-IV-35,BE-IV-39	RBD-82	-	{"keep":{"invoice_keys":["invoice_type","status","number","issuing_date","total_amount_cents"],"invoice_parts":["customer"]}}	-
+scn.invoice.one_off.001	spec/scenarios/invoices/one_off_spec.rb[1:1:1:1]	one-off invoice of add-ons: explicit tax codes replace the derived taxes	BE-IV-7,BE-IV-10,BE-IV-51	-	-	-	-
+scn.invoice.one_off.002	spec/scenarios/invoices/one_off_spec.rb[1:1:3:1]	one-off invoice: customer taxes take precedence over billing-entity taxes	BE-IV-10,BE-IV-51	-	-	-	-
+scn.invoice.prepaid.001	spec/scenarios/invoices/negative_total_with_prepaid_credits_spec.rb[1:1:1]	prepaid credits are capped at the invoice total with fractional fee amounts	BE-IV-31,BE-WL-44,BE-WL-45	-	-	-	-
+scn.invoice.prepaid.002	spec/scenarios/invoices/invoicing_with_prepaid_credits_spec.rb[1:1:1]	wallet limited to a billable metric pays only that metric's fees	BE-WL-43,BE-WL-45	-	-	-	-
+scn.invoice.progressive.001	spec/scenarios/invoices/progressive_billing_spec.rb[1:1]	progressive billing: threshold invoice mid-month, then the period invoice credits it	BE-IV-32,BE-PB-4,BE-PB-12,BE-PB-14,BE-PB-22	RBD-76	-	{"snapshots":{"2":{"parts":["invoices"],"keep":{"invoice_keys":["invoice_type","status","total_amount_cents"],"invoice_parts":["customer"]},"note":"threshold crossed: one progressive-billing invoice"},"4":{"parts":["invoices"],"keep":{"invoice_keys":["invoice_type","status","total_amount_cents"],"invoice_parts":["customer"]},"note":"no second invoice for the same threshold"}}}	-
+scn.invoice.progressive.002	spec/scenarios/invoices/progressive_billing_spec.rb[1:6]	progressive billing: several thresholds crossed within one period	BE-CN-21,BE-PB-14,BE-PB-15	RBD-76	-	{"snapshots":{"2":{"parts":["invoices"],"keep":{"invoice_keys":["invoice_type","status","total_amount_cents"],"invoice_parts":["customer"]},"note":"first threshold crossed"},"4":{"parts":["invoices"],"keep":{"invoice_keys":["invoice_type","status","total_amount_cents"],"invoice_parts":["customer"]},"note":"no new threshold crossed"},"6":{"parts":["invoices"],"keep":{"invoice_keys":["invoice_type","status","total_amount_cents"],"invoice_parts":["customer"]},"note":"second threshold crossed"}}}	-
+scn.invoice.taxes.001	spec/scenarios/taxes_on_invoice_spec.rb[1:1:1]	plan tax vs charge taxes, charge minimum true-up and a fixed coupon on a monthly arrears invoice	BE-DM-27,BE-DM-28,BE-PR-59,BE-PR-60,BE-PR-61,BE-IV-10,BE-IV-11,BE-IV-12,BE-IV-13,BE-IV-25	RBD-69	core	-	-
+scn.invoice.taxes.002	spec/scenarios/taxes_on_invoice_spec.rb[1:2:1]	two coupons larger than the fees bring the invoice and its taxes to zero	BE-DM-27,BE-IV-11,BE-IV-20	RBD-69	-	-	-
+scn.invoice.taxes.003	spec/scenarios/taxes_on_invoice_spec.rb[1:3:1]	coupons over two subscriptions of one customer: coupon shares and taxes per fee	BE-DM-27,BE-DM-28,BE-IV-11,BE-IV-25	RBD-69	-	-	-
+scn.invoice.timezone.001	spec/scenarios/invoices/invoices_spec.rb[1:2:1]	customer zone behind UTC on another local day: invoice period computed in local time	BE-DM-10,BE-DM-13	RBD-94	-	-	-
+scn.invoice.void.001	spec/scenarios/invoices/void_invoice_spec.rb[1:1:1]	voiding a finalized invoice	BE-IV-41,BE-IV-42,BE-WL-62	RBD-73	core	-	-
+scn.lifetime.usage.001	spec/scenarios/lifetime_usages/without_progressive_billing_spec.rb[1:1]	lifetime usage without progressive billing creates no threshold invoice	BE-PB-2,BE-PB-3,BE-PB-4	RBD-76	-	-	-
+scn.pay_in_advance.estimate.001	spec/scenarios/estimate_events_spec.rb[1:1:2:4:3:1]	fee estimate of an event for a percentage charge with free units	BE-PR-44,BE-PR-83	RBD-53	-	-	-
+scn.pay_in_advance.recurring.001	spec/scenarios/fees/recurring_fees_spec.rb[1:2:1:1:1]	recurring metric billed in arrears over several periods	BE-AG-4	-	-	{"keep":{"subscriptions":true}}	-
+scn.pay_in_advance.sum.001	spec/scenarios/current_usage/by_aggregation_type/sum_agg_spec.rb[1:1:1:1]	pay-in-advance sum charge with groups: per-event fees and usage	BE-PR-43,BE-PR-46,BE-AG-40	-	-	-	-
+scn.pay_in_advance.unique_count.001	spec/scenarios/current_usage/by_aggregation_type/unique_count_agg_spec.rb[1:1:2:1]	pay-in-advance unique count charge with groups	BE-PR-43,BE-AG-14	-	-	-	-
+scn.store_ch.latest.001	spec/scenarios/current_usage/by_aggregation_type/latest_agg_spec.rb[1:2:1:1]	columnar store: latest aggregation usage	BE-AG-13	RBD-25	store-ch,optional	-	-
+scn.store_ch.unique_count.001	spec/scenarios/current_usage/by_aggregation_type/unique_count_agg_spec.rb[1:2:1]	columnar store: unique count usage and fees over periods	BE-AG-14	RBD-27,RBD-28	store-ch,optional	-	-
+scn.store_ch.weighted_sum.001	spec/scenarios/current_usage/by_aggregation_type/weighted_sum_agg_spec.rb[1:2:1]	columnar store: weighted sum usage and invoices	BE-AG-17	RBD-29	store-ch,optional	-	-
+scn.subscription.billing.001	spec/scenarios/subscriptions/billing_spec.rb[1:2:1:1:1]	monthly calendar arrears plan billed once per billing day	BE-DM-15	RBD-94	core	-	-
+scn.subscription.billing.002	spec/scenarios/subscriptions/billing_spec.rb[1:2:2:3:1:1]	monthly anniversary on the 31st: one invoice per period, month-end clamping	BE-DM-15,BE-SP-31	RBD-64	-	{"keep":{"invoice_keys":["issuing_date","total_amount_cents"],"invoice_parts":["billing_periods"]}}	-
+scn.subscription.billing.004	spec/scenarios/subscriptions/billing_spec.rb[1:3:2:5:1:1]	quarterly anniversary from February 28	BE-SP-31	RBD-64	-	-	-
+scn.subscription.boundaries.001	spec/scenarios/subscriptions/billing_boundaries_spec.rb[1:1]	period and charge boundaries over several monthly invoices	BE-SP-19,BE-SP-20,BE-SP-21,BE-SP-31	-	-	-	-
+scn.subscription.boundaries.002	spec/scenarios/subscriptions/billing_boundaries_spec.rb[1:3:2:1]	yearly plan with charges billed monthly	BE-SP-17,BE-SP-32	-	-	-	-
+scn.subscription.boundaries.003	spec/scenarios/subscriptions/billing_boundaries_spec.rb[1:7:1]	charge boundaries for pay-in-advance and arrears charge types	BE-SP-15,BE-SP-21,BE-SP-22	-	-	-	-
+scn.subscription.downgrade.001	spec/scenarios/subscriptions/downgrade_spec.rb[1:2:2:2:1]	downgrade takes effect at the period end (fixed charges in arrears)	BE-IV-2,BE-SP-35,BE-SP-53	RBD-60	-	{"keep":{"subscriptions":true},"snapshots":{"2":{"parts":["subscriptions"],"note":"the downgrade waits for the period end: the successor is pending"},"3":{"parts":["subscriptions"],"note":"the period-end run rotated the subscriptions"}}}	-
+scn.subscription.downgrade.002	authored	plan amount edit cancels a pending downgrade by comparing raw amounts across intervals	BE-SP-62,BE-SP-53	RBD-59	-	{"keep":{"subscriptions":true}}	Compat-only (no corrected twin): the corrected proposal (RBD-59, owner) compares yearly-normalised amounts, so the downgrade (10,800 vs 6,000 a year) would stay pending and rotate at the period end; scenarios ship only expectations executed on the reference.
+scn.subscription.fee_selection.001	authored	upgrade: a recurring arrears charge also on the new plan is left to the successor	BE-SP-65,BE-SP-52,BE-AG-4	-	-	{"keep":{"subscriptions":true}}	-
+scn.subscription.fee_selection.002	authored	termination: an in-advance recurring charge is not billed again on the final invoice	BE-SP-65,BE-SP-55,BE-CN-15	-	-	{"keep":{"subscriptions":true}}	-
+scn.subscription.fee_selection.003	authored	starting invoice of an advance plan bills in-advance fixed charges only; arrears ones wait for the period end	BE-SP-66,BE-PR-70	-	-	-	-
+scn.subscription.fee_selection.004	authored	termination invoice bills arrears fixed charges but not in-advance fixed charges	BE-SP-66,BE-SP-55	-	-	{"keep":{"subscriptions":true}}	-
+scn.subscription.recreate.001	spec/scenarios/subscriptions/terminate_recreate_spec.rb[1:2]	terminate and recreate on the same external id does not bill the period twice	BE-DM-55	-	-	{"keep":{"subscriptions":true}}	-
+scn.subscription.terminate.001	spec/scenarios/subscriptions/terminate_ended_spec.rb[1:1:1]	subscription with an ending date terminates on that local day (Europe/Paris)	BE-DM-10,BE-SP-57	RBD-63	-	{"keep":{"subscriptions":true}}	-
+scn.subscription.terminate.002	spec/scenarios/subscriptions/terminate_ended_spec.rb[1:4:1]	ending date on a billing day bills the previous period once	BE-SP-27,BE-SP-57	RBD-63	-	{"keep":{"subscriptions":true}}	-
+scn.subscription.terminate.003	spec/scenarios/subscriptions/terminate_manually_spec.rb[1:1:1:1]	manual termination of an in-advance subscription: credit note for unused days and final invoice	BE-API-11,BE-CN-15,BE-SP-55	RBD-63	-	{"allow":["no_jobs"],"keep":{"subscriptions":true}}	-
+scn.subscription.terminate.005	spec/scenarios/subscriptions/terminate_manually_spec.rb[1:3:1]	manual termination with invalid parameters answers a validation error	BE-API-14,BE-API-15	-	-	{"allow":["no_jobs"]}	-
+scn.subscription.trial.001	spec/scenarios/subscriptions/free_trial_billing_spec.rb[1:2:1]	free trial: the subscription fee is billed at the end of the trial	BE-SP-61	-	-	{"keep":{"subscriptions":true},"snapshots":{"1":{"parts":["invoices"],"note":"nothing billed during the trial"},"2":{"parts":["invoices"],"note":"nothing billed before the trial end instant"}}}	-
+scn.subscription.upgrade.001	spec/scenarios/subscriptions/upgrade_spec.rb[1:2:1:2:1]	upgrade with fixed charges billed in advance without proration	BE-PR-67,BE-PR-71,BE-SP-52	RBD-61,RBD-62	-	{"keep":{"subscriptions":true},"snapshots":{"2":{"parts":["subscriptions"],"note":"the upgrade is immediate"}}}	-
+scn.subscription.upgrade.002	spec/scenarios/subscriptions/upgrade_proration_spec.rb[1:2:1]	termination fee of a subscription started mid-period is prorated on the whole period	BE-DM-15,BE-SP-52	RBD-62	-	{"keep":{"subscriptions":true}}	-
+scn.usage.boundaries.001	spec/scenarios/current_usage/anniversary_period_boundaries_spec.rb[1:2:4]	quarterly anniversary from a month end: consecutive usage periods meet without overlap	BE-SP-31	RBD-64	-	-	-
+scn.usage.dynamic.001	spec/scenarios/current_usage/by_charge_model/dynamic_spec.rb[1:1]	current usage, dynamic model priced from event amounts	BE-PR-33	-	-	-	-
+scn.usage.filters.001	spec/scenarios/current_usage/with_identical_charge_filters_spec.rb[1:1:2:1]	current usage with overlapping charge filters	BE-AG-32,BE-AG-33	-	-	-	-
+scn.usage.filters.002	spec/scenarios/current_usage/zero_fees_spec.rb[1:9:2:1]	current usage lists every filter, zero ones included	BE-AG-31,BE-AG-34	-	-	-	-
+scn.usage.graduated.001	spec/scenarios/current_usage/by_charge_model/graduated_spec.rb[1:2:2]	current usage, graduated model spanning tiers	BE-PR-12,BE-PR-14,BE-PR-16	RBD-48	-	-	-
+scn.usage.graduated_percentage.001	spec/scenarios/current_usage/by_charge_model/graduated_percentage_spec.rb[1:1:2]	current usage, graduated percentage model	BE-PR-18,BE-PR-19,BE-PR-20	-	-	-	-
+scn.usage.latest.001	spec/scenarios/current_usage/by_aggregation_type/latest_agg_spec.rb[1:1:1:1]	latest aggregation usage	BE-AG-13	-	-	-	-
+scn.usage.package.001	spec/scenarios/current_usage/by_charge_model/package_spec.rb[1:2:2]	current usage, package model beyond free units	BE-PR-8,BE-PR-10	-	-	-	-
+scn.usage.percentage.001	spec/scenarios/current_usage/by_charge_model/percentage_spec.rb[1:1:3:1]	current usage, percentage model with free events, free amount and fixed fee	BE-PR-27,BE-PR-28,BE-PR-29	-	-	-	-
+scn.usage.prorated_graduated.001	spec/scenarios/current_usage/by_charge_model/prorated_graduated_spec.rb[1:2:5:1]	prorated graduated unique count with adds and removes	BE-PR-35,BE-AG-14	-	-	-	-
+scn.usage.standard.001	spec/scenarios/current_usage/by_charge_model/standard_spec.rb[1:1:1]	current usage, standard model	BE-PR-6,BE-AG-11	-	core	-	-
+scn.usage.standard.002	spec/scenarios/current_usage/by_charge_model/standard_spec.rb[1:2:1]	current usage, standard model grouped by a property	BE-PR-5,BE-AG-36	-	-	-	-
+scn.usage.timezone.001	spec/scenarios/customer_usage_spec.rb[1:1:2:1]	current usage of a backdated subscription for a customer in Europe/Berlin	BE-DM-10	-	-	-	-
+scn.usage.unique_count.001	spec/scenarios/current_usage/by_aggregation_type/unique_count_agg_spec.rb[1:1:1]	unique count usage and fees over periods	BE-AG-14,BE-AG-15	-	-	-	-
+scn.usage.volume.001	spec/scenarios/current_usage/by_charge_model/volume_spec.rb[1:1:2]	current usage, volume model in the second range	BE-PR-22,BE-PR-23	-	-	-	-
+scn.usage.weighted_sum.001	spec/scenarios/current_usage/by_aggregation_type/weighted_sum_agg_spec.rb[1:1:1]	weighted sum usage and invoices	BE-AG-17,BE-AG-18	-	-	-	-
+scn.wallet.alert.001	spec/scenarios/wallets/alerting/wallet_balance_amount_alert_spec.rb[1:5:1]	wallet balance consumed progressively by usage	BE-AL-12,BE-WL-55	-	-	-	-
+scn.wallet.balance.001	spec/scenarios/wallets/balance_spec.rb[1:2:1]	wallet balance and ongoing balance with pay-in-advance charges and taxes	BE-WL-52,BE-WL-55	RBD-79	-	-	-
+scn.wallet.topup.001	spec/scenarios/wallets/topup_with_rounding_spec.rb[1:1]	paid credit top-up amounts are rounded	BE-WL-9	RBD-81	-	{"snapshots":{"1":{"parts":["invoices","wallet_transactions"],"keep":{"invoice_keys":["invoice_type","status","payment_status","total_amount_cents"],"invoice_parts":["customer"]},"note":"the purchased credits stay pending until the credit invoice is paid"}}}	-
+scn.wallet.traceability.001	spec/scenarios/wallets/wallet_traceability_spec.rb[1:1:2:1]	wallet consumption spanning two credit inbounds in FIFO order	BE-WL-13	-	-	-	-
+scn.wallet.traceability.003	spec/scenarios/wallets/wallet_traceability_spec.rb[1:1:5:1]	granted and purchased prepaid credits shown separately on the invoice	BE-WL-13	-	-	-	-

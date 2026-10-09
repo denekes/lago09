@@ -1,0 +1,4 @@
+[
+ {"kind": "all_done", "why": "every raw record ends enriched or on the dead-letter topic with a cause; undecodable bytes are never committed silently", "rbd": ["RBD-4"], "ruling": "decided"},
+ {"kind": "done_with_cause", "tx": "u_ptac_number", "why": "a numeric precise_total_amount_cents is either accepted or dead-lettered with a cause", "rbd": ["RBD-4"], "ruling": "decided"}
+]

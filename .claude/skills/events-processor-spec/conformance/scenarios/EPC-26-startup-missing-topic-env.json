@@ -1,0 +1,13 @@
+{
+  "name": "EPC-26-startup-missing-topic-env",
+  "id": "EPC-26",
+  "description": "Startup contract: empty enriched-topic variable -> the process exits non-zero before joining the group.",
+  "rules": ["EP-A1", "EP-A2", "EP-A3", "EP-A4", "EP-P2"],
+  "rbd": ["RBD-23"],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "env": {"LAGO_KAFKA_ENRICHED_EVENTS_TOPIC": ""},
+  "expect_no_ready": true,
+  "steps": [
+  ]
+}

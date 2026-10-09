@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.invoice_number.schema.json",
+  "title": "domain.invoice_number",
+  "description": "Invoice number after a save that moves the invoice from previous_status to status (BE-DM-39..43). Finalizing = status finalized reached from draft, generating, open, failed or pending. Not finalizing: an existing number is kept; a blank one becomes `<prefix>-DRAFT`. Finalizing with numbering per_customer, or any self-billed invoice: `<prefix>-<customer seq %03d>-<invoice seq %03d>`. Finalizing with per_billing_entity: `<prefix>-<YYYYMM of now in the billing entity zone>-<billing-entity seq %03d>`. %03d pads with zeros to at least three digits and never truncates.",
+  "x-kit": {
+    "area": "domain",
+    "op": "invoice_number",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "previous_status": {
+          "enum": [
+            "draft",
+            "generating",
+            "open",
+            "finalized",
+            "voided",
+            "failed",
+            "closed",
+            "pending",
+            "deleted"
+          ],
+          "x-kit-absent": "equal to status (no status change)"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "generating",
+            "open",
+            "finalized",
+            "voided",
+            "failed",
+            "closed",
+            "pending",
+            "deleted"
+          ],
+          "description": "Status the invoice is saved with."
+        },
+        "numbering": {
+          "enum": [
+            "per_customer",
+            "per_billing_entity"
+          ],
+          "description": "Numbering mode of the billing entity."
+        },
+        "self_billed": {
+          "type": "boolean"
+        },
+        "prefix": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Document-number prefix of the BILLING ENTITY."
+        },
+        "customer_sequential_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "invoice_sequential_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "default": null,
+          "description": "Per-customer invoice sequence value already held by the invoice (used when finalizing per customer or self-billed). Null or absent: the invoice holds none, so finalizing assigns the next value of its scope (BE-DM-37); the op's scope holds no other invoice, so that value is 1."
+        },
+        "billing_entity_sequential_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "default": null,
+          "description": "Billing-entity sequence value already held by the invoice (used when finalizing per billing entity, not self-billed). Null or absent: the invoice holds none, so finalizing assigns the next value of its scope (BE-DM-38); the op's scope holds no other invoice, so that value is 1."
+        },
+        "number": {
+          "type": "string",
+          "default": "",
+          "description": "Number already stored on the invoice; empty = blank."
+        },
+        "now": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Wall-clock instant of the save."
+        },
+        "billing_entity_timezone": {
+          "$ref": "../common.schema.json#/$defs/timezone"
+        }
+      },
+      "required": [
+        "status",
+        "numbering",
+        "self_billed",
+        "prefix",
+        "customer_sequential_id",
+        "now",
+        "billing_entity_timezone"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

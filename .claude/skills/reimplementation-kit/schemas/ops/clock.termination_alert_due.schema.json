@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/clock.termination_alert_due.schema.json",
+  "title": "clock.termination_alert_due",
+  "description": "Subscriptions for which the hourly termination-alert job emits subscription.termination_alert at instant `now` (BE-CK-6): status active, ending_at not null, the UTC calendar date of ending_at equal to the UTC date of (now + d days) for some d in `days`, and no termination-alert webhook row for that subscription created on the UTC date of now. The organization has at least one webhook endpoint (without one nothing is emitted).",
+  "x-kit": {
+    "area": "clock",
+    "op": "termination_alert_due",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/13-clock-and-async.md (BE-CK)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "now",
+        "subscriptions"
+      ],
+      "properties": {
+        "now": {
+          "$ref": "../common.schema.json#/$defs/instant"
+        },
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "default": [
+            15,
+            45
+          ],
+          "description": "Configured day offsets."
+        },
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Label used in the answer."
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "pending",
+                  "terminated",
+                  "canceled"
+                ],
+                "default": "active"
+              },
+              "ending_at": {
+                "$ref": "../common.schema.json#/$defs/instant",
+                "x-kit-absent": "no ending_at"
+              }
+            }
+          }
+        },
+        "alerts_sent": {
+          "type": "array",
+          "default": [],
+          "description": "Termination-alert webhook rows already recorded.",
+          "items": {
+            "type": "object",
+            "required": [
+              "subscription",
+              "created_at"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "subscription": {
+                "type": "string"
+              },
+              "created_at": {
+                "$ref": "../common.schema.json#/$defs/instant"
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "due": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

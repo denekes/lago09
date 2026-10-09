@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/system.api.schema.json",
+  "title": "system.api",
+  "description": "One REST API v1 call with the tenant's API key; answers after all asynchronous follow-up work completed (scenario-tier.md ST-12).",
+  "x-kit": {
+    "area": "system",
+    "op": "api",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "reimplementation-kit reference/scenario-tier.md (scenario tier)",
+    "stateful": true
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": [
+        "method",
+        "path"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/api/v1/"
+        },
+        "query": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "integer",
+              "boolean"
+            ]
+          },
+          "x-kit-absent": "no query string"
+        },
+        "body": {
+          "$ref": "../common.schema.json#/$defs/payload",
+          "x-kit-absent": "no request body"
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "status",
+        "body"
+      ],
+      "properties": {
+        "status": {
+          "type": "integer"
+        },
+        "body": {
+          "$ref": "../common.schema.json#/$defs/payload"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,4 @@
+[
+ {"kind": "all_done", "why": "the record ends with an output after the restart", "rbd": ["RBD-1", "RBD-2"], "ruling": "decided"},
+ {"kind": "no_dup", "why": "no duplicate output for a record that was never produced before the restart", "rbd": ["RBD-1", "RBD-2"], "ruling": "decided"}
+]

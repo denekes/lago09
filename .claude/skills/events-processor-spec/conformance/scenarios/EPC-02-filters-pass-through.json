@@ -1,0 +1,18 @@
+{
+  "name": "EPC-02-filters-pass-through",
+  "id": "EPC-02",
+  "description": "Metric and charge filters exist for filtered_calls; the processor neither reads nor applies them: properties pass through unchanged.",
+  "rules": ["EP-E3"],
+  "rbd": [],
+  "catalog": ["../fixtures/catalog-base.sql"],
+  "defaults": {"organization_id": "11111111-1111-1111-1111-111111111111", "external_subscription_id": "sub_ext_1", "ingested_at": "$INGESTED_NOW", "properties": {}},
+  "steps": [
+    {"produce": [
+      {"json": {"transaction_id": "flt_eu", "code": "filtered_calls", "timestamp": "1759320000", "properties": {"amount": 1, "region": "eu"}}},
+      {"json": {"transaction_id": "flt_fr", "code": "filtered_calls", "timestamp": "1759320000", "properties": {"amount": 1, "region": "fr"}}},
+      {"json": {"transaction_id": "flt_none", "code": "filtered_calls", "timestamp": "1759320000", "properties": {"amount": 1}}},
+      {"json": {"transaction_id": "flt_nested", "code": "filtered_calls", "timestamp": "1759320000", "properties": {"amount": 1, "region": "eu", "meta": {"a": [1, "b", null, true]}}}}
+    ]},
+    {"wait": "quiescent"}
+  ]
+}

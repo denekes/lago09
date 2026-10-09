@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/domain.terminated_at_reached.schema.json",
+  "title": "domain.terminated_at_reached",
+  "description": "Whether a subscription's termination is reached at an instant (BE-DM-19): false unless the status is terminated; otherwise both instants are rounded to the nearest whole second (half a second rounds up) and the result is rounded(terminated_at) <= rounded(at).",
+  "x-kit": {
+    "area": "domain",
+    "op": "terminated_at_reached",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/01-domain-model.md (BE-DM)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "terminated_at": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Termination instant of the subscription."
+        },
+        "at": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "description": "Instant tested (for example an event timestamp)."
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "active",
+            "terminated",
+            "canceled",
+            "incomplete"
+          ],
+          "default": "terminated",
+          "description": "Subscription status."
+        }
+      },
+      "required": [
+        "terminated_at",
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "reached": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

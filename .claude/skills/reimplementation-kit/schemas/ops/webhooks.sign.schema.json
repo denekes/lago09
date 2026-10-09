@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/webhooks.sign.schema.json",
+  "title": "webhooks.sign",
+  "description": "Headers of a webhook delivery (BE-WH-14..17). hmac: X-Lago-Signature = Base64 (standard alphabet, padded, no line breaks) of HMAC-SHA256(key = organization hmac key as UTF-8 bytes, message = exact body bytes). jwt: X-Lago-Signature = compact JWS RS256 with protected header exactly {\"alg\":\"RS256\"}, claims {\"data\": <body string>, \"iss\": <issuer>} serialised as compact JSON (keys in this order; characters other than '\"' '\\\\' and those below U+0020 written raw), base64url without padding, signed RSASSA-PKCS1-v1_5 SHA-256 with the installation private key. X-Lago-Signature-Algorithm = hmac|jwt; X-Lago-Unique-Key = the delivery row id; Content-Type = application/json.",
+  "x-kit": {
+    "area": "webhooks",
+    "op": "sign",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "billing-engine-spec reference/12-webhooks.md (BE-WH)",
+    "stateful": false
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "body"
+      ],
+      "properties": {
+        "algorithm": {
+          "enum": [
+            "hmac",
+            "jwt"
+          ]
+        },
+        "body": {
+          "type": "string",
+          "description": "Exact body (canonical encoding per BE-WH-12)."
+        },
+        "hmac_key": {
+          "type": "string",
+          "x-kit-absent": "unused for jwt; for hmac a key is required by the vector",
+          "description": "Organization HMAC key."
+        },
+        "rsa_private_key_pem": {
+          "type": "string",
+          "x-kit-absent": "unused for hmac",
+          "description": "PEM private key of the installation (kit vectors use the kit's test-only key)."
+        },
+        "iss": {
+          "type": "string",
+          "default": "https://api.lago.dev",
+          "description": "Issuer claim = the API's public base URL."
+        },
+        "webhook_id": {
+          "type": "string",
+          "default": "00000000-0000-4000-8000-000000000000",
+          "description": "Delivery row id (sent as X-Lago-Unique-Key)."
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "signature": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "body": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

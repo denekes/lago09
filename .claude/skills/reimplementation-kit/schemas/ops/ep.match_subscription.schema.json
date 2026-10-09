@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ops/ep.match_subscription.schema.json",
+  "title": "ep.match_subscription",
+  "description": "Subscription an event is attached to (EP-H1..H6, EP-H8, EP-D3, EP-D4, EP-I5). The event of organization `organization_id` with `external_subscription_id` and `timestamp_json` is resolved against the listed subscriptions in `mode` (db = catalog read from the database per event, cache = memory-cache mode). Candidates: same organization, external id equal to `external_subscription_id`, `started_at <= t` and (`terminated_at` absent or `terminated_at >= t`) where t is the matching instant (ep.parse_timestamp); order: open first, then `terminated_at` descending, then `started_at` descending; the first wins. If none and `recurring` is true, the lookup is repeated at `now` (EP-H3). Reference quirks graded by compat vectors: binary64 matching instant (EP-D3), DB mode compares the wall clock of an RFC 3339 offset (EP-D4), bounds truncated to milliseconds in DB mode but compared at microseconds in cache mode (EP-H5), cache mode also matches an external id that starts with the looked-up id followed by `:` (EP-H8). Corrected: RBD-15, RBD-16, RBD-17, RBD-99 (exact external-id equality in both modes). Subscription `status` is not read (EP-H2). Every listed subscription is visible: the cache-mode snapshot window (EP-H7) is out of scope of the op. An invalid timestamp is the domain error `build_enriched_event` (EP-D1).",
+  "x-kit": {
+    "area": "ep",
+    "op": "match_subscription",
+    "status": "final",
+    "since": "1.0.0",
+    "owner": "events-processor-spec reference/processing-rules.md (EP)",
+    "stateful": false
+  },
+  "x-kit-errors": [
+    {
+      "code": "build_enriched_event",
+      "when": "the timestamp is invalid (EP-D1); raised before any lookup"
+    }
+  ],
+  "$defs": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "db",
+            "cache"
+          ],
+          "description": "Catalog mode of the reference whose behaviour is graded (compat); the corrected profile answers the same in both."
+        },
+        "external_subscription_id": {
+          "type": "string",
+          "description": "The event's external_subscription_id (byte-equal comparison, no trimming)."
+        },
+        "timestamp_json": {
+          "$ref": "../common.schema.json#/$defs/json_text",
+          "description": "Exact JSON text of the event's `timestamp` (as ep.parse_timestamp)."
+        },
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Subscription id (returned when it matches)."
+              },
+              "external_id": {
+                "type": "string",
+                "description": "External subscription id, compared with `external_subscription_id`."
+              },
+              "started_at": {
+                "$ref": "../common.schema.json#/$defs/instant",
+                "description": "Start of the subscription (stored with microsecond precision)."
+              },
+              "terminated_at": {
+                "$ref": "../common.schema.json#/$defs/instant",
+                "x-kit-absent": "the subscription is open (not terminated)",
+                "description": "Termination instant (stored with microsecond precision)."
+              },
+              "plan_id": {
+                "type": "string",
+                "default": "22222222-2222-2222-2222-222222222222",
+                "description": "Plan of the subscription."
+              },
+              "status": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 1,
+                "description": "Stored status code (0 pending, 1 active, 2 terminated, 3 canceled, 4 incomplete); not read by the reference (EP-H2)."
+              },
+              "organization_id": {
+                "type": "string",
+                "x-kit-absent": "the op's organization_id",
+                "description": "Organization owning the subscription."
+              }
+            },
+            "required": [
+              "id",
+              "external_id",
+              "started_at"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Catalog subscription rows visible to the lookup."
+        },
+        "organization_id": {
+          "type": "string",
+          "default": "11111111-1111-1111-1111-111111111111",
+          "description": "The event's organization."
+        },
+        "recurring": {
+          "type": "boolean",
+          "default": false,
+          "description": "The billable metric is recurring (enables the fallback lookup at `now`, EP-H3)."
+        },
+        "now": {
+          "$ref": "../common.schema.json#/$defs/instant",
+          "x-kit-absent": "the processing time (wall clock), as the reference; vectors that reach the recurring fallback always pass it (TIME-2)",
+          "description": "Processing time used by the recurring fallback; read only when `recurring` is true."
+        }
+      },
+      "required": [
+        "mode",
+        "external_subscription_id",
+        "timestamp_json",
+        "subscriptions"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "subscription_id": {
+          "type": "string",
+          "description": "Id of the matched subscription; \"\" = none (EP-H4)."
+        },
+        "plan_id": {
+          "type": "string",
+          "description": "Optional: plan of the matched subscription, \"\" = none (not graded by the v1 vectors)."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

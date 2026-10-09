@@ -1,0 +1,903 @@
+# patterns.txt - known failure strings of the Lago umbrella repo, read by explain-error.sh
+# (and, through it, by triage-ep-log.sh). Single source of truth: SKILL.md and reference/*.md
+# cite these ids. Facts verified 2026-10-01 (code at 5308258) unless the evidence line says otherwise.
+# Owner decisions of 2026-10-02 folded in: production runs memory-cache mode (DECIDED OD-1); delivery contract =
+# ADR-001 (DECIDED OD-2); ClickHouse schema change allowed (DECIDED OD-3); paired PRs by dependency (DECIDED OD-4).
+#
+# Format: one block per entry, blocks separated by one blank line, "key: value" lines.
+#   id        stable kebab-case id (cited by the docs; never rename without grepping the skill)
+#   area      startup | dlq | loss | runtime | cache | values | build | test | dev | ci | release | selfhost
+#             | api (lago-api runtime behaviour an operator of this repo meets; facts at the pin 591ae90)
+#   match     bash ERE, case-sensitive, tested with [[ $text =~ $re ]]. Repeatable (OR).
+#             Must match both the raw slog JSON line (quotes escaped as \") and the bare message.
+#   title     what it means, one line
+#   cause     ranked likely causes, ";"-separated, most likely first
+#   confirm   exact command / grep / path:line that proves the cause
+#   fix       the fix, or the skill that owns it
+#   see       where the playbook explains it
+#   evidence  VERIFIED <how> | HISTORICAL <sha> | CODE <path:line> | UNVERIFIED <why>
+#   example   a real captured instance (paths sanitized). Repeatable. --self-test requires every
+#             example to match its own entry.
+# Paths in "confirm"/"fix" are repo-relative; Go paths under events-processor/.
+
+id: build-loader
+area: build
+match: error while loading shared libraries: libexpression_go\.so
+title: built fine, but the dynamic loader cannot find libexpression_go.so (binary or test binary)
+cause: LD_LIBRARY_PATH lacks the .so directory (shell did not source ep-env.sh); image built without the COPY to /usr/lib
+confirm: echo "$LD_LIBRARY_PATH"; ldd <binary> | grep expression  -> "not found"
+fix: source .claude/skills/build-and-env/scripts/ep-env.sh  (works from any cwd; it falls back to its own checkout) (images: events-processor/Dockerfile:22 copies it to /usr/lib); owner row: build-and-env B2
+see: SKILL.md section 6; reference/build-and-test.md BT2
+evidence: VERIFIED 2026-10-01 (binary exit 127; env -u LD_LIBRARY_PATH go test ./processors/events_processor/)
+example: <tmp>/ep: error while loading shared libraries: libexpression_go.so: cannot open shared object file: No such file or directory
+
+id: start-brokers
+area: startup
+match: brokers not found
+title: LAGO_KAFKA_BOOTSTRAP_SERVERS is empty or unset (first runtime check; nothing else was tried)
+cause: env var missing in the pod/compose env; binary run by hand with no env (expected: link and load are fine)
+confirm: printenv LAGO_KAFKA_BOOTSTRAP_SERVERS  (no output = unset) ; code processors/main_processor.go:103-107
+fix: set it (comma list allowed for the main consumer, utils/env.go ParseBrokersEnv); env registry: config-and-flags
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary, empty env). Not sent to Sentry (plain panic, main_processor.go:105-106)
+example: {"time":"2026-10-01T21:19:59.103305318Z","level":"ERROR","msg":"brokers not found","service":"post_process"}
+example: panic: brokers not found
+
+id: start-topic-var
+area: startup
+match: LAGO_KAFKA_[A-Z_]+_TOPIC variable is required
+title: a producer topic env var is empty; checked in order enriched -> charged-in-advance -> dead-letter
+cause: LAGO_KAFKA_ENRICHED_EVENTS_TOPIC / LAGO_KAFKA_EVENTS_CHARGED_IN_ADVANCE_TOPIC / LAGO_KAFKA_EVENTS_DEAD_LETTER_TOPIC not set; a removed topic var still expected by an old config (the expanded topic was mandatory 3dae52f..d9c32b6)
+confirm: the variable name is in the message; code processors/main_processor.go:55-58,118-131
+fix: set the named variable (dev values: .env.development.default:79,85,86)
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary)
+example: {"time":"2026-10-01T21:19:59.121324843Z","level":"ERROR","msg":"failed to initialize enriched events producer","service":"post_process","error":"LAGO_KAFKA_ENRICHED_EVENTS_TOPIC variable is required"}
+example: panic: LAGO_KAFKA_EVENTS_CHARGED_IN_ADVANCE_TOPIC variable is required
+
+id: start-scram
+area: startup
+match: kgo\.validateCfg
+match: franz-go@v[0-9.]+/pkg/kgo/client\.go:146
+title: LAGO_KAFKA_SCRAM_ALGORITHM is set to a value other than SCRAM-SHA-256 / SCRAM-SHA-512 -> nil kgo.Opt -> SIGSEGV
+cause: typo or other vocabulary (sha512, PLAIN, SCRAM-SHA-1; lago-api uses LAGO_KAFKA_SASL_MECHANISMS); the switch has no default (config/kafka/kafka.go:56-63)
+confirm: printenv LAGO_KAFKA_SCRAM_ALGORITHM ; the trace shows kafka.NewKafkaClient -> kgo.NewClient -> kgo.validateCfg; NO JSON log line precedes it
+fix: use exactly SCRAM-SHA-256 or SCRAM-SHA-512 (or empty for no SASL); vocabulary table: config-and-flags
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary, LAGO_KAFKA_SCRAM_ALGORITHM=sha512)
+example: github.com/twmb/franz-go/pkg/kgo.validateCfg({_, _, _})
+example: 	<GOMODCACHE>/github.com/twmb/franz-go@v1.20.5/pkg/kgo/client.go:146 +0xdc
+
+id: start-kafka-dial
+area: startup
+match: unable to dial: dial tcp
+match: unable to open connection to broker
+title: Kafka broker unreachable (first producer Ping fails at startup; at runtime franz-go retries and logs WARN)
+cause: wrong host/port in LAGO_KAFKA_BOOTSTRAP_SERVERS; broker not up yet (compose: redpanda health); TLS/SASL mismatch (LAGO_KAFKA_TLS); network policy
+confirm: the addr in the WARN line; nc -vz <host> <port>; dev: docker compose -f docker-compose.dev.yml ps redpanda (needs a daemon)
+fix: fix the address or wait for the broker; the process does not retry startup (it panics, the orchestrator restarts it)
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary, LAGO_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:1)
+example: {"time":"2026-10-01T21:20:04.817695474Z","level":"ERROR","msg":"failed to initialize enriched events producer","service":"post_process","error":"unable to dial: dial tcp 127.0.0.1:1: connect: connection refused"}
+example: {"time":"2026-10-01T21:20:04.817593173Z","level":"WARN","msg":"unable to open connection to broker","service":"post_process","component":"kafka","addr":"127.0.0.1:1","broker":"seed_0","err":"dial tcp 127.0.0.1:1: connect: connection refused"}
+
+id: start-maxconns
+area: startup
+match: Error converting max connections into integer
+title: LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS is not an integer (DB mode only)
+cause: value like "200x", "200 " or a templating leftover; note the historic name ..._MAX_CONNEXIONS (f277b44) was silently renamed in 7421650 and is ignored today
+confirm: printenv LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS ; code processors/main_processor.go:133-137
+fix: set a plain integer (default 200 when empty)
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary, value 200x)
+example: {"time":"2026-10-01T21:20:34.461126474Z","level":"ERROR","msg":"Error converting max connections into integer","service":"post_process","error":"strconv.Atoi: parsing \"200x\": invalid syntax"}
+
+id: start-db-connect
+area: startup
+match: Error connecting to the database
+match: failed to initialize database, got error
+title: Postgres connection failed at startup (DB mode after Kafka checks; memory-cache mode BEFORE any Kafka check, cache/cache.go:71)
+cause: Postgres down or unreachable; wrong host/port; wrong credentials (SQLSTATE 28P01); DATABASE_URL empty (see start-db-url-empty)
+confirm: pg_isready -d "$DATABASE_URL" ; the dial/auth error is inside the message
+fix: start Postgres / fix DATABASE_URL (sandbox: pg_ctlcluster 16 main start, see build-and-env)
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary: closed port 5499, wrong password, cache mode)
+example: {"time":"2026-10-01T21:20:34.486693584Z","level":"ERROR","msg":"Error connecting to the database","service":"post_process","error":"failed to connect to `user=lago database=lago`:\n\t127.0.0.1:5499 (127.0.0.1): dial error: dial tcp 127.0.0.1:5499: connect: connection refused"}
+example: {"time":"2026-10-01T21:34:43.977262264Z","level":"ERROR","msg":"Error connecting to the database","service":"post_process","error":"failed to connect to `user=lago database=lago`: 127.0.0.1:5432 (localhost): failed SASL auth: FATAL: password authentication failed for user \"lago\" (SQLSTATE 28P01)"}
+
+id: start-db-url-empty
+area: startup
+match: failed to connect to `user=[^ ]* database=`
+title: DATABASE_URL is empty: pgx fell back to the local unix socket and the OS user name
+cause: DATABASE_URL not passed to the container/process (DB mode or memory-cache snapshot)
+confirm: [ -n "${DATABASE_URL:-}" ] && echo 'DATABASE_URL set (value not shown)' || echo 'DATABASE_URL empty'  (never print it: it holds the password); the message shows database= with no name and /var/run/postgresql
+fix: set DATABASE_URL (dev: compose resolves postgresql://lago:changeme@db:5432/lago)
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary, DATABASE_URL=)
+example: {"time":"2026-10-01T21:20:34.512704091Z","level":"ERROR","msg":"Error connecting to the database","service":"post_process","error":"failed to connect to `user=root database=`: /var/run/postgresql/.s.PGSQL.5432 (/var/run/postgresql): server error: FATAL: role \"root\" does not exist (SQLSTATE 28000)"}
+
+id: start-redis-dial
+area: startup
+match: Error connecting to the flag store.*dial tcp
+title: Redis flag store unreachable at startup (LAGO_REDIS_STORE_URL; empty URL means localhost:6379)
+cause: wrong LAGO_REDIS_STORE_URL; Redis down; empty URL (go-redis default 127.0.0.1:6379)
+confirm: printenv LAGO_REDIS_STORE_DB LAGO_REDIS_STORE_TLS; [ -n "$LAGO_REDIS_STORE_URL" ] && echo 'LAGO_REDIS_STORE_URL set (value not shown)'  (never print LAGO_REDIS_STORE_PASSWORD or a URL that may embed it) ; redis-cli -u "redis://${LAGO_REDIS_STORE_URL#*://}" ping ; ~2-3 s of plain "redis: ... failed to dial after 5 attempts" lines precede the panic
+fix: fix the URL / start Redis
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary, LAGO_REDIS_STORE_URL=127.0.0.1:1 and unset)
+example: {"time":"2026-10-01T21:20:50.081645204Z","level":"ERROR","msg":"Error connecting to the flag store","service":"post_process","error":"dial tcp 127.0.0.1:1: connect: connection refused"}
+
+id: start-redis-tls
+area: startup
+match: Error connecting to the flag store.*EOF
+match: failed to dial after [0-9]+ attempts: EOF
+title: TLS handshake against a plaintext Redis (or the reverse): the flag store client speaks TLS because LAGO_REDIS_STORE_TLS is true or, when it is unset/unparsable, because ENV=production (legacy default)
+cause: ENV=production with a plaintext Redis and LAGO_REDIS_STORE_TLS unset (processors/main_processor.go:84-91); rediss:// in the URL does NOT enable TLS (config/redis/redis.go:25-28)
+confirm: printenv ENV LAGO_REDIS_STORE_TLS ; the error is a bare EOF
+fix: set LAGO_REDIS_STORE_TLS=false (or true for a TLS Redis) explicitly; note TLS skips cert verification (redis.go:44)
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary, ENV=production against plaintext Redis)
+example: {"time":"2026-10-01T21:20:52.213729133Z","level":"ERROR","msg":"Error connecting to the flag store","service":"post_process","error":"EOF"}
+example: redis: 2026/10/01 21:20:39 pool.go:419: redis: connection pool: failed to dial after 5 attempts: EOF
+
+id: start-redis-db
+area: startup
+match: Error connecting to the flag store.*strconv\.Atoi
+title: LAGO_REDIS_STORE_DB is not an integer
+cause: non-numeric value
+confirm: printenv LAGO_REDIS_STORE_DB ; code processors/main_processor.go:79-82
+fix: plain integer (dev uses 1, .env.development.default:36)
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary, value x)
+example: {"time":"2026-10-01T21:20:36.65773244Z","level":"ERROR","msg":"Error connecting to the flag store","service":"post_process","error":"strconv.Atoi: parsing \"x\": invalid syntax"}
+
+id: start-consumer
+area: startup
+match: Error starting the event consumer
+title: main consumer client creation or Ping failed (last startup step)
+cause: broker went away between producer Ping and consumer Ping; SASL/TLS accepted by producers but not consumer ACLs
+confirm: error text inside the line; code processors/main_processor.go:168-179, config/kafka/consumer.go:248-255
+fix: as start-kafka-dial; check consumer-group ACLs for group <LAGO_KAFKA_CONSUMER_GROUP>_<raw topic>
+see: SKILL.md section 2
+evidence: CODE processors/main_processor.go:178 (not reproduced; the example is synthetic)
+example: {"level":"ERROR","msg":"Error starting the event consumer","service":"post_process","error":"unable to dial: dial tcp 10.0.0.1:9092: i/o timeout"}
+
+id: start-cache-init
+area: startup
+match: Error creating the cache
+match: Error starting cache consumers
+title: memory-cache mode could not open badger or create a CDC client (LAGO_USE_MEMORY_CACHE=true)
+cause: badger open failure (memory); kgo.NewClient rejected the CDC options
+confirm: code main.go:67-80, cache/consumer.go:30-38
+fix: check memory limits (sizing: run-and-operate reference/memory-cache-ops.md section 4); production runs cache mode (DECIDED OD-1), so this is a production outage; hardening is event-accounting-campaign W6 (DEFAULT APPLIED OD-20)
+see: SKILL.md section 5
+evidence: CODE main.go:73,79 (not reproduced; the example is synthetic)
+example: {"level":"ERROR","msg":"Error starting cache consumers","service":"post_process","error":"failed to start billable metrics consumer: ..."}
+
+id: start-empty-topic
+area: startup
+match: "kafka-topic-consumer":""
+match: "group":"_"
+title: process runs but consumes nothing: LAGO_KAFKA_RAW_EVENTS_TOPIC and/or LAGO_KAFKA_CONSUMER_GROUP are empty (no validation)
+cause: env var missing; group id becomes "<group>_<topic>" = "_" or "<group>_"
+confirm: printenv LAGO_KAFKA_RAW_EVENTS_TOPIC LAGO_KAFKA_CONSUMER_GROUP ; code config/kafka/consumer.go:237
+fix: set both. WARNING: changing either value creates a NEW group that starts at the EARLIEST offset and replays the retained raw topic
+see: SKILL.md section 2
+evidence: VERIFIED 2026-10-01 (real binary with both unset: idles, group "_")
+example: {"time":"2026-10-01T21:22:25.006287045Z","level":"INFO","msg":"Gracefully shutting down consumer group","service":"post_process","kafka-topic-consumer":""}
+example: {"time":"2026-10-01T21:22:25.006490007Z","level":"INFO","msg":"tried to leave group but we have no member ID yet, returning early","service":"post_process","component":"kafka","group":"_"}
+
+id: dlq-build-enriched-event
+area: dlq
+match: build_enriched_event
+match: Error while converting event to enriched event
+title: event timestamp unparsable or of an unsupported type -> DLQ (non-retryable)
+cause: timestamp not unix seconds (number or numeric string) nor RFC3339, e.g. "2025-03-06 12:00:00"; JSON bool/object timestamp; note the error text is the ParseFloat error even when RFC3339 parsing failed (utils/time.go:25-27)
+confirm: DLQ payload .event.timestamp; code models/event.go ToEnrichedEvent, utils/time.go:14-49
+fix: fix the producer (Rails sends to_f.to_s; connectors send numbers); parity of time formats: rails-go-parity
+see: SKILL.md section 3
+evidence: VERIFIED 2026-10-01 (binary smoke tx_C)
+example: {"time":"2026-10-01T21:19:06.348200199Z","level":"ERROR","msg":"Error while converting event to enriched event","service":"post_process","error_code":"build_enriched_event","error":"strconv.ParseFloat: parsing \"2025-03-06 12:00:00\": invalid syntax"}
+
+id: dlq-bm-not-found
+area: dlq
+match: fetch_billable_metric.*(record not found|Key not found)
+match: (record not found|Key not found).*fetch_billable_metric
+title: no billable metric for (organization_id, code) -> DLQ (non-retryable, not sent to Sentry)
+cause: wrong code or organization in the event; metric deleted (deleted_at IS NULL filter, models/billable_metrics.go:63); memory-cache mode (production, DECIDED OD-1): snapshot empty/failed ("Key not found" for MANY codes right after a start = cache-snapshot-failed) or CDC not delivering (only metrics created after the pod started fail = stale cache, debugging-playbook section 5)
+confirm: DB mode: SELECT id FROM billable_metrics WHERE organization_id='<org>' AND code='<code>' AND deleted_at IS NULL; cache mode: triage-ep-log.sh shows snapshot started vs completed
+fix: correct the event / metric; cache mode: see cache-snapshot-failed
+see: SKILL.md sections 3 and 5
+evidence: VERIFIED 2026-10-01 (binary smoke tx_B in db and cache mode; empty-DB cache run DLQs 8/9)
+example: {"time":"2026-10-01T21:19:06.366335223Z","level":"ERROR","msg":"Error fetching billable metric","service":"post_process","error_code":"fetch_billable_metric","error":"record not found"}
+example: {"time":"2026-10-01T21:19:27.370858456Z","level":"ERROR","msg":"Error fetching billable metric","service":"post_process","error_code":"fetch_billable_metric","error":"Key not found"}
+
+id: dlq-cached-plan
+area: dlq
+match: cached plan must not change result type
+match: SQLSTATE 0A000
+title: SQLSTATE 0A000: a Rails migration changed a table that EP reads with SELECT * (pgx statement cache) -> retryable failure
+cause: lago-api deploy with a column add on billable_metrics (FetchBillableMetric still uses gorm First = SELECT *, models/billable_metrics.go:59-66); one failure per pooled connection, then pgx re-prepares and it heals
+confirm: burst of fetch_billable_metric errors right after an API migration; component=db line shows "query":"SELECT * FROM \"billable_metrics\"..."
+fix: transient, but each failure is RETRYABLE and can be skipped forever (loss-retryable-skip). Permanent fix = explicit column list + pinned SQL in the sqlmock test (change-control N4)
+see: SKILL.md section 3; reference/traps.md T2
+evidence: VERIFIED 2026-10-01 (real binary, pool size 1, ALTER TABLE billable_metrics ADD COLUMN mid-run: 1 failure then healed; that offset was committed past)
+example: {"time":"2026-10-01T21:28:43.842386719Z","level":"ERROR","msg":"Error fetching billable metric","service":"post_process","error_code":"fetch_billable_metric","error":"ERROR: cached plan must not change result type (SQLSTATE 0A000)"}
+
+id: dlq-missing-relation
+area: dlq
+match: relation \\?"[a-z_]+\\?" does not exist
+match: SQLSTATE 42P01
+title: a table EP reads does not exist in the database it is connected to
+cause: DATABASE_URL points at the wrong database (empty DB, test DB, wrong schema/search_path); table renamed by a migration; in cache mode this happens during the snapshot (see cache-snapshot-failed)
+confirm: psql "$DATABASE_URL" -c '\dt billable_metrics' ; which fetch_* code accompanies it
+fix: point DATABASE_URL at the lago-api database. In DB mode these failures are RETRYABLE: not committed, not DLQ'd while ingested_at < 12 h (loss-retryable-skip)
+see: SKILL.md section 3
+evidence: VERIFIED 2026-10-01 (real binary against the empty lago DB and with tables renamed mid-run)
+example: {"time":"2026-10-01T21:26:52.186309189Z","level":"ERROR","msg":"Error fetching billable metric","service":"post_process","error_code":"fetch_billable_metric","error":"ERROR: relation \"billable_metrics\" does not exist (SQLSTATE 42P01)"}
+
+id: dlq-evaluate-expression
+area: dlq
+match: evaluate_expression
+match: failed to evaluate expr
+title: lago-expression returned nil for the metric's custom expression -> DLQ (non-retryable)
+cause: a property that is neither string nor number (bool, null, object, array) ANYWHERE in properties, even if the expression does not use it; missing property used by the expression; parse error (indistinguishable); function not in v0.2.0 (min() -> use least())
+confirm: the error embeds the full event JSON (PII: do not paste it into tickets); check property types
+fix: send string/number properties; expression semantics: rails-go-parity
+see: SKILL.md section 3
+evidence: VERIFIED 2026-10-01 (binary smoke tx_E: expression event.properties.a * 2 with extra property flag:true; cgo probe on lago-expression v0.2.0: with a bool property every expression -> nil; min(1, 2) -> nil, least(1, 2) -> 1; "((" -> nil)
+example: {"time":"2026-10-01T21:19:06.366715571Z","level":"ERROR","msg":"Error evaluating custom expression","service":"post_process","error_code":"evaluate_expression","error":"failed to evaluate expr: event.properties.a * 2 with json: {...}"}
+
+id: dlq-fetch-subscription
+area: dlq
+match: fetch_subscription
+match: Error fetching subscription
+title: subscription lookup failed with a DB/badger error (not "not found": a missing subscription is NOT an error, the event is enriched with subscription_id "") -> retryable
+cause: Postgres error (table missing, timeout, pool exhaustion); badger error in cache mode
+confirm: the error text; component=db line just before it
+fix: fix the DB side. RETRYABLE: may be skipped forever (loss-retryable-skip)
+see: SKILL.md section 3
+evidence: VERIFIED 2026-10-01 (real binary, subscriptions table renamed mid-run)
+example: {"time":"2026-10-01T21:28:47.064517994Z","level":"ERROR","msg":"Error fetching subscription","service":"post_process","error_code":"fetch_subscription","error":"ERROR: relation \"subscriptions\" does not exist (SQLSTATE 42P01)"}
+
+id: dlq-pay-in-advance
+area: dlq
+match: fetch_pay_in_advance_charge
+match: Error fetching pay in advance charge
+title: charges lookup failed after the enriched event was ALREADY produced -> retryable; a redelivery duplicates the enriched event
+cause: Postgres error on charges (processor.go:115-119); badger error in cache mode
+confirm: the error text; events_enriched already holds the transaction_id
+fix: fix the DB side. The redelivered enriched event is a duplicate: events_enriched (ReplacingMergeTree) collapses it only at merge time, and billing deduplicates at query time only for orgs with clickhouse_deduplication_enabled (default false); pay-in-advance itself is guarded by already_processed? ($API/app/services/events/pay_in_advance_service.rb:55)
+see: SKILL.md section 3
+evidence: VERIFIED 2026-10-01 (real binary, charges table renamed mid-run: enriched produced, record left uncommitted)
+example: {"time":"2026-10-01T21:28:45.946413815Z","level":"ERROR","msg":"Error fetching pay in advance charge","service":"post_process","error_code":"fetch_pay_in_advance_charge","error":"ERROR: relation \"charges\" does not exist (SQLSTATE 42P01)"}
+
+id: dlq-flag-refresh
+area: dlq
+match: flag_subscription_refresh
+match: Error flagging subscription refresh
+title: ZADD to the Redis ZSET subscription_refreshed_v2 failed -> retryable (enriched already produced)
+cause: Redis down/unreachable; pool timeout under load (PoolSize 10 vs up to 10000 concurrent records per poll, config/redis/redis.go:38); auth/TLS change
+confirm: plain "redis: ... pool.go" lines just before; redis-cli ping; ZRANGE subscription_refreshed_v2 0 -1 WITHSCORES
+fix: restore Redis. RETRYABLE: may be skipped forever (loss-retryable-skip)
+see: SKILL.md section 3
+evidence: VERIFIED 2026-10-01 (real binary, redis-server shut down mid-run)
+example: {"time":"2026-10-01T21:28:15.895971948Z","level":"ERROR","msg":"Error flagging subscription refresh","service":"post_process","error_code":"flag_subscription_refresh","error":"dial tcp 127.0.0.1:16380: connect: connection refused"}
+
+id: dlq-flag-ctx-canceled
+area: dlq
+match: (flag_subscription_refresh|Error flagging subscription refresh).*context canceled
+title: REGRESSION SIGNATURE: Redis writes canceled by the process context on SIGTERM (fixed 02a4bc8, #785)
+cause: a code change passed the process/signal context (canceled on SIGTERM) to a per-record side effect
+confirm: errors cluster at "Received shutdown signal" times; git -C "$(.claude/skills/research-methodology/scripts/history-setup.sh)" log -p -- events-processor/models/stores.go (the working clone is shallow)
+fix: per-record side effects (Redis, produce) take the batch context that processRecordsAndCommit creates (context.Background(), config/kafka/consumer.go:83) and passes to every record, never the process/signal context (change-control N5)
+see: reference/traps.md T3
+evidence: HISTORICAL 02a4bc8 (synthetic example built from processor.go:130 format)
+example: {"level":"ERROR","msg":"Error flagging subscription refresh","service":"post_process","error_code":"flag_subscription_refresh","error":"context canceled"}
+
+id: dlq-empty-code
+area: dlq
+match: failed to push to [^ ]+ topic
+match: record had a produce error while synchronously producing
+title: produce to events_enriched / events_charged_in_advance failed -> DLQ row with error_code "" and the record is COMMITTED (no per-event ERROR line); after a failed ENRICHED push the in-advance event is still produced
+cause: topic missing (UNKNOWN_TOPIC_OR_PARTITION); broker outage; record too large; ACL
+confirm: component=kafka-producer ERROR line; DLQ rows with empty error_code and initial_error_message "failed to push to <topic> topic"
+fix: create/fix the topic. No DLQ replay tool exists today (run-and-operate section 5.4); ADR-001 (DECIDED OD-2) plans an operator-gated one; until then a manual re-feed is CANDIDATE and needs owner sign-off. A re-feed of a failed-ENRICHED row duplicates its in-advance event (processor.go:110-126)
+see: SKILL.md sections 3-4
+evidence: VERIFIED 2026-10-01 (real binary, LAGO_KAFKA_ENRICHED_EVENTS_TOPIC=missing_topic)
+example: {"time":"2026-10-01T21:27:28.545768341Z","level":"ERROR","msg":"record had a produce error while synchronously producing","service":"post_process","component":"kafka-producer","error":"UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition."}
+example: "initial_error_message":"failed to push to missing_topic topic","error_message":"","error_code":""
+
+id: loss-dlq-push
+area: loss
+match: error while pushing to dead letter topic
+title: the DLQ produce failed too: the event is now only in Sentry (if SENTRY_DSN is set) and the record is committed = LOST
+cause: DLQ topic missing; broker outage
+confirm: Sentry issue with extra "event"; code processors/events_processor/event_producer_service.go:66-73 (if !pushed at :70)
+fix: restore the topic; recover from Sentry by hand; the target contract is ADR-001 (DECIDED OD-2: a failed DLQ produce becomes SYSTEMIC = pause, never Sentry-only), built by event-accounting-campaign W1
+see: SKILL.md section 4
+evidence: CODE event_producer_service.go:71 (synthetic example built from it)
+example: {"level":"ERROR","msg":"error while pushing to dead letter topic","service":"post_process","topic":"events_dead_letter"}
+
+id: loss-unmarshal
+area: loss
+match: Error unmarshalling message
+title: raw record is not valid JSON for models.Event: committed, NO DLQ, Sentry only = LOST
+cause: invalid JSON; a field of the wrong type (numeric precise_total_amount_cents from connectors, properties not an object); ingested_at not parseable (e.g. "2026-10-01 14:28:15")
+confirm: the error text names the field; code processors/events_processor/processor.go:49-59
+fix: fix the producer; the drop itself is event-accounting-campaign W1 territory (ADR-001, DECIDED OD-2: unmarshal failures go to the DLQ with the raw bytes, never a silent commit)
+see: SKILL.md section 4
+evidence: VERIFIED 2026-10-01 (binary smoke tx_D; probe of models.Event)
+example: {"time":"2026-10-01T21:19:06.3456212Z","level":"ERROR","msg":"Error unmarshalling message","service":"post_process","error":"invalid character 'n' looking for beginning of object key string"}
+
+id: loss-ptac-number
+area: loss
+match: cannot unmarshal number into Go struct field Event\.precise_total_amount_cents
+title: connector events with a numeric precise_total_amount_cents are dropped (EP declares it string, models/event.go:18)
+cause: connectors/http.yml:32-36 (also kinesis.yml:38-39, sqs.yml:34-35) pass numbers through; open since 190aa81 (2025-09-18)
+confirm: Sentry / "Error unmarshalling message" lines carrying this text; the event is still in ClickHouse events_raw: connector-aware query in reference/events-processor.md E4.1
+fix: direct producers: send it as a string. Through connectors/*.yml there is no value-preserving workaround: any non-number (string or absent) is mapped to "0" (http.yml:32-37), a number is dropped. Real fix belongs to event-accounting-campaign (W2) with rails-go-parity
+see: SKILL.md section 4; reference/traps.md T7
+evidence: VERIFIED 2026-10-01 for the events-processor half (probe: json.Unmarshal into models.Event); the connector half (number passed through, other types -> "0") is code-read, not runnable here (connector image is Docker-only; only connectors/sqs.yml has a tests: block)
+example: {"level":"ERROR","msg":"Error unmarshalling message","service":"post_process","error":"json: cannot unmarshal number into Go struct field Event.precise_total_amount_cents of type string"}
+
+id: loss-retryable-skip
+area: loss
+match: No commitable record in batch
+title: the FIRST record of a batch failed retryably, so nothing was committed; if any later batch on that partition commits, the failed offset is skipped forever (no DLQ, no retry)
+cause: retryable codes (fetch_subscription, fetch_pay_in_advance_charge, flag_subscription_refresh, fetch_billable_metric with a DB error) with ingested_at < 12 h
+confirm: compare per-transaction: ERROR line with a retryable code AND no DLQ row AND not in events_enriched; committed offset (rpk group describe / kadm) moved past it
+fix: do NOT patch commit logic while debugging (change-control N7; the target is ADR-001, DECIDED OD-2, built as a C4 change by event-accounting-campaign W1); measure with event-accounting-campaign; restore the failing dependency
+see: SKILL.md section 4; reference/events-processor.md E4
+evidence: VERIFIED 2026-10-01 (real binary: offset 0 failed retryably, offset 2 later committed -> committed=3, offset 0 never redelivered)
+example: {"time":"2026-10-01T21:26:52.20474598Z","level":"WARN","msg":"No commitable record in batch, skipping commit. topic: events-raw partition: 0 batch_size: 2 processed: 1\n","service":"post_process","kafka-topic-consumer":"events-raw"}
+
+id: loss-db-connections
+area: loss
+match: too many connections for (database|role)
+match: remaining connection slots are reserved
+match: sorry, too many clients already
+title: Postgres refused a new connection (SQLSTATE 53300): in DB mode every lookup that needed one fails RETRYABLY, and a later commit on the partition skips those offsets forever (silent loss of most of a burst, no DLQ)
+cause: DB-mode pool larger than the database allows: LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS (default 200, processors/main_processor.go:134) x replicas + every other client (lago-api DATABASE_POOL per process, Sidekiq, clock) above max_connections minus the reserved slots, or above a CONNECTION LIMIT on the database or role; a poll of up to 10,000 records runs one goroutine per record (config/kafka/consumer.go:168) and each opens a connection while the pool is below its cap; another client holding the slots
+confirm: psql "$DATABASE_URL" -c 'SHOW max_connections' -c 'SELECT datname, usename, count(*) FROM pg_stat_activity GROUP BY 1,2 ORDER BY 3 DESC' -c 'SELECT datname, datconnlimit FROM pg_database'  (prints no secret) ; printenv LAGO_EVENTS_PROCESSOR_DATABASE_MAX_CONNECTIONS ; triage-ep-log.sh counts these lines as retryable fetch_* failures ; lost-offset candidates: the events_raw NOT IN query (reference/events-processor.md E4.1)
+fix: size the pool: pool x replicas + all other clients <= the database budget (config-and-flags reference/events-processor-env.md section 2a; run-and-operate reference/events-processor-ops.md section 6), or raise the budget; at its cap pgxpool queues lookups instead of failing (config/database/database.go:24-33). Do NOT patch commit logic while debugging (change-control N7): under ADR-001 (DECIDED OD-2) exhaustion is a SYSTEMIC pause, never loss (reimplementation-kit RBD-10; event-accounting-campaign). At startup the same text inside "Error connecting to the database" is start-db-connect. Memory-cache mode (production, DECIDED OD-1) uses Postgres only for the startup snapshot (10 connections, cache/cache.go:63-67), where query errors are swallowed (cache-snapshot-failed; inferred from code, not run)
+see: SKILL.md sections 3-4; reference/events-processor.md E3-E4
+evidence: VERIFIED 2026-10-02 (events-processor-spec EPC-30: reference binary of tree 83e012866f29, DB mode, pool 200 vs a 30-connection database limit, 201-record burst: 85-170 records lost in nine kit runs; re-run 2026-10-02: 170 of 201 lost, 170 fetch_billable_metric ERROR lines carrying all three texts, 1 WARN No commitable record; testdata/epc30-db-connections.log)
+example: {"time":"2026-10-02T17:08:13.100937394Z","level":"ERROR","msg":"Error fetching billable metric","service":"post_process","error_code":"fetch_billable_metric","error":"failed to connect to `user=epconf_iut database=epconf_22588`:\n\t127.0.0.1:5432 (localhost): server error: FATAL: too many connections for database \"epconf_22588\" (SQLSTATE 53300)\n\t127.0.0.1:5432 (localhost): server error: FATAL: too many connections for database \"epconf_22588\" (SQLSTATE 53300)"}
+example: {"time":"2026-10-02T11:32:39.388797215Z","level":"ERROR","msg":"Error fetching billable metric","service":"post_process","error_code":"fetch_billable_metric","error":"failed to connect to `user=epconf_iut database=epconf_3878`:\n\t127.0.0.1:5432 (localhost): server error: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute (SQLSTATE 53300)\n\t127.0.0.1:5432 (localhost): server error: FATAL: sorry, too many clients already (SQLSTATE 53300)"}
+
+id: loss-nonfinite-timestamp
+area: loss
+match: error while marshaling enriched events
+match: error while marshaling charged in advance events
+title: an enriched (or in-advance) record could not be serialised: nothing is produced, no DLQ row, the offset is committed = LOST; the line carries no error, error_code or transaction_id
+cause: event "timestamp" is a non-finite number string ("NaN", "Inf"; strconv.ParseFloat also accepts "Infinity", "+Inf", "-Inf" in any case): it passes parsing (utils/time.go:56), the enriched timestamp becomes NaN/Inf, encoding/json rejects it (event_producer_service.go:77), ProduceEnrichedEvent logs this line and returns (event_producer_service.go:29-37), processEvent still succeeds and the record is committed; any other non-finite float in the enriched record would do the same (CODE)
+confirm: a Sentry issue "json: unsupported value: NaN" (or +Inf) at the same time (CaptureError, event_producer_service.go:36); the transaction is in neither events_enriched nor events_dead_letter; find the producer in the raw topic (dev, needs a daemon): docker compose -f docker-compose.dev.yml exec redpanda rpk topic consume events-raw -f '%v\n' -o start | grep -iE '"timestamp": *"[+-]?(nan|inf)'
+fix: fix the producer (send unix seconds or RFC 3339). The silent commit is event-accounting-campaign territory: under reimplementation-kit RBD-4 a non-finite timestamp is a PERMANENT failure, dead-lettered with a cause (ADR-001, DECIDED OD-2). Related, with no log line at all: hexadecimal float strings such as "0x1.9f0e3a8p+30" are accepted as seconds (events-processor-spec EPC-08)
+see: SKILL.md section 4; reference/events-processor.md E2
+evidence: VERIFIED 2026-10-02 (events-processor-spec EPC-08, reference binary of tree 83e012866f29, DB mode: t_nan and t_inf ended NO_OUTPUT_COMMITTED with one such line each; t_hex enriched with timestamp 1740869280; testdata/epc08-time-formats.log). The in-advance variant is CODE (event_producer_service.go:46)
+example: {"time":"2026-10-02T11:28:48.731516245Z","level":"ERROR","msg":"error while marshaling enriched events","service":"post_process"}
+
+id: run-fetch-panic
+area: runtime
+match: "msg":"Fetch error".*"kafka-topic-consumer"
+title: main consumer got a non-context fetch error and PANICKED (config/kafka/consumer.go:175-183); the whole process exits
+cause: broker-side errors (auth revoked, topic deleted, offset out of range policy, cluster issues)
+confirm: the "error" field; restart loop in the orchestrator
+fix: fix the broker side; no in-process recovery exists
+see: SKILL.md section 3
+evidence: CODE consumer.go:181-182 (synthetic example built from it)
+example: {"level":"ERROR","msg":"Fetch error","service":"post_process","kafka-topic-consumer":"events-raw","error":"UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition."}
+
+id: run-divzero-abort
+area: runtime
+match: Division by zero
+match: failed to initiate panic, error 5, aborting
+match: bigdecimal-[0-9.]+/src/impl_ops_div\.rs
+title: an expression divided by zero: the expression engine panicked inside the CGO call and aborted the whole events-processor (exit 2) before any commit or DLQ write; the record is re-read after every restart (poison record)
+cause: a billable metric's expression divides by an event property that is 0 (e.g. event.properties.a / event.properties.b with b=0); the Rust core (bigdecimal 0.4.6) panics, the panic cannot cross the C boundary, Go receives SIGABRT (enrichment_service.go:132 evaluates it); only events the processor evaluates itself can trigger it (connector or direct producers: rails-go-parity P17); the billing API answers HTTP 500 for the same event and stores nothing
+confirm: the crash output contains "Division by zero" followed by "SIGABRT: abort"; list metrics whose expression contains "/" (psql "$DATABASE_URL" -c "select code, expression from billable_metrics where expression like '%/%' and deleted_at is null"); reproduce: .claude/skills/rails-go-parity/scripts/run-probe.sh value -divzero
+fix: stop the crash loop by changing the expression (or the producer) so the divisor is never 0, then restart; the record stays on the raw topic and is re-read. The contract fix (DLQ evaluate_expression instead of an abort; 422 at the API) is reimplementation-kit RBD-37 (owner ruling: change-control OD-21) and event-accounting-campaign territory
+see: SKILL.md section 3; rails-go-parity reference/contract-table.md P37
+evidence: VERIFIED 2026-10-02 (rails-go-parity value-format-probe -divzero child output on the reference expression engine lago-expression v0.2.0: "panicked at .../bigdecimal-0.4.6/src/impl_ops_div.rs:10:13: Division by zero", "fatal runtime error: failed to initiate panic, error 5, aborting", "SIGABRT: abort", child exit status 2)
+example: thread '<unnamed>' (3811) panicked at <cargo>/bigdecimal-0.4.6/src/impl_ops_div.rs:10:13:
+example: Division by zero
+example: fatal runtime error: failed to initiate panic, error 5, aborting
+
+id: run-commit-error
+area: runtime
+match: Error when committing offets to kafka
+title: CommitRecords failed (note the code typo "offets"); records are reprocessed after restart/rebalance = duplicates downstream
+cause: rebalance in progress; coordinator moved; broker outage
+confirm: code config/kafka/consumer.go:104-108
+fix: usually transient. The redelivered records are duplicates: events_enriched (ReplacingMergeTree) collapses them only at merge time, and billing deduplicates at query time only for orgs with clickhouse_deduplication_enabled (default false; the only env-driven setter is org creation with LAGO_CLICKHOUSE_ENABLED + LAGO_DEFAULT_EVENT_STORE=clickhouse, $API/app/services/organizations/create_service.rb:17-19; also the clickhouse rake recipe and the enriched-store migration). Check the org flag before dismissing a double count
+see: SKILL.md section 3
+evidence: CODE consumer.go:106 (synthetic example built from it)
+example: {"level":"ERROR","msg":"Error when committing offets to kafka. Error: REBALANCE_IN_PROGRESS topic: events-raw partition: 0 offset: 42\n","service":"post_process","kafka-topic-consumer":"events-raw"}
+
+id: run-shutdown-ctx
+area: runtime
+match: heartbeat errored.*context canceled
+match: Context canceled during fetch
+match: partition consumer context canceled
+title: benign: normal SIGTERM/SIGINT shutdown noise (franz-go heartbeat, memory-cache CDC loops)
+cause: graceful shutdown in progress
+confirm: preceded by "Received shutdown signal" and followed by "Event processor stopped"
+fix: nothing. Only flag_subscription_refresh + context canceled is a bug (dlq-flag-ctx-canceled)
+see: SKILL.md section 3
+evidence: VERIFIED 2026-10-01 (binary smoke shutdown)
+example: {"time":"2026-10-01T21:19:06.447166981Z","level":"INFO","msg":"heartbeat errored","service":"post_process","component":"kafka","group":"smoke_events-raw","err":"context canceled"}
+example: {"time":"2026-10-01T21:19:06.756453722Z","level":"INFO","msg":"Context canceled during fetch","service":"post_process","pkg":"cache","model":"billable_metrics"}
+
+id: run-unknown-topic
+area: runtime
+match: UNKNOWN_TOPIC_OR_PARTITION
+title: a topic EP produces to (or consumes) does not exist on the cluster
+cause: topic not created (dev: redpandacreatetopics, docker-compose.dev.yml:391-409 + scripts/create-topics.sh); name mismatch (events_raw vs events-raw, events-processor/README.md:41 is stale)
+confirm: rpk topic list (dev, needs a daemon) ; printenv | grep -E '^LAGO_KAFKA_[A-Z_]+_TOPIC='  (topic names only)
+fix: create the topic or fix the name. For a produce target this yields DLQ rows with empty error_code (dlq-empty-code)
+see: SKILL.md section 3
+evidence: VERIFIED 2026-10-01 (real binary, missing produce topic)
+example: {"time":"2026-10-01T21:27:28.545745704Z","level":"INFO","msg":"new topic metadata wait failed, done retrying, failing all records","service":"post_process","component":"kafka","topic":"missing_topic","err":"UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition."}
+
+id: run-redis-pool
+area: runtime
+match: redis: connection pool: failed to dial after [0-9]+ attempts
+title: go-redis cannot open a connection (plain-text line from go-redis, not JSON)
+cause: Redis down/unreachable; TLS mismatch when the error is EOF (start-redis-tls)
+confirm: redis-cli ping against LAGO_REDIS_STORE_URL
+fix: restore Redis; at runtime this surfaces as flag_subscription_refresh (retryable)
+see: SKILL.md sections 2-3
+evidence: VERIFIED 2026-10-01 (real binary)
+example: redis: 2026/10/01 21:28:14 pool.go:419: redis: connection pool: failed to dial after 5 attempts: dial tcp 127.0.0.1:16380: connect: connection refused
+
+id: cache-snapshot-failed
+area: cache
+match: does not exist.*SELECT id,organization_id
+title: memory-cache snapshot query failed; the error is SWALLOWED (cache/cache.go:78-106) and the process serves an EMPTY cache: every event DLQs as fetch_billable_metric "Key not found"
+cause: DATABASE_URL points at a DB without the lago-api schema; permissions; statement timeout
+confirm: triage-ep-log.sh -> "snapshot loads: started 6, completed 0"; no "Completed snapshot load" line per model
+fix: fix DATABASE_URL and restart (snapshot only runs at startup); production runs cache mode (DECIDED OD-1): runbook run-and-operate reference/memory-cache-ops.md section 1. DLQ'd events stay there: no DLQ replay tool exists today (ADR-001, DECIDED OD-2, plans an operator-gated one; a manual re-feed is CANDIDATE and needs owner sign-off). Hardening: event-accounting-campaign W6 (DEFAULT APPLIED OD-20)
+see: SKILL.md section 5; reference/traps.md T4
+evidence: VERIFIED 2026-10-01 (real binary in cache mode against the empty lago DB: 6 SQLSTATE 42P01, 8/9 events DLQ'd, committed 9/9)
+example: {"time":"2026-10-01T21:19:27.350607409Z","level":"ERROR","msg":"ERROR: relation \"billable_metrics\" does not exist (SQLSTATE 42P01)","service":"post_process","component":"db","error":"ERROR: relation \"billable_metrics\" does not exist (SQLSTATE 42P01)","query":"SELECT id,organization_id,code,aggregation_type,recurring,field_name,expression,created_at,updated_at FROM \"billable_metrics\" WHERE deleted_at IS NULL"}
+
+id: cache-cdc-fetch
+area: cache
+match: "msg":"Fetch error".*"pkg":"cache"
+title: a memory-cache CDC consumer cannot fetch; it loops forever with continue (cache/consumer.go:66-74), the cache goes stale
+cause: CDC clients have NO SASL/TLS (cache/consumer.go:30-35) on a secured cluster; Debezium topic missing (<LAGO_DEBEZIUM_TOPIC_PREFIX>.public.<table>)
+confirm: model attr names the table; compare with LAGO_KAFKA_SCRAM_ALGORITHM / LAGO_KAFKA_TLS of the main client
+fix: production runs cache mode (DECIDED OD-1): check CDC freshness (run-and-operate reference/memory-cache-ops.md section 2); production Kafka auth is OPEN DECISION OD-1b (owner); hardening: event-accounting-campaign W6 (DEFAULT APPLIED OD-20), as-is defects architecture-contract WP6-WP10
+see: SKILL.md section 5
+evidence: CODE cache/consumer.go:71 (synthetic example built from it)
+example: {"level":"ERROR","msg":"Fetch error","service":"post_process","pkg":"cache","model":"charges","error":"unable to dial: dial tcp 10.0.0.1:9092: i/o timeout"}
+
+id: cache-cdc-write
+area: cache
+match: Failed to unmarshal.*"pkg":"cache"
+match: Failed to update cache from stream
+match: Failed to cache item
+match: Failed to delete from cache
+title: a CDC or snapshot row could not be decoded or written to badger; that row is skipped (stale cache entry)
+cause: Debezium payload shape differs from the Go model (unwrap transform, column list); badger write error
+confirm: model/topic attrs; compare extra/debezium_config.json transforms with cache/consumer.go processRecord
+fix: production runs cache mode (DECIDED OD-1); compare the production connector config with extra/debezium_config.json (OPEN DECISION OD-1b (owner)); hardening: event-accounting-campaign W6 (DEFAULT APPLIED OD-20), as-is defects architecture-contract WP6-WP10
+see: SKILL.md section 5
+evidence: CODE cache/consumer.go:96,132,161; cache/cache.go:254 (synthetic example built from it)
+example: {"level":"ERROR","msg":"Failed to unmarshal","service":"post_process","pkg":"cache","model":"charges","error":"invalid character 'x' looking for beginning of value","topic":"lago_proc_cdc.public.charges"}
+
+id: values-nil
+area: values
+match: "value":"<nil>"
+match: "value":"\\u003cnil\\u003e"
+title: enriched value "<nil>": the metric's field_name property is missing or null; ClickHouse decimal_value becomes 0 (toDecimal128OrZero), unique_count counts "<nil>" as one value (on the Kafka wire Go json.Marshal escapes it as \u003cnil\u003e; ClickHouse stores <nil>)
+cause: producer omitted the property; wrong field_name on the metric
+confirm: events_enriched rows with value = '<nil>' (E5 query in reference/events-processor.md); on the topic grep for u003cnil; code processors/events_processor/enrichment_service.go:114
+fix: send the property; semantics vs Rails (Rails stores 0): rails-go-parity; fix: event-accounting-campaign (W2)
+see: SKILL.md section 4
+evidence: VERIFIED 2026-10-01 (probe fmt %v + json.Marshal -> {"value":"\u003cnil\u003e"}; producer processors/events_processor/event_producer_service.go:77; clickhouse local 26.2: toDecimal128OrZero('<nil>',26) = 0)
+example: {"organization_id":"o","code":"c","transaction_id":"t","value":"<nil>","timestamp":1759320000}
+example: {"organization_id":"o","code":"c","transaction_id":"t","value":"\u003cnil\u003e","timestamp":1759320000}
+
+id: values-exponent
+area: values
+match: value[" :=]+-?[0-9]+(\.[0-9]+)?e[+-][0-9]+
+match: ^[[:space:]]*"?-?[0-9]+(\.[0-9]+)?e[+-][0-9]+"?[[:space:]]*$
+title: enriched value in exponent form ("1e+06", "1e-07"): fmt %v of a float64; parses fine in ClickHouse below 1e12, but |x| >= 1e12 becomes 0 (values-decimal-overflow) and unique_count treats "1e+06" and "1000000" as different
+cause: numeric property >= 1e6 or < 1e-4 (JSON numbers decode to float64)
+confirm: E5 string query (reference/events-processor.md); .claude/skills/diagnostics-and-tooling/scripts/ch-local.sh "SELECT toDecimal128OrZero('1e+06', 26)" </dev/null  -> 1000000
+fix: value fidelity is event-accounting-campaign W2; a ClickHouse schema change is allowed (DECIDED OD-3) and ships as a paired lago-api PR (the DDL lives there)
+see: SKILL.md section 4; reference/traps.md T8
+evidence: VERIFIED 2026-10-01 (binary smoke tx_A value "1e-07"; clickhouse local 26.2.19.43)
+example: {"organization_id":"o","code":"c","transaction_id":"t","value":"1e+06","timestamp":1759320000}
+example: 1e+06
+example: value 2e+12
+
+id: values-decimal-overflow
+area: values
+match: toDecimal128OrZero
+match: Decimal\(38, ?26\)
+match: decimal_value[^0-9]*0([^.0-9]|$)
+match: value[" :=]+-?[0-9]{13,}(\.[0-9]+)?([^0-9]|$)
+match: (^|[^0-9A-Za-z.])-?[0-9]+(\.[0-9]+)?e\+(1[2-9]|[2-9][0-9]|[0-9]{3,})([^0-9]|$)
+title: decimal_value is 0 for a non-zero value: decimal_value Decimal(38,26) DEFAULT toDecimal128OrZero(value, 26) holds 12 integer digits, so |x| >= 1e12 (negatives too), "<nil>" and any non-numeric %v string (true, map[x:1]) become 0; sums/max/latest come out 0 or too low
+cause: quantities >= 1e12 (often a unit mistake: ms, micro-units); a missing property ("<nil>", values-nil); a bool/object property used as field_name
+confirm: E5 query (countIf(decimal_value = 0 AND value NOT IN ('0', '0.0')) per code); .claude/skills/diagnostics-and-tooling/scripts/ch-local.sh "SELECT toDecimal128OrZero('2e+12', 26)" </dev/null  -> 0
+fix: a ClickHouse schema change is allowed (DECIDED OD-3; DDL in lago-api, so a paired lago-api PR); a Go-only %v fix does NOT cure |x| >= 1e12 (the column cannot hold it); value fidelity is event-accounting-campaign W2; contract rows rails-go-parity
+see: SKILL.md section 4; reference/events-processor.md E5; reference/traps.md T8
+evidence: VERIFIED 2026-10-01 (clickhouse local 26.2.19.43: '1000000000000', '-1000000000000', '2e+12', 'true', 'map[x:1]' -> 0; '999999999999' -> 999999999999; '1e+06' -> 1000000)
+example: toDecimal128OrZero('2e+12', 26) = 0
+example: decimal_value 0 for value 2e+12
+example: {"organization_id":"o","code":"c","transaction_id":"t","value":"2000000000000","timestamp":1759320000}
+example: 2e+12
+
+id: build-link
+area: build
+match: cannot find -lexpression_go
+title: link step cannot find libexpression_go (CGO_LDFLAGS has no -L to the Rust .so)
+cause: plain go build / go test outside ep-env.sh (go vet and golangci-lint do not link and do not need it); events-processor/README.md:13-15 and CLAUDE.md:10 are stale on this
+confirm: echo "$CGO_LDFLAGS"
+fix: source .claude/skills/build-and-env/scripts/ep-env.sh  (or ep-test.sh); owner row: build-and-env B1
+see: SKILL.md section 6; reference/build-and-test.md BT1
+evidence: VERIFIED 2026-10-01 (env -u CGO_LDFLAGS go build ./...)
+example: /usr/bin/ld: cannot find -lexpression_go: No such file or directory
+
+id: build-cgo-disabled
+area: build
+match: build constraints exclude all Go files in .*expression-go
+title: cgo is off (CGO_ENABLED=0 or no C compiler) so the expression wrapper has no buildable files
+cause: CGO_ENABLED=0 exported (cross-compile habit); gcc missing (Go then defaults cgo off)
+confirm: go env CGO_ENABLED CC
+fix: unset CGO_ENABLED / install gcc; or ep-test.sh --no-cgo for the 5 packages that do not link it; owner row: build-and-env B3
+see: SKILL.md section 6; reference/build-and-test.md BT3
+evidence: VERIFIED 2026-10-01 (CGO_ENABLED=0 go build ./...)
+example: imports github.com/getlago/lago-expression/expression-go: build constraints exclude all Go files in <GOMODCACHE>/github.com/getlago/lago-expression/expression-go@v0.1.4
+
+id: build-cc-missing
+area: build
+match: cgo: C compiler "[^"]+" not found
+title: CC names a compiler that is not installed
+cause: CC exported by another toolchain setup
+confirm: go env CC ; which "$(go env CC)"
+fix: unset CC or install the compiler; owner row: build-and-env B3
+see: SKILL.md section 6; reference/build-and-test.md BT4
+evidence: VERIFIED 2026-10-01 (CC=nonexistent-cc go build ./...)
+example: cgo: C compiler "nonexistent-cc" not found: exec: "nonexistent-cc": executable file not found in $PATH
+
+id: build-go-toolchain
+area: build
+match: go\.mod requires go >= [0-9.]+
+match: toolchain not available
+title: local Go is older than go.mod's go 1.25.0 and the toolchain download is disabled or offline
+cause: GOTOOLCHAIN=local; GOPROXY=off / no network
+confirm: go env GOTOOLCHAIN GOPROXY ; go version (inside events-processor/)
+fix: unset GOTOOLCHAIN and run once online (auto-fetches go1.25.0), or install Go >= 1.25.0; Go pins move together (change-control N3); owner row: build-and-env B5
+see: SKILL.md section 6; reference/build-and-test.md BT5
+evidence: VERIFIED 2026-10-01 (GOTOOLCHAIN=local with go1.24.7)
+example: go: go.mod requires go >= 1.25.0 (running go 1.24.7; GOTOOLCHAIN=local)
+
+id: build-expression-tag
+area: build
+match: unknown revision expression-go/v0\.2\.0
+match: lago-expression@v0\.2\.0 found, but does not contain package github\.com/getlago/lago-expression/expression-go
+title: someone tried to "align" go.mod's expression-go v0.1.4 with the Rust lib v0.2.0: that tag does not exist
+cause: misreading the version split (Rust .so v0.2.0 in 4 places, Go wrapper v0.1.4; ABI identical)
+confirm: git ls-remote --tags https://github.com/getlago/lago-expression | grep expression-go
+fix: do not change go.mod (change-control N3); owner row: build-and-env B13
+see: SKILL.md section 6; reference/build-and-test.md BT13
+evidence: VERIFIED 2026-10-01 in a scratch module: "go get .../expression-go@v0.2.0" -> "found, but does not contain package"; "go list -m .../expression-go@v0.2.0" -> "unknown revision"
+example: go: module github.com/getlago/lago-expression@v0.2.0 found, but does not contain package github.com/getlago/lago-expression/expression-go
+example: go: github.com/getlago/lago-expression/expression-go@v0.2.0: invalid version: unknown revision expression-go/v0.2.0
+
+id: test-covdata
+area: test
+match: no such tool "covdata"
+title: go test -coverprofile over ./... exits 1 on the go1.25.0 module toolchain (no covdata for packages without tests)
+cause: GOTOOLCHAIN-downloaded go1.25.0 lacks pkg/tool/.../covdata
+confirm: the 6 tested packages still print coverage; exit code is 1
+fix: cover only packages with tests: PKGS=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...) ; go test -coverprofile="$(mktemp -d)/c.out" $PKGS  -> 47.4% (the gated own-package number; validation-and-qa owns the baseline); owner row: build-and-env B4
+see: SKILL.md section 6; reference/build-and-test.md BT6
+evidence: VERIFIED 2026-10-01
+example: go: no such tool "covdata"
+
+id: test-pg-down
+area: test
+match: config/database/database_test\.go:2[2-5]
+match: --- FAIL: TestNewConnection
+title: Postgres for tests is down or the role/db is wrong; TestNewConnection then dereferences nil and panics, hiding the real error ABOVE the stack
+cause: sandbox restart (Postgres does not survive it); DATABASE_URL wrong; role lago missing
+confirm: scroll UP to the first "connection refused" / "password authentication failed" line; pg_isready -d "$DATABASE_URL"
+fix: pg_ctlcluster 16 main start (sandbox) or start your Postgres; owner row: build-and-env B6 (role/db recipe)
+see: SKILL.md section 6; reference/build-and-test.md BT7; reference/traps.md T10
+evidence: VERIFIED 2026-10-01 (DATABASE_URL on closed port 5499)
+example: --- FAIL: TestNewConnection (0.00s)
+example: 	<repo>/events-processor/config/database/database_test.go:24 +0xb5
+
+id: test-order-dependent
+area: test
+match: TestEvaluateExpression/With_an_expression_and_with_required_fields
+match: TestEvaluateExpression/With_a_float_timestamp
+title: 2 TestEvaluateExpression subtests depend on state (bm.Expression) set by an earlier sibling: each fails when run alone
+cause: -run narrowed to one subtest (enrichment_service_test.go:256-258 declare the shared bm/event/result)
+confirm: go test -count=1 -run 'TestEvaluateExpression' ./processors/events_processor/  -> ok
+fix: run the parent test; owner: validation-and-qa HD3 (fixing the test is a change-class C1 change)
+see: SKILL.md section 6; reference/build-and-test.md BT8
+evidence: VERIFIED 2026-10-01 (each subtest alone: expected "36", actual <nil>)
+example: --- FAIL: TestEvaluateExpression/With_an_expression_and_with_required_fields (0.00s)
+example: --- FAIL: TestEvaluateExpression/With_a_float_timestamp (0.00s)
+
+id: test-sqlmock-mismatch
+area: test
+match: could not match actual sql
+match: all expectations were already fulfilled, call to
+title: sqlmock: the SQL the code emits differs from the SQL pinned in the test (intended by change-control N4: SQL changes must update the pin)
+cause: you changed a query (e.g. replaced SELECT * with explicit columns); gorm emits a different statement after an upgrade
+confirm: the message prints actual SQL and expected regexp side by side
+fix: update the test's expected SQL in the same PR (regexp: escape * $ . ( ) ): a change-class C3 change (change-control N4); owner: validation-and-qa section 10
+see: SKILL.md section 6; reference/build-and-test.md BT9
+evidence: VERIFIED 2026-10-01 (go test -overlay with explicit columns in FetchBillableMetric)
+example: ERROR Query: could not match actual sql: "SELECT "id","organization_id" FROM "billable_metrics" WHERE organization_id = $1" with expected regexp "SELECT \* FROM "billable_metrics" WHERE organization_id = \$1"
+
+id: test-dup-name
+area: test
+match: TestProcessEvent/[^ ]+#01
+title: "#01" suffix = the same scenario ran a second time (second mode); only the first TestProcessEvent scenario is nested under the mode name
+cause: harness structure (processor_test.go:184-203); one scenario hard-codes cache mode (processor_test.go:424)
+confirm: go test -count=1 -v -run TestProcessEvent ./processors/events_processor/ | grep -- '--- '
+fix: read #01 as "second mode"; owner: validation-and-qa HD2 (restructuring is a change-class C1 change)
+see: SKILL.md section 6; reference/build-and-test.md BT10
+evidence: VERIFIED 2026-10-01 (go test -v -run TestProcessEvent: 6 test names carry #01, 12 lines incl. === RUN)
+example: --- PASS: TestProcessEvent/When_event_source_is_post_processed_on_API#01 (0.00s)
+
+id: test-lint-cache-dir
+area: test
+match: unknown flag: --cache-dir
+title: golangci-lint v2 has no --cache-dir flag
+cause: v1-era command line
+confirm: golangci-lint --version
+fix: GOLANGCI_LINT_CACHE=$(mktemp -d) golangci-lint run --allow-serial-runners ./...  (baseline 21 issues; policy OPEN DECISION OD-6 (owner)); owner row: build-and-env B14
+see: SKILL.md section 6; reference/build-and-test.md BT11
+evidence: VERIFIED 2026-10-01 (golangci-lint 2.5.0; build-and-env B14)
+example: Error: unknown flag: --cache-dir
+
+id: test-lint-parallel
+area: test
+match: parallel golangci-lint is running
+title: another golangci-lint holds the lock file (often a parallel agent)
+cause: concurrent runs share ${TMPDIR:-/tmp}/golangci-lint.lock
+confirm: pgrep -a golangci-lint
+fix: wait, or golangci-lint run --allow-serial-runners ./...  (serializes around the lock; safer than --allow-parallel-runners with a shared cache); owner row: build-and-env B14
+see: SKILL.md section 6; reference/build-and-test.md BT14
+evidence: VERIFIED by build-and-env 2026-10-01
+example: Error: parallel golangci-lint is running
+
+id: dev-lago-alias
+area: dev
+match: lago: command not found
+match: unknown command "exec" for "lago"
+title: "lago" in docs is a shell alias (docs/dev_environment.md:53); agent shells never load it, and the lago-cli binary has no exec
+cause: non-interactive shell; lago-cli installed
+confirm: type lago
+fix: docker compose -f docker-compose.dev.yml <cmd> (build-and-env ships an alias-free wrapper); tests: ep-test.sh
+see: SKILL.md section 7
+evidence: VERIFIED by build-and-env 2026-10-01
+example: bash: lago: command not found
+
+id: dev-no-daemon
+area: dev
+match: Cannot connect to the Docker daemon
+match: failed to connect to the docker API
+title: no Docker daemon (typical agent sandbox): only "docker compose ... config" works
+cause: sandbox without dockerd
+confirm: docker info
+fix: use the Docker-free recipe (ep-test.sh) and daemon-less compose checks (run-and-operate)
+see: SKILL.md section 7
+evidence: VERIFIED by build-and-env 2026-10-01
+example: failed to connect to the docker API at unix:///var/run/docker.sock; check if the path is correct and if the daemon is running
+
+id: dev-pnpm-volume
+area: dev
+match: lago_front_pnpm_store
+title: the dev front mounts an EXTERNAL volume nobody creates (docker-compose.dev.yml:8-12,103; 195bbc0, undocumented)
+cause: first run on a machine; volume removed by hand
+confirm: docker volume ls | grep lago_front_pnpm_store
+fix: docker volume create lago_front_pnpm_store
+see: SKILL.md section 7
+evidence: UNVERIFIED exact compose error text (no daemon); external: true VERIFIED in docker-compose.dev.yml:11-12
+example: external volume "lago_front_pnpm_store" not found
+
+id: dev-traefik-entrypoint
+area: dev
+match: EntryPoint doesn't exist
+title: a Traefik router label names an entrypoint that traefik/traefik.yml does not define (only web and websecure exist, traefik.yml:13-17)
+cause: copy-pasted label with ws (lived 2022-07-13 4b4b35f .. 2025-11-04 12b8101)
+confirm: grep -n 'entrypoints=' docker-compose.dev.yml
+fix: use web and/or websecure only
+see: reference/traps.md T12
+evidence: HISTORICAL 12b8101 (#618, error text from its commit message)
+example: ERR EntryPoint doesn't exist entryPointName=ws routerName=webhook@docker
+
+id: dev-compose-race
+area: dev
+match: RedisClient::CannotConnectError
+match: unable to create topics .*connection refused
+title: a dev service started before its dependency was healthy
+cause: a new or edited depends_on edge without condition: service_healthy (the c80a7b5 #580 incident)
+confirm: docker compose -f docker-compose.dev.yml config --format json | jq '.services.<svc>.depends_on'
+fix: add healthcheck + condition: service_healthy for infra dependencies (change-control N12; change class C6); for a one-off, re-run docker compose -f docker-compose.dev.yml up -d
+see: SKILL.md section 7
+evidence: HISTORICAL c80a7b5 (error texts from its commit message)
+example: RedisClient::CannotConnectError: Connection refused - connect(2) for 127.0.0.1:6379 (redis://localhost:6379) (RedisClient::CannotConnectError)
+example: unable to create topics [events-raw events_enriched events_charged_in_advance events_dead_letter activity_logs api_logs]: unable to dial: dial tcp 172.18.0.2:9092: connect: connection refused
+
+id: dev-topic-exists
+area: dev
+match: TOPIC_ALREADY_EXISTS
+title: re-running topic creation with plain rpk topic create (not idempotent, redpanda issue 6651)
+cause: a custom command bypassing scripts/create-topics.sh (5477e39, #581)
+confirm: docker-compose.dev.yml:397-407 (entrypoint create-topics + topic list)
+fix: re-run through scripts/create-topics.sh (idempotent); never call rpk topic create directly. ADDING a topic to that list is change class C4 + C6; a topic ClickHouse reads also needs a lago-api _queue migration in a paired lago-api PR, while a topic no other repo reads (e.g. ADR-001's internal retry topic) needs none (DECIDED OD-4: paired PRs by dependency); config-and-flags section 7
+see: SKILL.md section 7
+evidence: UNVERIFIED exact rpk text; HISTORICAL 5477e39
+example: TOPIC_ALREADY_EXISTS: The topic has already been created.
+
+id: dev-sidekiq-yaml
+area: dev
+match: did not find expected key
+title: root docker-compose.yml became invalid YAML after uncommenting a "# - SIDEKIQ_X=true" hint (list item inside a mapping anchor, docker-compose.yml:67-73)
+cause: list syntax in x-backend-environment
+confirm: docker compose -f docker-compose.yml config -q
+fix: write "SIDEKIQ_EVENTS": "true" (mapping form) and also start the matching worker
+see: SKILL.md section 7
+evidence: VERIFIED 2026-10-01 (scratch copy)
+example: go-yaml load error in parser (while parsing a block mapping) at L21.C3-L67.C3: did not find expected key
+
+id: dev-sidekiq-no-worker
+area: dev
+match: SIDEKIQ_[A-Z_]+=true
+title: a SIDEKIQ_<QUEUE>=true flag routes jobs to a dedicated queue (e.g. events) that the default api-worker does not serve
+cause: flag on without api-<queue>-worker running ($API/app/jobs/events/post_process_job.rb:5-11; $API/config/sidekiq/sidekiq.yml has no events queue)
+confirm: docker compose -f docker-compose.dev.yml ps --status running --services | grep worker (needs a daemon; the documented start, docs/dev_environment.md:127,135, runs only api-worker and api-clock)
+fix: start the worker (docs/dev_environment.md:174-190) or set the flag back to false
+see: SKILL.md section 7
+evidence: VERIFIED 2026-10-01 (reading lago-api 591ae90)
+example: SIDEKIQ_EVENTS=true
+
+id: dev-clickhouse-false
+area: dev
+match: LAGO_CLICKHOUSE_ENABLED=false
+title: "false" is MIXED in lago-api: the 12 .present?/.blank? read sites stay ON ($API/app/services/events/stores/store_factory.rb:10, $API/clock.rb:210), org creation (Boolean.cast, $API/app/services/organizations/create_service.rb:17) and 2 seed == "true" sites turn OFF; docs/dev_environment.md:154 is wrong
+cause: three parsing idioms for one variable (owner: config-and-flags)
+confirm: .claude/skills/config-and-flags/scripts/bool-semantics.sh LAGO_CLICKHOUSE_ENABLED  -> "Verdict: MIXED"
+fix: unset it or set it empty (LAGO_CLICKHOUSE_ENABLED=) to disable everywhere
+see: SKILL.md section 7
+evidence: VERIFIED 2026-10-01 (reading lago-api 591ae90)
+example: LAGO_CLICKHOUSE_ENABLED=false
+
+id: dev-mail
+area: dev
+match: mailhog
+match: Errno::ECONNREFUSED.*1025
+title: dev email delivery errors: Mailpit is not started by default, AND lago-api's development SMTP host is still "mailhog" while the service is now "mailpit" (no alias)
+cause: Mailpit not running (profile mailpit, docker-compose.dev.yml:354-366); CANDIDATE: $API/config/environments/development.rb:70-73 address "mailhog" (also on lago-api main 2026-10-01) vs service renamed in 8f8334e (#777)
+confirm: docker compose -f docker-compose.dev.yml --profile mailpit config --format json | jq '.services.mailpit.networks'  (no mailhog alias)
+fix: docker compose -f docker-compose.dev.yml up -d --wait mailpit (the docs' `lago` alias; needs a daemon); if delivery still fails with a name-resolution error, the host mismatch is the cause: route to run-and-operate (change-class C6: add an alias) / lago-api
+see: SKILL.md section 7
+evidence: UNVERIFIED runtime (no daemon); config mismatch VERIFIED by reading both files 2026-10-01
+example: SocketError: getaddrinfo: Name or service not known (mailhog:1025)
+
+id: dev-ssh-submodule
+area: dev
+match: cannot run ssh
+match: Permission denied \(publickey\)
+title: submodule URLs are SSH (.gitmodules) and this host has no ssh client or key
+cause: CI/agent sandbox
+confirm: git config -f .gitmodules --get-regexp url
+fix: read-only: pinned-checkout.sh api|front; or an HTTPS insteadOf rewrite (build-and-env)
+see: SKILL.md section 7
+evidence: VERIFIED by build-and-env 2026-10-01
+example: error: cannot run ssh: No such file or directory
+
+id: selfhost-profile-flag
+area: selfhost
+match: unknown flag: --profile
+title: "docker compose up --profile all" (deploy/README.md) is invalid: --profile is a global flag and goes before up
+cause: stale README syntax
+confirm: docker compose -f deploy/docker-compose.local.yml up --profile all --dry-run
+fix: docker compose -f deploy/docker-compose.local.yml --profile all up -d ; deploy variants: run-and-operate
+see: SKILL.md section 7
+evidence: VERIFIED 2026-10-01
+example: unknown flag: --profile
+
+id: selfhost-rsa-key
+area: selfhost
+match: Neither PUB key nor PRIV key
+title: LAGO_RSA_PRIVATE_KEY is not one line of base64 of a PEM (raw PEM, or base64 wrapped over unquoted lines; compose keeps only the first line), so lago-api cannot parse it at boot
+cause: raw PEM pasted into .env; base64 wrapped over several unquoted lines; key truncated by an env tool
+confirm: .claude/skills/run-and-operate/scripts/selfhost-preflight.sh .env  -> FAIL on the RSA key check ($API/config/initializers/rsa_keys.rb:10,13-17)
+fix: regenerate as one line: openssl genrsa 2048 | openssl base64 -A ; put it in .env unquoted on one line (or base64 wrapped INSIDE double quotes); owner: run-and-operate
+see: SKILL.md section 7
+evidence: VERIFIED 2026-10-01 (ruby on the value docker compose config passes; run-and-operate SKILL.md section 3)
+example: OpenSSL::PKey::RSAError: Neither PUB key nor PRIV key:: nested asn1 error
+
+id: selfhost-env-escape
+area: selfhost
+match: unexpected character "\\x1b" in variable name
+match: unexpected character ".*" in variable name
+title: .env polluted by deploy/deploy.sh status lines (it writes the coloured "already set" line into the file, deploy.sh:288-299)
+cause: deploy.sh re-run
+confirm: cat -A .env | grep -n '\^\['
+fix: delete the status lines; run-and-operate / security-and-supply-chain own deploy.sh
+see: SKILL.md section 7
+evidence: VERIFIED 2026-10-01 (scratch .env)
+example: failed to read <dir>/.env: line 2: unexpected character "\x1b" in variable name "\x1b[32m✅ LAGO_DOMAIN is already set.\x1b(B\x1b[m"
+
+id: selfhost-pg-major
+area: selfhost
+match: database files are incompatible with server
+title: Postgres major version changed on an existing volume (root compose moved postgres:14 -> postgres-partman 15 in 97d1f0b)
+cause: image bump without pg_upgrade / dump-restore
+confirm: docker compose logs db ; PG_VERSION file in the volume
+fix: dump with the old image, restore into the new one; no upgrade doc exists in the repo (run-and-operate)
+see: SKILL.md section 7
+evidence: UNVERIFIED (standard Postgres message; not reproduced)
+example: FATAL:  database files are incompatible with server
+
+id: api-refund-failure-webhook
+area: api
+match: credit_note\.refund_failure
+match: credit_note\.provider_refund_failure
+title: lago-api configures the refund-failure webhook as credit_note.provider_refund_failure but emits it as credit_note.refund_failure: an endpoint with an event_types filter never receives it, and the emitted name is rejected as a filter value
+cause: Webhooks::CreditNotes::PaymentProviderRefundFailureService#webhook_type returns "credit_note.refund_failure" ($API/app/services/webhooks/credit_notes/payment_provider_refund_failure_service.rb:19-20) while $API/config/webhook_event_types.yml:86-87 configures credit_note.provider_refund_failure; delivery checks event_types.include?(webhook_type) ($API/app/services/webhooks/base_service.rb:41-43); validation rejects any name outside the configured list ($API/app/models/webhook_endpoint.rb:43-53)
+confirm: the endpoint's event_types is a non-empty list; the payment provider shows failed refunds but no credit_note.refund_failure delivery reached that endpoint; an unfiltered endpoint (event_types null) receives them with webhook_type credit_note.refund_failure
+fix: receivers that need refund failures: use an unfiltered endpoint (event_types null, or ["*"], which lago-api normalises to null, $API/app/models/webhook_endpoint.rb:65-66) and filter on webhook_type credit_note.refund_failure on the receiving side. The code fix lives in lago-api (separate repo; cross-repo rules: change-control); proposed ruling reimplementation-kit RBD-83 (emit the configured name; not decided)
+see: SKILL.md section 4.1
+evidence: VERIFIED 2026-10-02 by the kit oracle at lago-api 591ae90 (billing-engine-spec webhooks.type_info.001, webhooks.endpoint_receives.005, webhooks.normalize_event_types.009: RBD-83 EXECUTED) + CODE as cited; the examples are built from those vectors' outputs
+example: contains invalid types: ["credit_note.refund_failure"]
+example: "webhook_type":"credit_note.refund_failure","object_type":"credit_note_payment_provider_refund_error"
+
+id: ci-action-too-old
+area: ci
+match: is too old to run on GitHub Actions
+title: events-processor-tests.yml uses actions/checkout@v3 (lines 38, 41) and setup-go@v4 (line 59), flagged by actionlint as removed runtimes
+cause: unpinned, old action majors
+confirm: actionlint .github/workflows/events-processor-tests.yml (release-and-images ships a local actionlint runner)
+fix: bump to current majors in a change-class C5 PR (change-control); whether GitHub currently fails the job is UNVERIFIED from here
+see: SKILL.md section 7
+evidence: VERIFIED 2026-10-01 (actionlint v1.7.7)
+example: .github/workflows/events-processor-tests.yml:38:15: the runner of "actions/checkout@v3" action is too old to run on GitHub Actions. update the action's version to fix this issue [action]
+
+id: rel-pnpm-tty
+area: release
+match: ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY
+match: tsc: not found
+title: single image (docker/Dockerfile) front build failed in the corepack prepare pnpm@latest / pnpm prune step (v1.35.0 release, 18b26d0 #617); which pnpm ran is UNVERIFIED
+cause: docker/Dockerfile:12 still uses pnpm@latest, but lago-front pins packageManager pnpm@10.34.5, which makes it inert today; a conditional risk if front drops packageManager
+confirm: grep -n 'pnpm@' docker/Dockerfile ; grep packageManager <front>/package.json
+fix: pin pnpm (change-class C5); release-and-images
+see: reference/traps.md T14
+evidence: HISTORICAL 18b26d0 (error text from its commit message)
+example: ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY  Aborted removal of modules directory due to no TTY
+
+id: rel-bundler-without
+area: release
+match: bundle install.*--without
+title: Bundler 4 removed "bundle install --without" (broke the v1.45.0 single image, fixed 558814a #722, v1.45.1)
+cause: Bundler bumped in 57508c2 (2026-03-23); nothing builds docker/Dockerfile before a release, so it stayed latent 15 days
+confirm: grep -n 'bundle' docker/Dockerfile
+fix: bundle config set without 'development test' (current docker/Dockerfile)
+see: reference/traps.md T14
+evidence: HISTORICAL 558814a (exact Bundler error text UNVERIFIED)
+example: RUN bundle install --jobs=3 --retry=3 --without development test
+
+id: rel-ruby-mismatch
+area: release
+match: Your Ruby version is [0-9.]+, but your Gemfile specified [0-9.]+
+title: single image Ruby ARG lags lago-api's Gemfile ruby (v1.53.0: fixed 49 min after the bump by b267320 node, f719ef1 ruby)
+cause: api/front bumped without docker/Dockerfile:1-2 ARGs
+confirm: sed -n 1,2p docker/Dockerfile ; cat "$API/.ruby-version" ; grep -A2 engines <front>/package.json
+fix: bump the ARGs in the release PR (release-and-images)
+see: reference/traps.md T14
+evidence: UNVERIFIED exact text (standard Bundler message; commits have no body); mismatch HISTORICAL f719ef1
+example: Your Ruby version is 4.0.2, but your Gemfile specified 4.0.6

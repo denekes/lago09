@@ -1,0 +1,4 @@
+{
+  "description": "UUIDs that may appear in kit vectors and scenarios (fixture ids). validate-vectors.py rule CONTENT rejects any other UUID in a scenario (warns in a unit vector) unless it is obviously synthetic (at least half of its 32 hex digits are the same digit, e.g. 00000000-0000-0000-0000-000000000007). Add fixture ids here with the file that defines them.",
+  "uuids": []
+}
